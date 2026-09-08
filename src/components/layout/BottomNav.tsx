@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, ArrowLeftRight, CalendarSync, PieChart, Settings, Plus, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, ArrowLeftRight, CalendarSync, PieChart, Settings, Plus, TrendingUp, Target, Briefcase } from 'lucide-react';
 import { clsx } from 'clsx';
 import { NavTab } from './Sidebar';
 
@@ -54,7 +54,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       <button
         onClick={onOpenAddModal}
         className="w-11 h-11 -mt-4 bg-[#05DF72] hover:bg-[#2EE59D] text-[#121212] border-[3px] border-[#121212] shadow-neo flex items-center justify-center active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer shrink-0"
-        title="Add New Transaction"
+        title="Quick Add"
       >
         <Plus size={22} strokeWidth={3.5} />
       </button>

@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, CSSProperties } from 'react';
 import { twMerge } from 'tailwind-merge';
 
 interface NeoBadgeProps {
@@ -6,6 +6,7 @@ interface NeoBadgeProps {
   variant?: 'yellow' | 'green' | 'red' | 'purple' | 'cyan' | 'dark' | 'white';
   className?: string;
   onClick?: () => void;
+  style?: CSSProperties;
 }
 
 export const NeoBadge: React.FC<NeoBadgeProps> = ({
@@ -13,6 +14,7 @@ export const NeoBadge: React.FC<NeoBadgeProps> = ({
   variant = 'yellow',
   className,
   onClick,
+  style,
 }) => {
   const variantStyles = {
     yellow: 'bg-[#FFE600] text-[#121212]',
@@ -33,6 +35,7 @@ export const NeoBadge: React.FC<NeoBadgeProps> = ({
         onClick && 'cursor-pointer hover:translate-x-[-1px] hover:translate-y-[-1px]',
         className
       )}
+      style={style}
     >
       {children}
     </span>

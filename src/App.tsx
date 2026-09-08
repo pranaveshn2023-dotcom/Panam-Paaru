@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { useConvexAuth } from '@convex-dev/auth/react';
 import { api } from '../convex/_generated/api';
@@ -19,6 +19,7 @@ import {
 // Contexts
 import { PinLockProvider, usePinLock } from './context/PinLockContext';
 import { PrivacyProvider, usePrivacy } from './context/PrivacyContext';
+import { ToastProvider } from './components/ui/ToastProvider';
 
 // Layout & Components
 import { Header } from './components/layout/Header';
@@ -31,12 +32,12 @@ import { TransactionFormModal } from './components/transactions/TransactionFormM
 import { BudgetModal } from './components/budgets/BudgetModal';
 import { InvestmentModal } from './components/investments/InvestmentModal';
 import { InvestmentImportModal } from './components/investments/InvestmentImportModal';
+import { InvestmentDashboard } from './components/investments/InvestmentDashboard';
 
 // Pages
 import { OverviewPage } from './pages/OverviewPage';
 import { TransactionsPage } from './pages/TransactionsPage';
 import { BudgetsPage } from './pages/BudgetsPage';
-import { InvestmentsPage } from './pages/InvestmentsPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { SettingsPage } from './pages/SettingsPage';
 
@@ -58,10 +59,7 @@ export function AppContent() {
   const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
   const { isPinEnabled, lockNow, isLocked } = usePinLock();
 
-  // Navigation State
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
-
-  // Modals State
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
@@ -71,7 +69,6 @@ export function AppContent() {
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
   const [isPinSetupModalOpen, setIsPinSetupModalOpen] = useState(false);
 
-  // Live Cloud Subscriptions
   const cloudUser = useQuery(api.users.currentUser);
   const cloudTransactions = useQuery(api.transactions.list, {});
   const cloudStats = useQuery(api.transactions.getStats);
@@ -81,7 +78,6 @@ export function AppContent() {
   const cloudInvestments = useQuery(api.investments.list, {});
   const cloudPortfolioSummary = useQuery(api.investments.getPortfolioSummary);
 
-  // Cloud Mutations
   const addTransactionMutation = useMutation(api.transactions.add);
   const updateTransactionMutation = useMutation(api.transactions.update);
   const removeTransactionMutation = useMutation(api.transactions.remove);
@@ -97,14 +93,12 @@ export function AppContent() {
   const updateSettingsMutation = useMutation(api.users.updateSettings);
   const initializeUserDataMutation = useMutation(api.users.initializeUserData);
 
-  // Auto-initialize categories & cloud preferences on login
   useEffect(() => {
     if (isAuthenticated) {
       initializeUserDataMutation().catch(() => {});
     }
   }, [isAuthenticated, initializeUserDataMutation]);
 
-  // Global Keyboard Shortcuts (N = New Transaction, B = New Budget, I = Investment, L = Lock)
   useEffect(() => {
     if (!isAuthenticated || isLocked) return;
 
@@ -138,7 +132,6 @@ export function AppContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isAuthenticated, isLocked, isPinEnabled, lockNow]);
 
-  // Clean, live user data only
   const transactions: Transaction[] = cloudTransactions ?? [];
   const budgets: Budget[] = cloudBudgets ?? [];
   const investments: Investment[] = cloudInvestments ?? [];
@@ -168,22 +161,15 @@ export function AppContent() {
     totalIncomeThisMonth: 0,
   };
 
-  // Transaction Handlers
+  const isLoading = isAuthLoading || cloudInvestments === undefined || cloudPortfolioSummary === undefined;
+
   const handleSaveTransaction = async (data: {
-    title: string;
-    amount: number;
-    type: TransactionType;
-    category: string;
-    date: string;
-    notes?: string;
+    title: string; amount: number; type: TransactionType; category: string;
+    date: string; notes?: string;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
     if (editingTransaction) {
-      await updateTransactionMutation({
-        id: editingTransaction._id as any,
-        ...data,
-      });
+      await updateTransactionMutation({ id: editingTransaction._id as any, ...data });
     } else {
       await addTransactionMutation(data);
     }
@@ -193,26 +179,15 @@ export function AppContent() {
     await removeTransactionMutation({ id: id as any });
   };
 
-  // Budget Handlers
   const handleSaveBudget = async (data: {
-    name: string;
-    amount: number;
-    initialLoadedAmount?: number;
-    category: string;
-    recurrence: RecurrenceType;
-    startDate: string;
-    alertThreshold?: number;
-    lowBalanceThresholdAmount?: number;
+    name: string; amount: number; initialLoadedAmount?: number;
+    category: string; recurrence: RecurrenceType; startDate: string;
+    alertThreshold?: number; lowBalanceThresholdAmount?: number;
     lowBalanceThresholdPercent?: number;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
     if (editingBudget) {
-      await updateBudgetMutation({
-        id: editingBudget._id as any,
-        isActive: true,
-        ...data,
-      });
+      await updateBudgetMutation({ id: editingBudget._id as any, isActive: true, ...data });
     } else {
       await createBudgetMutation(data);
     }
@@ -220,36 +195,21 @@ export function AppContent() {
 
   const handleTopUpBudget = async (id: string, topUpAmount: number) => {
     if (navigator.vibrate) navigator.vibrate(20);
-    await topUpBudgetMutation({
-      id: id as any,
-      topUpAmount,
-    });
+    await topUpBudgetMutation({ id: id as any, topUpAmount });
   };
 
   const handleDeleteBudget = async (id: string) => {
     await removeBudgetMutation({ id: id as any });
   };
 
-  // Investment Handlers
   const handleSaveInvestment = async (data: {
-    name: string;
-    assetType: AssetType;
-    investedAmount: number;
-    currentValue: number;
-    units?: number;
-    buyPrice?: number;
-    currentPrice?: number;
-    sipAmount?: number;
-    sipDay?: number;
-    notes?: string;
+    name: string; assetType: AssetType; investedAmount: number; currentValue: number;
+    units?: number; buyPrice?: number; currentPrice?: number;
+    sipAmount?: number; sipDay?: number; notes?: string;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
     if (editingInvestment) {
-      await updateInvestmentMutation({
-        id: editingInvestment._id as any,
-        ...data,
-      });
+      await updateInvestmentMutation({ id: editingInvestment._id as any, ...data });
     } else {
       await addInvestmentMutation(data);
     }
@@ -257,14 +217,8 @@ export function AppContent() {
 
   const handleBatchImportInvestments = async (
     items: {
-      name: string;
-      assetType: AssetType;
-      investedAmount: number;
-      currentValue: number;
-      units?: number;
-      buyPrice?: number;
-      currentPrice?: number;
-      notes?: string;
+      name: string; assetType: AssetType; investedAmount: number; currentValue: number;
+      units?: number; buyPrice?: number; currentPrice?: number; notes?: string;
     }[]
   ) => {
     if (navigator.vibrate) navigator.vibrate(30);
@@ -273,10 +227,7 @@ export function AppContent() {
 
   const handleQuickUpdateInvestmentValue = async (id: string, currentValue: number) => {
     if (navigator.vibrate) navigator.vibrate(15);
-    await quickUpdateInvestmentMutation({
-      id: id as any,
-      currentValue,
-    });
+    await quickUpdateInvestmentMutation({ id: id as any, currentValue });
   };
 
   const handleDeleteInvestment = async (id: string) => {
@@ -285,27 +236,53 @@ export function AppContent() {
 
   const handleUpdateCurrency = async (curr: string, symbol: string) => {
     await updateSettingsMutation({
-      currency: curr,
-      currencySymbol: symbol,
-      monthStartDay: 1,
-      budgetRollover: false,
+      currency: curr, currencySymbol: symbol, monthStartDay: 1, budgetRollover: false,
     });
   };
+
+  const renderInvestmentsPage = () => (
+    isLoading ? (
+      <div className="flex flex-col gap-6 w-full animate-in fade-in duration-150">
+        <div className="h-32 bg-white border-[3px] border-[#121212] shadow-neo animate-pulse" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-32 bg-white border-[3px] border-[#121212] shadow-neo animate-pulse" />
+          ))}
+        </div>
+        <div className="h-96 bg-white border-[3px] border-[#121212] shadow-neo animate-pulse" />
+      </div>
+    ) : (
+      <InvestmentDashboard
+        investments={investments}
+        portfolioSummary={portfolioSummary}
+        onOpenAddModal={(defaultType) => {
+          setEditingInvestment(null);
+          setIsInvestmentModalOpen(true);
+        }}
+        onOpenImportModal={() => setIsInvestmentImportModalOpen(true)}
+        onEdit={(inv) => {
+          setEditingInvestment(inv);
+          setIsInvestmentModalOpen(true);
+        }}
+        onDelete={handleDeleteInvestment}
+        onQuickUpdateValue={handleQuickUpdateInvestmentValue}
+        currencySymbol={currencySymbol}
+      />
+    )
+  );
 
   // 1. Unauthenticated screen
   if (!isAuthenticated) {
     return <AuthScreen />;
   }
 
-  // 2. Strict PIN Lock Guard (Prevents ANY home page or financial data flash)
+  // 2. Strict PIN Lock Guard
   if (isLocked) {
     return <PinLockScreen />;
   }
 
   return (
     <div className="min-h-screen bg-[#FFFDF5] text-[#121212] flex flex-col font-sans selection:bg-[#FFE600] selection:text-[#121212]">
-      
-      {/* Top Header with Eye Privacy Toggle */}
       <Header
         user={user}
         onOpenTransactionModal={() => {
@@ -315,10 +292,7 @@ export function AppContent() {
         onOpenPinSetup={() => setIsPinSetupModalOpen(true)}
       />
 
-      {/* Main Layout Container */}
       <div className="flex-1 flex w-full max-w-7xl mx-auto pb-20 md:pb-8">
-        
-        {/* Desktop Sidebar */}
         <Sidebar
           activeTab={activeTab}
           onSelectTab={setActiveTab}
@@ -326,41 +300,23 @@ export function AppContent() {
           currencySymbol={currencySymbol}
         />
 
-        {/* Dynamic Page Body */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
           {activeTab === 'overview' && (
             <OverviewPage
-              stats={stats}
-              transactions={transactions}
-              budgets={budgets}
+              stats={stats} transactions={transactions} budgets={budgets}
               categories={categories}
-              onOpenAddModal={(type) => {
-                setEditingTransaction(null);
-                setIsTransactionModalOpen(true);
-              }}
-              onOpenBudgetModal={() => {
-                setEditingBudget(null);
-                setIsBudgetModalOpen(true);
-              }}
+              onOpenAddModal={() => { setEditingTransaction(null); setIsTransactionModalOpen(true); }}
+              onOpenBudgetModal={() => { setEditingBudget(null); setIsBudgetModalOpen(true); }}
               onNavigateToTab={setActiveTab}
-              currencySymbol={currencySymbol}
-              userName={user?.name}
+              currencySymbol={currencySymbol} userName={user?.name}
             />
           )}
 
           {activeTab === 'transactions' && (
             <TransactionsPage
-              transactions={transactions}
-              categories={categories}
-              user={user}
-              onOpenAddModal={() => {
-                setEditingTransaction(null);
-                setIsTransactionModalOpen(true);
-              }}
-              onEdit={(tx) => {
-                setEditingTransaction(tx);
-                setIsTransactionModalOpen(true);
-              }}
+              transactions={transactions} categories={categories} user={user}
+              onOpenAddModal={() => { setEditingTransaction(null); setIsTransactionModalOpen(true); }}
+              onEdit={(tx) => { setEditingTransaction(tx); setIsTransactionModalOpen(true); }}
               onDelete={handleDeleteTransaction}
               currencySymbol={currencySymbol}
             />
@@ -368,46 +324,18 @@ export function AppContent() {
 
           {activeTab === 'budgets' && (
             <BudgetsPage
-              budgets={budgets}
-              categories={categories}
-              onOpenBudgetModal={() => {
-                setEditingBudget(null);
-                setIsBudgetModalOpen(true);
-              }}
-              onEdit={(b) => {
-                setEditingBudget(b);
-                setIsBudgetModalOpen(true);
-              }}
-              onDelete={handleDeleteBudget}
-              onTopUp={handleTopUpBudget}
+              budgets={budgets} categories={categories}
+              onOpenBudgetModal={() => { setEditingBudget(null); setIsBudgetModalOpen(true); }}
+              onEdit={(b) => { setEditingBudget(b); setIsBudgetModalOpen(true); }}
+              onDelete={handleDeleteBudget} onTopUp={handleTopUpBudget}
               currencySymbol={currencySymbol}
             />
           )}
 
-          {activeTab === 'investments' && (
-            <InvestmentsPage
-              investments={investments}
-              portfolioSummary={portfolioSummary}
-              onOpenAddModal={(defaultType) => {
-                setEditingInvestment(null);
-                setIsInvestmentModalOpen(true);
-              }}
-              onOpenImportModal={() => setIsInvestmentImportModalOpen(true)}
-              onEdit={(inv) => {
-                setEditingInvestment(inv);
-                setIsInvestmentModalOpen(true);
-              }}
-              onDelete={handleDeleteInvestment}
-              onQuickUpdateValue={handleQuickUpdateInvestmentValue}
-              currencySymbol={currencySymbol}
-            />
-          )}
+          {activeTab === 'investments' && renderInvestmentsPage()}
 
           {activeTab === 'insights' && (
-            <InsightsPage
-              analytics={analytics}
-              currencySymbol={currencySymbol}
-            />
+            <InsightsPage analytics={analytics} currencySymbol={currencySymbol} />
           )}
 
           {activeTab === 'settings' && (
@@ -415,62 +343,38 @@ export function AppContent() {
               user={user}
               onOpenPinSetup={(isChange) => setIsPinSetupModalOpen(true)}
               onUpdateCurrency={handleUpdateCurrency}
-              currencySymbol={currencySymbol}
-              currentCurrency={currentCurrency}
+              currencySymbol={currencySymbol} currentCurrency={currentCurrency}
             />
           )}
         </main>
       </div>
 
-      {/* Mobile Sticky Bottom Navigation Dock */}
       <BottomNav
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        onOpenAddModal={() => {
-          setEditingTransaction(null);
-          setIsTransactionModalOpen(true);
-        }}
+        activeTab={activeTab} onSelectTab={setActiveTab}
+        onOpenAddModal={() => { setEditingTransaction(null); setIsTransactionModalOpen(true); }}
       />
 
-      {/* Transaction Modal */}
       <TransactionFormModal
         isOpen={isTransactionModalOpen}
-        onClose={() => {
-          setIsTransactionModalOpen(false);
-          setEditingTransaction(null);
-        }}
-        onSubmit={handleSaveTransaction}
-        initialData={editingTransaction}
-        categories={categories}
-        currencySymbol={currencySymbol}
+        onClose={() => { setIsTransactionModalOpen(false); setEditingTransaction(null); }}
+        onSubmit={handleSaveTransaction} initialData={editingTransaction}
+        categories={categories} currencySymbol={currencySymbol}
       />
 
-      {/* Recurring Budget Modal */}
       <BudgetModal
         isOpen={isBudgetModalOpen}
-        onClose={() => {
-          setIsBudgetModalOpen(false);
-          setEditingBudget(null);
-        }}
-        onSubmit={handleSaveBudget}
-        initialData={editingBudget}
-        categories={categories}
-        currencySymbol={currencySymbol}
+        onClose={() => { setIsBudgetModalOpen(false); setEditingBudget(null); }}
+        onSubmit={handleSaveBudget} initialData={editingBudget}
+        categories={categories} currencySymbol={currencySymbol}
       />
 
-      {/* Single Investment Modal */}
       <InvestmentModal
         isOpen={isInvestmentModalOpen}
-        onClose={() => {
-          setIsInvestmentModalOpen(false);
-          setEditingInvestment(null);
-        }}
-        onSubmit={handleSaveInvestment}
-        initialData={editingInvestment}
+        onClose={() => { setIsInvestmentModalOpen(false); setEditingInvestment(null); }}
+        onSubmit={handleSaveInvestment} initialData={editingInvestment}
         currencySymbol={currencySymbol}
       />
 
-      {/* Batch Statement Import Modal (PDF / Excel / CSV) */}
       <InvestmentImportModal
         isOpen={isInvestmentImportModalOpen}
         onClose={() => setIsInvestmentImportModalOpen(false)}
@@ -478,12 +382,10 @@ export function AppContent() {
         currencySymbol={currencySymbol}
       />
 
-      {/* 6-Digit PIN Setup & Management Modal */}
       <PinSetupModal
         isOpen={isPinSetupModalOpen}
         onClose={() => setIsPinSetupModalOpen(false)}
       />
-
     </div>
   );
 }
@@ -492,7 +394,21 @@ export default function App() {
   return (
     <PrivacyProvider>
       <PinLockProvider>
-        <AppContent />
+        <ToastProvider />
+        <Suspense
+          fallback={
+            <div className="min-h-screen bg-[#FFFDF5] flex items-center justify-center">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-[#FFE600] border-[3px] border-[#121212] shadow-neo flex items-center justify-center font-black text-2xl mx-auto mb-4 animate-pulse">
+                  PA
+                </div>
+                <p className="text-sm font-bold text-neutral-600">Loading Panam Paaru...</p>
+              </div>
+            </div>
+          }
+        >
+          <AppContent />
+        </Suspense>
       </PinLockProvider>
     </PrivacyProvider>
   );

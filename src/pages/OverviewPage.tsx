@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FinancialStats, Transaction, Budget, Category } from '../types';
 import { NeoButton } from '../components/ui/NeoButton';
 import { usePrivacy } from '../context/PrivacyContext';
@@ -16,6 +16,13 @@ import {
   Command,
   Eye,
   EyeOff,
+  Zap,
+  Target,
+  Activity,
+  RefreshCw,
+  Bell,
+  Search,
+  Filter,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 

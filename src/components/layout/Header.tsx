@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, LogOut, User, Eye, EyeOff } from 'lucide-react';
+import { Plus, LogOut, User, Eye, EyeOff, RefreshCw, Bell, Settings } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { NeoButton } from '../ui/NeoButton';
 import { useAuthActions } from '@convex-dev/auth/react';
@@ -10,11 +10,14 @@ interface HeaderProps {
   user?: UserProfile | null;
   onOpenTransactionModal: () => void;
   onOpenPinSetup: () => void;
+  onRefresh?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   user,
   onOpenTransactionModal,
+  onOpenPinSetup,
+  onRefresh,
 }) => {
   const { signOut } = useAuthActions();
   const { isPrivacyMode, togglePrivacyMode } = usePrivacy();
@@ -30,6 +33,26 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Action Controls */}
       <div className="flex items-center gap-2 sm:gap-3">
         
+        {/* Refresh Button */}
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            className="p-2 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212] border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+            title="Refresh Data"
+          >
+            <RefreshCw size={16} strokeWidth={2.5} />
+          </button>
+        )}
+
+        {/* Notifications Bell */}
+        <button
+          className="p-2 bg-white hover:bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer relative"
+          title="Notifications"
+        >
+          <Bell size={16} strokeWidth={2.5} />
+          <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#FF4343] border-2 border-[#121212]" />
+        </button>
+
         {/* Global Privacy Eye Toggle Button (Icon-Only) */}
         <button
           onClick={togglePrivacyMode}

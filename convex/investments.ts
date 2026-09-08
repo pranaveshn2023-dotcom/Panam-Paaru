@@ -46,6 +46,7 @@ export const getPortfolioSummary = query({
     const investments = await ctx.db
       .query("investments")
       .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
       .collect();
 
     let totalInvested = 0;
