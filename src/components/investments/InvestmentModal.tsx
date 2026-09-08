@@ -48,6 +48,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   const [currentValue, setCurrentValue] = useState('');
   const [units, setUnits] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
+  const [currentPrice, setCurrentPrice] = useState('');
   const [sipAmount, setSipAmount] = useState('');
   const [sipDay, setSipDay] = useState('5');
   const [notes, setNotes] = useState('');
@@ -62,6 +63,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setCurrentValue(String(initialData.currentValue));
       setUnits(initialData.units ? String(initialData.units) : '');
       setBuyPrice(initialData.buyPrice ? String(initialData.buyPrice) : '');
+      setCurrentPrice(initialData.currentPrice ? String(initialData.currentPrice) : '');
       setSipAmount(initialData.sipAmount ? String(initialData.sipAmount) : '');
       setSipDay(initialData.sipDay ? String(initialData.sipDay) : '5');
       setNotes(initialData.notes || '');
@@ -72,6 +74,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setCurrentValue('');
       setUnits('');
       setBuyPrice('');
+      setCurrentPrice('');
       setSipAmount('');
       setSipDay('5');
       setNotes('');
@@ -85,6 +88,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     const numCurrent = currentValue ? parseFloat(currentValue) : numInvested;
     const numUnits = units ? parseFloat(units) : undefined;
     const numBuyPrice = buyPrice ? parseFloat(buyPrice) : undefined;
+    const numCurrentPrice = currentPrice ? parseFloat(currentPrice) : undefined;
     const numSip = sipAmount ? parseFloat(sipAmount) : undefined;
     const numSipDay = sipDay ? parseInt(sipDay, 10) : undefined;
 
@@ -113,6 +117,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           currentValue: !isNaN(numCurrent) ? numCurrent : numInvested,
           units: numUnits,
           buyPrice: numBuyPrice,
+          currentPrice: numCurrentPrice,
           sipAmount: numSip,
           sipDay: numSipDay,
           notes: notes.trim() || undefined,
@@ -227,8 +232,8 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           </div>
         </div>
 
-        {/* Optional Units & Purchase Price */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Optional Units, Purchase Price & Current Price */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="flex flex-col gap-1">
             <label className="text-[11px] font-black uppercase text-neutral-600">
               Quantity / Units (Optional)
@@ -256,6 +261,22 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
               onChange={(e) => setBuyPrice(e.target.value)}
               placeholder="e.g. 500.00"
               className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-black uppercase text-neutral-600">
+              Current Price / NAV ({currencySymbol})
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={currentPrice}
+              onChange={(e) => setCurrentPrice(e.target.value)}
+              placeholder="e.g. 520.00"
+              className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
+              style={{ color: 'var(--neo-green)' }}
             />
           </div>
         </div>

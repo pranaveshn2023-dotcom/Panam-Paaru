@@ -43,234 +43,716 @@
   --neo-pink: #FF4D8D;
 }
 
-  body {
-    background-color: #FFFDF5;
-    color: #121212;
-    font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
-    -webkit-tap-highlight-color: transparent;
-    overflow-x: hidden;
-  }
-
-  /* Custom high-contrast scrollbars */
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-  ::-webkit-scrollbar-track {
-    background: #FFFDF5;
-    border-left: 2px solid #121212;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #FFE600;
-    border: 2px solid #121212;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #121212;
-  }
-
-/* Neo-Brutalist Global Utilities */
-.shadow-neo {
-  box-shadow: 4px 4px 0px 0px #121212;
-}
-
-.shadow-neo-sm {
-  box-shadow: 2px 2px 0px 0px #121212;
-}
-
-.shadow-neo-lg {
-  box-shadow: 6px 6px 0px 0px #121212;
-}
-
-.shadow-neo-xl {
-  box-shadow: 8px 8px 0px 0px #121212;
-}
-
-.neo-box {
-  background-color: #FFFFFF;
-  border: 3px solid #121212;
-  box-shadow: 4px 4px 0px 0px #121212;
-}
-
-.neo-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border: 3px solid #121212;
-  box-shadow: 4px 4px 0px 0px #121212;
-  transition: all 0.1s ease-in-out;
+*, *::before, *::after {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
   user-select: none;
 }
 
-.neo-btn:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 5px 5px 0px 0px #121212;
+body {
+  background-color: #FFFDF5;
+  color: #121212;
+  font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  min-height: 100dvh;
+  position: relative;
 }
 
-.neo-btn:active {
+/* Modern Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #FFE600;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #121212;
+}
+
+/* ─── Modern Card System ─── */
+.app-card {
+  background: #FFFFFF;
+  border: 2px solid #121212;
+  border-radius: 16px;
+  box-shadow: 4px 4px 0px 0px #121212;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.app-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #FFE600, #00F0FF, #05DF72);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.app-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px 0px #121212;
+}
+
+.app-card:hover::before {
+  opacity: 1;
+}
+
+.app-card:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0px 0px #121212;
+}
+
+/* ─── Glass Card ─── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1.5px solid rgba(18, 18, 18, 0.1);
+  border-radius: 16px;
+  box-shadow: 
+    0 4px 24px rgba(0, 0, 0, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* ─── Modern Button System ─── */
+.app-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 2px solid #121212;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+  min-height: 44px;
+  min-width: 44px;
+  font-family: inherit;
+}
+
+.app-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0);
+  transition: background 0.15s;
+}
+
+.app-btn:active::after {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.app-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px 0px #121212 !important;
+}
+
+.app-btn-primary {
+  background: #121212;
+  color: #FFE600;
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+.app-btn-primary:hover {
+  box-shadow: 6px 6px 0px 0px #121212;
+  background: #1a1a1a;
+}
+
+.app-btn-secondary {
+  background: #05DF72;
+  color: #121212;
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+.app-btn-secondary:hover {
+  box-shadow: 6px 6px 0px 0px #121212;
+  background: #2EE59D;
+}
+
+.app-btn-accent {
+  background: #00F0FF;
+  color: #121212;
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+.app-btn-accent:hover {
+  box-shadow: 6px 6px 0px 0px #121212;
+  background: #38F4FF;
+}
+
+.app-btn-warning {
+  background: #FFE600;
+  color: #121212;
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+.app-btn-warning:hover {
+  box-shadow: 6px 6px 0px 0px #121212;
+  background: #FFEA2E;
+}
+
+.app-btn-danger {
+  background: #FF4343;
+  color: #FFFFFF;
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+.app-btn-danger:hover {
+  box-shadow: 6px 6px 0px 0px #121212;
+  background: #FF5C5C;
+}
+
+.app-btn-outline {
+  background: #FFFFFF;
+  color: #121212;
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+.app-btn-outline:hover {
+  box-shadow: 6px 6px 0px 0px #121212;
+  background: #FFFDF5;
+}
+
+.app-btn-ghost {
+  background: transparent;
+  color: #121212;
+  box-shadow: none;
+  border-color: transparent;
+}
+.app-btn-ghost:hover {
+  background: rgba(18, 18, 18, 0.05);
+  box-shadow: 2px 2px 0px 0px #121212;
+}
+
+.app-btn-sm {
+  padding: 8px 16px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
+.app-btn-md {
+  padding: 12px 24px;
+  font-size: 14px;
+  border-radius: 12px;
+}
+
+.app-btn-lg {
+  padding: 16px 32px;
+  font-size: 16px;
+  border-radius: 14px;
+}
+
+/* ─── Modern Input ─── */
+.app-input {
+  width: 100%;
+  background: #FFFFFF;
+  border: 2px solid #121212;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 16px;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 3px 3px 0px 0px #121212;
+  min-height: 44px;
+}
+
+.app-input::placeholder {
+  color: #9CA3AF;
+  font-weight: 500;
+}
+
+.app-input:focus {
+  outline: none;
+  border-color: #FFE600;
+  box-shadow: 
+    4px 4px 0px 0px #FFE600,
+    0 0 0 4px rgba(255, 230, 0, 0.15);
+  background-color: #FFFFF8;
+}
+
+/* ─── Modern Badge ─── */
+.app-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 12px;
+  border: 2px solid #121212;
+  border-radius: 8px;
+  box-shadow: 2px 2px 0px 0px #121212;
+  line-height: 1.4;
+}
+
+/* ─── Modern Tab System ─── */
+.app-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 2px solid #121212;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  background: #FFFFFF;
+  color: #121212;
+  min-height: 44px;
+  font-family: inherit;
+}
+
+.app-tab:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px 0px #121212;
+}
+
+.app-tab-active {
+  background: #121212;
+  color: #FFE600;
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+
+.app-tab-active:active {
+  box-shadow: 2px 2px 0px 0px #121212;
+}
+
+/* ─── KPI Card ─── */
+.kpi-card {
+  background: linear-gradient(135deg, #FFFFFF 0%, #FFFDF5 100%);
+  border: 2px solid #121212;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 4px 4px 0px 0px #121212;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: -20px;
+  right: -20px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  opacity: 0.1;
+  transition: opacity 0.2s;
+}
+
+.kpi-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px 0px #121212;
+}
+
+.kpi-card:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0px 0px #121212;
+}
+
+.kpi-card-yellow::before { background: #FFE600; }
+.kpi-card-green::before { background: #05DF72; }
+.kpi-card-cyan::before { background: #00F0FF; }
+.kpi-card-red::before { background: #FF4343; }
+.kpi-card-purple::before { background: #9B51E0; }
+
+/* ─── Modern Header ─── */
+.app-header {
+  background: #FFFFFF;
+  border-bottom: 3px solid #121212;
+  padding: 12px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  box-shadow: 2px 2px 0px 0px #121212;
+}
+
+.app-header-inner {
+  max-width: 1024px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ─── Modern Bottom Nav ─── */
+.app-bottom-nav {
+  background: #FFFFFF;
+  border-top: 3px solid #121212;
+  padding: 8px 12px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  box-shadow: -2px -2px 0px 0px #121212;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+
+.app-bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 12px;
+  min-width: 56px;
+  min-height: 56px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  background: transparent;
+  color: #6B7280;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-bottom-nav-item:active {
+  transform: scale(0.95);
+}
+
+.app-bottom-nav-item.active {
+  background: #FFE600;
+  border-color: #121212;
+  box-shadow: 3px 3px 0px 0px #121212;
+  color: #121212;
+}
+
+.app-bottom-nav-item .nav-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-bottom-nav-item .nav-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ─── FAB (Floating Action Button) ─── */
+.app-fab {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: #05DF72;
+  border: 3px solid #121212;
+  box-shadow: 4px 4px 0px 0px #121212;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-fab:active {
   transform: translate(2px, 2px);
   box-shadow: 2px 2px 0px 0px #121212;
 }
 
-.neo-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none !important;
-  box-shadow: 2px 2px 0px 0px #121212 !important;
-}
-
-.neo-input {
-  width: 100%;
-  background-color: #FFFFFF;
-  border: 3px solid #121212;
-  box-shadow: 3px 3px 0px 0px #121212;
-  font-family: inherit;
-  font-weight: 600;
-  transition: all 0.1s ease;
-}
-
-.neo-input:focus {
-  outline: none;
-  box-shadow: 4px 4px 0px 0px #FFE600;
-  background-color: #FFFFF8;
-}
-
-.neo-badge {
-  display: inline-flex;
+/* ─── Section Header ─── */
+.section-header {
+  display: flex;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: space-between;
+  padding: 16px 0 12px;
+  border-bottom: 2px solid #121212;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 16px;
   font-weight: 800;
-  font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0.2rem 0.6rem;
+  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ─── Chart Container ─── */
+.chart-container {
+  background: #FFFFFF;
   border: 2px solid #121212;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 4px 4px 0px 0px #121212;
+}
+
+/* ─── Asset Card ─── */
+.asset-card {
+  background: #FFFFFF;
+  border: 2px solid #121212;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 4px 4px 0px 0px #121212;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: default;
+}
+
+.asset-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px 0px #121212;
+}
+
+.asset-card:active {
+  transform: translate(1px, 1px);
   box-shadow: 2px 2px 0px 0px #121212;
 }
 
-.neo-pattern-dots {
-  background-image: radial-gradient(#121212 1.5px, transparent 1.5px);
-  background-size: 16px 16px;
+/* ─── Modern Modal ─── */
+.app-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.2s ease-out;
 }
 
-.neo-pattern-stripes {
-  background: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 10px,
-    rgba(18, 18, 18, 0.05) 10px,
-    rgba(18, 18, 18, 0.05) 20px
-  );
+.app-modal {
+  background: #FFFFFF;
+  border: 3px solid #121212;
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Tactile PIN Lock Keypad Animations */
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-10px); }
-  40%, 80% { transform: translateX(10px); }
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 
-.animate-shake {
-  animation: shake 0.4s ease-in-out;
-}
-
-/* Fade-in Animation */
+/* ─── Animations ─── */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.animate-in {
-  animation: fadeIn 0.3s ease-out forwards;
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 
-/* Spin Animation */
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes slideDown {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
-.animate-spin {
-  animation: spin 0.6s linear infinite;
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 
-/* Pulse Animation */
-@keyframes pulse-slow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
-.animate-pulse-slow {
-  animation: pulse-slow 1.5s ease-in-out infinite;
+@keyframes bounceIn {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.05); }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); opacity: 1; }
 }
 
-/* Sonner Toast Overrides */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 4px 4px 0px 0px #121212; }
+  50% { box-shadow: 4px 4px 0px 0px #FFE600, 0 0 20px rgba(255, 230, 0, 0.3); }
+}
+
+.animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
+.animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.animate-scale-in { animation: scaleIn 0.2s ease-out forwards; }
+.animate-bounce-in { animation: bounceIn 0.5s ease-out forwards; }
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(255,230,0,0.1) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ─── Loading Skeleton ─── */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+  border: 2px solid #121212;
+}
+
+/* ─── Gradient Text ─── */
+.gradient-text {
+  background: linear-gradient(135deg, #FFE600, #00F0FF);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Gradient Background ─── */
+.gradient-bg {
+  background: linear-gradient(135deg, #121212 0%, #1a1a2e 50%, #121212 100%);
+}
+
+.gradient-bg-warm {
+  background: linear-gradient(135deg, #FFE600 0%, #FF8800 100%);
+}
+
+/* ─── Divider ─── */
+.divider {
+  height: 2px;
+  background: #121212;
+  border-radius: 1px;
+  margin: 16px 0;
+}
+
+.divider-dashed {
+  height: 2px;
+  background: repeating-linear-gradient(
+    90deg,
+    #121212 0px,
+    #121212 6px,
+    transparent 6px,
+    transparent 12px
+  );
+  border: none;
+  margin: 16px 0;
+}
+
+/* ─── Touch Feedback ─── */
+.touch-feedback {
+  position: relative;
+  overflow: hidden;
+}
+
+.touch-feedback::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--touch-x, 50%) var(--touch-y, 50%), rgba(255, 230, 0, 0.2) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.touch-feedback:active::after {
+  opacity: 1;
+}
+
+/* ─── Toast Custom ─── */
 .sonner-toast {
-  border: 3px solid #121212 !important;
+  border: 2px solid #121212 !important;
+  border-radius: 12px !important;
   box-shadow: 4px 4px 0px 0px #121212 !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
-  letter-spacing: 0.05em !important;
+  letter-spacing: 0.04em !important;
+  font-family: 'Space Grotesk', system-ui, sans-serif !important;
+  padding: 12px 20px !important;
 }
 
-/* Print styles */
+/* ─── Scrollbar for touch devices ─── */
+@media (hover: none) {
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #FFE600;
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+}
+
+/* ─── Landscape Mobile Optimizations ─── */
+@media (max-height: 500px) and (orientation: landscape) {
+  .app-bottom-nav {
+    padding: 4px 8px;
+  }
+  .app-bottom-nav-item {
+    min-height: 40px;
+    padding: 4px 8px;
+  }
+}
+
+/* ─── Safe Area Support ─── */
+@supports (padding: max(0px)) {
+  .app-bottom-nav {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ─── Print Styles ─── */
 @media print {
-  .neo-btn, .neo-input, .neo-badge {
+  .app-btn, .app-input, .app-badge, .app-fab {
     box-shadow: none !important;
     border: 1px solid #121212 !important;
   }
-}
-
-/* Keyboard shortcut badges */
-kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.5rem;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  font-family: inherit;
-  color: #121212;
-  background-color: #FFFDF5;
-  border: 2px solid #121212;
-  box-shadow: 2px 2px 0px 0px #121212;
-  border-radius: 0;
-}
-
-kbd:hover {
-  background-color: #FFE600;
-}
-
-/* Responsive improvements */
-@media (max-width: 640px) {
-  .grid-responsive-3 {
-    grid-template-columns: 1fr;
+  .app-bottom-nav, .app-header {
+    display: none !important;
   }
 }
 
-/* Sonner Toast Overrides */
-.sonner-toast {
-  border: 3px solid #121212 !important;
-  box-shadow: 4px 4px 0px 0px #121212 !important;
-  font-weight: 700 !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.05em !important;
-  background: #FFFDF5 !important;
-  color: #121212 !important;
-  font-family: 'Space Grotesk', system-ui, sans-serif !important;
+/* ─── Reduced Motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
-/* Focus visible for accessibility */
+/* ─── High Contrast Mode ─── */
+@media (prefers-contrast: high) {
+  .app-card, .kpi-card, .asset-card, .chart-container {
+    border-width: 3px;
+    box-shadow: 6px 6px 0px 0px #121212;
+  }
+}
+
+/* ─── Focus Visible ─── */
 *:focus-visible {
   outline: 3px solid #FFE600;
   outline-offset: 2px;
 }
 
-/* Focus visible for accessibility */
-*:focus-visible {
-  outline: 3px solid #FFE600;
-  outline-offset: 2px;
+/* ─── Selection ─── */
+::selection {
+  background: #FFE600;
+  color: #121212;
 }

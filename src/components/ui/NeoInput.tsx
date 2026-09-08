@@ -10,7 +10,7 @@ interface NeoInputProps extends InputHTMLAttributes<HTMLInputElement> {
 export const NeoInput = forwardRef<HTMLInputElement, NeoInputProps>(
   ({ label, error, helperText, className, ...props }, ref) => {
     return (
-      <div className="w-full flex flex-col gap-1.5">
+      <div className="w-full flex flex-col gap-2">
         {label && (
           <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center justify-between">
             {label}
@@ -20,19 +20,19 @@ export const NeoInput = forwardRef<HTMLInputElement, NeoInputProps>(
         <input
           ref={ref}
           className={twMerge(
-            'neo-input px-3.5 py-2.5 text-sm text-[#121212] placeholder:text-neutral-400 focus:bg-white',
+            'app-input',
             error && 'border-[#FF4343] focus:box-shadow-none',
             className
           )}
           {...props}
         />
         {error && (
-          <p className="text-xs font-bold text-[#FF4343] mt-0.5 bg-red-100 p-1 border border-[#FF4343]">
+          <p className="text-xs font-bold text-[#FF4343] mt-1 bg-red-50 p-2 border border-[#FF4343] rounded-lg">
             {error}
           </p>
         )}
         {helperText && !error && (
-          <p className="text-[11px] font-semibold text-neutral-600 mt-0.5">
+          <p className="text-[11px] font-semibold text-neutral-600 mt-1">
             {helperText}
           </p>
         )}

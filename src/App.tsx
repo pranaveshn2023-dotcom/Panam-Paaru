@@ -70,13 +70,19 @@ export function AppContent() {
   const [isPinSetupModalOpen, setIsPinSetupModalOpen] = useState(false);
 
   const cloudUser = useQuery(api.users.currentUser);
-  const cloudTransactions = useQuery(api.transactions.list, {});
-  const cloudStats = useQuery(api.transactions.getStats);
-  const cloudBudgets = useQuery(api.budgets.listWithProgress);
-  const cloudCategories = useQuery(api.transactions.getCategories);
-  const cloudAnalytics = useQuery(api.insights.getSpendingAnalytics);
-  const cloudInvestments = useQuery(api.investments.list, {});
-  const cloudPortfolioSummary = useQuery(api.investments.getPortfolioSummary);
+  const cloudTransactions = useQuery(api.transactions.list, undefined) ?? [];
+  const cloudStats = useQuery(api.transactions.getStats, undefined) ?? {
+    totalIncome: 0, totalExpense: 0, totalBalance: 0,
+    thisMonthIncome: 0, thisMonthExpense: 0, savingsRate: 0, transactionCount: 0,
+  };
+  const cloudBudgets = useQuery(api.budgets.listWithProgress, undefined) ?? [];
+  const cloudCategories = useQuery(api.transactions.getCategories, undefined) ?? [];
+  const cloudAnalytics = useQuery(api.insights.getSpendingAnalytics, undefined) ?? {
+    categoryBreakdown: [], monthlyTrends: [], dailyAverageExpense: 0,
+    highestExpenseCategory: null, totalExpensesThisMonth: 0, totalIncomeThisMonth: 0,
+  };
+  const cloudInvestments = useQuery(api.investments.list, undefined) ?? [];
+  const cloudPortfolioSummary = useQuery(api.investments.getPortfolioSummary, undefined) ?? null;
 
   const addTransactionMutation = useMutation(api.transactions.add);
   const updateTransactionMutation = useMutation(api.transactions.update);
@@ -92,6 +98,9 @@ export function AppContent() {
   const removeInvestmentMutation = useMutation(api.investments.remove);
   const updateSettingsMutation = useMutation(api.users.updateSettings);
   const initializeUserDataMutation = useMutation(api.users.initializeUserData);
+
+  const isLoading = isAuthLoading || cloudInvestments === undefined || cloudPortfolioSummary === undefined;
+  const isPortfolioLoading = cloudPortfolioSummary === undefined && isAuthenticated;
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -160,8 +169,6 @@ export function AppContent() {
     totalExpensesThisMonth: 0,
     totalIncomeThisMonth: 0,
   };
-
-  const isLoading = isAuthLoading || cloudInvestments === undefined || cloudPortfolioSummary === undefined;
 
   const handleSaveTransaction = async (data: {
     title: string; amount: number; type: TransactionType; category: string;

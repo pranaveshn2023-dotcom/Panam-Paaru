@@ -89,6 +89,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const [nameColIdx, setNameColIdx] = useState<number>(0);
   const [investedColIdx, setInvestedColIdx] = useState<number>(1);
   const [currentColIdx, setCurrentColIdx] = useState<number>(2);
+  const [qtyColIdx, setQtyColIdx] = useState<number>(-1);
+  const [buyPriceColIdx, setBuyPriceColIdx] = useState<number>(-1);
+  const [curPriceColIdx, setCurPriceColIdx] = useState<number>(-1);
+  const [notesColIdx, setNotesColIdx] = useState<number>(-1);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -105,6 +109,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     setIsPasswordPrompt(false);
     setPasswordError('');
     setShowPassword(false);
+    setNameColIdx(0);
+    setInvestedColIdx(1);
+    setCurrentColIdx(2);
+    setQtyColIdx(-1);
+    setBuyPriceColIdx(-1);
+    setCurPriceColIdx(-1);
+    setNotesColIdx(-1);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,6 +217,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
       const invested = parseCleanNumber(row[investedColIdx]);
       const current = parseCleanNumber(row[currentColIdx]) || invested;
+      const units = qtyColIdx !== -1 ? parseCleanNumber(row[qtyColIdx]) : undefined;
+      const buyPrice = buyPriceColIdx !== -1 ? parseCleanNumber(row[buyPriceColIdx]) : undefined;
+      const currentPrice = curPriceColIdx !== -1 ? parseCleanNumber(row[curPriceColIdx]) : undefined;
+      const notes = notesColIdx !== -1 ? String(row[notesColIdx] || '').trim() : 'Statement Import';
 
       if (invested > 0 || current > 0) {
         holdings.push({
@@ -214,6 +229,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           assetType: detectAssetType(name),
           investedAmount: Math.abs(Number(invested.toFixed(2))),
           currentValue: Math.abs(Number(current.toFixed(2))),
+          units: units && units > 0 ? Number(units.toFixed(3)) : undefined,
+          buyPrice: buyPrice && buyPrice > 0 ? Number(buyPrice.toFixed(2)) : undefined,
+          currentPrice: currentPrice && currentPrice > 0 ? Number(currentPrice.toFixed(2)) : undefined,
+          notes: notes || 'Statement Import',
           selected: true,
         });
       }
@@ -312,7 +331,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           units: h.units,
           buyPrice: h.buyPrice,
           currentPrice: h.currentPrice,
-          notes: 'Statement Import',
+          notes: h.notes || 'Statement Import',
         }))
       );
 
@@ -523,10 +542,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             </div>
 
             <p className="text-[11px] font-semibold text-neutral-600">
-              Select which columns in your file represent the Asset Name, Invested Amount, and Current Value:
+              Select which columns in your file represent the Asset Name, Invested Amount, Current Value, and optional details:
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
               <div>
                 <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
                   1. Asset / Scheme Name
@@ -570,6 +589,78 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                   onChange={(e) => setCurrentColIdx(Number(e.target.value))}
                   className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
                 >
+                  {currentHeaderRow.map((col, idx) => (
+                    <option key={idx} value={idx}>
+                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
+                  4. Quantity / Units (Optional)
+                </label>
+                <select
+                  value={qtyColIdx}
+                  onChange={(e) => setQtyColIdx(Number(e.target.value))}
+                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
+                >
+                  <option value={-1}>— Not Mapped —</option>
+                  {currentHeaderRow.map((col, idx) => (
+                    <option key={idx} value={idx}>
+                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
+                  5. Buy Price / Unit (Optional)
+                </label>
+                <select
+                  value={buyPriceColIdx}
+                  onChange={(e) => setBuyPriceColIdx(Number(e.target.value))}
+                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
+                >
+                  <option value={-1}>— Not Mapped —</option>
+                  {currentHeaderRow.map((col, idx) => (
+                    <option key={idx} value={idx}>
+                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
+                  6. Current Price / NAV (Optional)
+                </label>
+                <select
+                  value={curPriceColIdx}
+                  onChange={(e) => setCurPriceColIdx(Number(e.target.value))}
+                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
+                >
+                  <option value={-1}>— Not Mapped —</option>
+                  {currentHeaderRow.map((col, idx) => (
+                    <option key={idx} value={idx}>
+                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
+                  7. Notes / Folio (Optional)
+                </label>
+                <select
+                  value={notesColIdx}
+                  onChange={(e) => setNotesColIdx(Number(e.target.value))}
+                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
+                >
+                  <option value={-1}>— Not Mapped —</option>
                   {currentHeaderRow.map((col, idx) => (
                     <option key={idx} value={idx}>
                       Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
@@ -663,6 +754,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     <th className="p-2">Class</th>
                     <th className="p-2 text-right">Invested ({currencySymbol})</th>
                     <th className="p-2 text-right">Current Value ({currencySymbol})</th>
+                    <th className="p-2 text-right">Units</th>
+                    <th className="p-2 text-right">Buy Price ({currencySymbol})</th>
+                    <th className="p-2 text-right">Current Price ({currencySymbol})</th>
+                    <th className="p-2">Notes</th>
                     <th className="p-2 text-center">✕</th>
                   </tr>
                 </thead>
@@ -714,6 +809,48 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                           value={h.currentValue}
                           onChange={(e) => updateItemField(h.id, 'currentValue', parseFloat(e.target.value) || 0)}
                           className="w-24 p-1 border border-neutral-300 font-mono text-xs font-black text-[#05DF72] text-right"
+                        />
+                      </td>
+                      <td className="p-2 text-right">
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          value={h.units || ''}
+                          onChange={(e) => updateItemField(h.id, 'units', e.target.value ? parseFloat(e.target.value) : undefined)}
+                          className="w-16 p-1 border border-neutral-300 font-mono text-xs font-bold text-right"
+                          placeholder="—"
+                        />
+                      </td>
+                      <td className="p-2 text-right">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={h.buyPrice || ''}
+                          onChange={(e) => updateItemField(h.id, 'buyPrice', e.target.value ? parseFloat(e.target.value) : undefined)}
+                          className="w-20 p-1 border border-neutral-300 font-mono text-xs font-bold text-right"
+                          placeholder="—"
+                        />
+                      </td>
+                      <td className="p-2 text-right">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={h.currentPrice || ''}
+                          onChange={(e) => updateItemField(h.id, 'currentPrice', e.target.value ? parseFloat(e.target.value) : undefined)}
+                          className="w-20 p-1 border border-neutral-300 font-mono text-xs font-bold text-[#05DF72] text-right"
+                          placeholder="—"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="text"
+                          value={h.notes || ''}
+                          onChange={(e) => updateItemField(h.id, 'notes', e.target.value || undefined)}
+                          className="w-28 p-1 border border-neutral-300 text-xs font-bold"
+                          placeholder="—"
                         />
                       </td>
                       <td className="p-2 text-center">
