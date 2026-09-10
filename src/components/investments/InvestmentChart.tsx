@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
 import { Investment, PortfolioSummary } from '../../types';
+import { usePrivacy } from '../../context/PrivacyContext';
 
 const ASSET_COLORS: Record<string, string> = {
   mutual_fund: '#00F0FF',
@@ -34,6 +35,7 @@ interface AllocationChartProps {
 }
 
 export const AllocationChart: React.FC<AllocationChartProps> = ({ assetBreakdown }) => {
+  const { isPrivacyMode } = usePrivacy();
   if (!assetBreakdown || assetBreakdown.length === 0) return null;
 
   const data = assetBreakdown.map((item) => ({
@@ -75,6 +77,12 @@ export const AllocationChart: React.FC<AllocationChartProps> = ({ assetBreakdown
                   fontWeight: 700,
                   fontSize: '12px',
                 }}
+                formatter={(value: any, name: any, item: any) => [
+                  isPrivacyMode
+                    ? `${value}% (••••••)`
+                    : `${value}% (₹${Number(item?.payload?.currentValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
+                  'Allocation',
+                ]}
               />
             </RePieChart>
           </ResponsiveContainer>
@@ -92,7 +100,7 @@ export const AllocationChart: React.FC<AllocationChartProps> = ({ assetBreakdown
               <div className="flex items-center gap-3">
                 <span className="font-mono">{item.value}%</span>
                 <span className="text-neutral-500 font-mono text-[11px]">
-                  ₹{item.currentValue.toLocaleString()}
+                  {isPrivacyMode ? '••••••' : `₹${item.currentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                 </span>
               </div>
             </div>
@@ -108,6 +116,7 @@ interface ReturnsChartProps {
 }
 
 export const ReturnsChart: React.FC<ReturnsChartProps> = ({ investments }) => {
+  const { isPrivacyMode } = usePrivacy();
   const data = investments.slice(0, 8).map((inv) => {
     const gain = inv.currentValue - inv.investedAmount;
     const gainPercent = inv.investedAmount > 0 ? Number(((gain / inv.investedAmount) * 100).toFixed(2)) : 0;
@@ -130,7 +139,11 @@ export const ReturnsChart: React.FC<ReturnsChartProps> = ({ investments }) => {
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} layout="vertical" margin={{ left: 20, right: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#121212" opacity={0.2} />
-            <XAxis type="number" tick={{ fontSize: 11, fill: '#121212', fontWeight: 700 }} />
+            <XAxis
+              type="number"
+              tick={isPrivacyMode ? false : { fontSize: 11, fill: '#121212', fontWeight: 700 }}
+              tickLine={isPrivacyMode ? false : { stroke: '#121212' }}
+            />
             <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#121212', fontWeight: 700 }} width={120} />
             <Tooltip
               contentStyle={{
@@ -140,7 +153,10 @@ export const ReturnsChart: React.FC<ReturnsChartProps> = ({ investments }) => {
                 fontWeight: 700,
                 fontSize: '12px',
               }}
-              formatter={(value: any, name: any) => [`₹${Number(value).toLocaleString('en-IN')}`, name]}
+              formatter={(value: any, name: any) => [
+                isPrivacyMode ? '••••••' : `₹${Number(value).toLocaleString('en-IN')}`,
+                name,
+              ]}
             />
             <Legend />
             <Bar dataKey="invested" fill="#FFE600" name="Invested" stroke="#121212" strokeWidth={1} radius={[0, 4, 4, 0]} />
@@ -163,6 +179,7 @@ export const PortfolioTrendChart: React.FC<TrendChartProps> = ({
   portfolioSummary,
   currencySymbol = '₹',
 }) => {
+  const { isPrivacyMode } = usePrivacy();
   const [viewMode, setViewMode] = useState<'trend' | 'asset'>('trend');
   const [timeframe, setTimeframe] = useState<'3M' | '6M' | '1Y'>('6M');
 
@@ -283,18 +300,22 @@ export const PortfolioTrendChart: React.FC<TrendChartProps> = ({
           <span className="flex items-center gap-1.5 text-neutral-300 font-sans font-bold text-[11px]">
             <span className="w-2.5 h-2.5 bg-[#05DF72] border border-black inline-block" /> Current Value:
           </span>
-          <span className="font-bold text-[#05DF72]">{currencySymbol}{current.toLocaleString('en-IN')}</span>
+          <span className="font-bold text-[#05DF72]">
+            {isPrivacyMode ? '••••••' : `${currencySymbol}${current.toLocaleString('en-IN')}`}
+          </span>
         </div>
         <div className="flex items-center justify-between gap-4 py-0.5">
           <span className="flex items-center gap-1.5 text-neutral-300 font-sans font-bold text-[11px]">
             <span className="w-2.5 h-2.5 bg-[#FFE600] border border-black inline-block" /> Invested Capital:
           </span>
-          <span className="font-bold text-[#FFE600]">{currencySymbol}{invested.toLocaleString('en-IN')}</span>
+          <span className="font-bold text-[#FFE600]">
+            {isPrivacyMode ? '••••••' : `${currencySymbol}${invested.toLocaleString('en-IN')}`}
+          </span>
         </div>
         <div className="flex items-center justify-between gap-4 pt-1.5 mt-1 border-t border-neutral-700">
           <span className="text-neutral-400 font-sans font-bold text-[11px]">Unrealized P&L:</span>
           <span className={`font-bold ${isGain ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
-            {isGain ? '+' : ''}{currencySymbol}{diff.toLocaleString('en-IN')} ({isGain ? '+' : ''}{diffPercent}%)
+            {isPrivacyMode ? '••••' : `${isGain ? '+' : ''}${currencySymbol}${diff.toLocaleString('en-IN')}`} ({isGain ? '+' : ''}{diffPercent}%)
           </span>
         </div>
       </div>
@@ -319,18 +340,22 @@ export const PortfolioTrendChart: React.FC<TrendChartProps> = ({
           <span className="flex items-center gap-1.5 text-neutral-300 font-sans font-bold text-[11px]">
             <span className="w-2.5 h-2.5 bg-[#05DF72] border border-black inline-block" /> Current Value:
           </span>
-          <span className="font-bold text-[#05DF72]">{currencySymbol}{current.toLocaleString('en-IN')}</span>
+          <span className="font-bold text-[#05DF72]">
+            {isPrivacyMode ? '••••••' : `${currencySymbol}${current.toLocaleString('en-IN')}`}
+          </span>
         </div>
         <div className="flex items-center justify-between gap-4 py-0.5">
           <span className="flex items-center gap-1.5 text-neutral-300 font-sans font-bold text-[11px]">
             <span className="w-2.5 h-2.5 bg-[#FFE600] border border-black inline-block" /> Invested Capital:
           </span>
-          <span className="font-bold text-[#FFE600]">{currencySymbol}{invested.toLocaleString('en-IN')}</span>
+          <span className="font-bold text-[#FFE600]">
+            {isPrivacyMode ? '••••••' : `${currencySymbol}${invested.toLocaleString('en-IN')}`}
+          </span>
         </div>
         <div className="flex items-center justify-between gap-4 pt-1.5 mt-1 border-t border-neutral-700">
           <span className="text-neutral-400 font-sans font-bold text-[11px]">Net Gain / Loss:</span>
           <span className={`font-bold ${isGain ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
-            {isGain ? '+' : ''}{currencySymbol}{diff.toLocaleString('en-IN')} ({isGain ? '+' : ''}{diffPct}%)
+            {isPrivacyMode ? '••••' : `${isGain ? '+' : ''}${currencySymbol}${diff.toLocaleString('en-IN')}`} ({isGain ? '+' : ''}{diffPct}%)
           </span>
         </div>
       </div>
@@ -355,9 +380,9 @@ export const PortfolioTrendChart: React.FC<TrendChartProps> = ({
             </span>
           </div>
           <div className="flex items-center gap-3 mt-1 text-[11px] font-mono font-bold text-neutral-600">
-            <span>Valuation: <strong className="text-[#121212]">{currencySymbol}{totalCurrentValue.toLocaleString('en-IN')}</strong></span>
+            <span>Valuation: <strong className="text-[#121212]">{isPrivacyMode ? '••••••' : `${currencySymbol}${totalCurrentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</strong></span>
             <span>•</span>
-            <span>Basis: <strong className="text-[#121212]">{currencySymbol}{totalInvested.toLocaleString('en-IN')}</strong></span>
+            <span>Basis: <strong className="text-[#121212]">{isPrivacyMode ? '••••••' : `${currencySymbol}${totalInvested.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</strong></span>
           </div>
         </div>
 
@@ -424,11 +449,11 @@ export const PortfolioTrendChart: React.FC<TrendChartProps> = ({
               />
               <YAxis
                 domain={[yMin, yMax]}
-                tick={{ fontSize: 10, fill: '#121212', fontWeight: 700 }}
-                tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v}`}
+                tick={isPrivacyMode ? false : { fontSize: 10, fill: '#121212', fontWeight: 700 }}
+                tickFormatter={(v) => isPrivacyMode ? '' : `${currencySymbol}${v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v}`}
                 axisLine={{ stroke: '#121212', strokeWidth: 1.5 }}
-                tickLine={{ stroke: '#121212' }}
-                width={52}
+                tickLine={isPrivacyMode ? false : { stroke: '#121212' }}
+                width={isPrivacyMode ? 14 : 52}
               />
               <Tooltip content={<TrendTooltip />} />
               <Area
@@ -463,11 +488,11 @@ export const PortfolioTrendChart: React.FC<TrendChartProps> = ({
                 tickLine={{ stroke: '#121212' }}
               />
               <YAxis
-                tick={{ fontSize: 10, fill: '#121212', fontWeight: 700 }}
-                tickFormatter={(v) => `${currencySymbol}${v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v}`}
+                tick={isPrivacyMode ? false : { fontSize: 10, fill: '#121212', fontWeight: 700 }}
+                tickFormatter={(v) => isPrivacyMode ? '' : `${currencySymbol}${v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v}`}
                 axisLine={{ stroke: '#121212', strokeWidth: 1.5 }}
-                tickLine={{ stroke: '#121212' }}
-                width={52}
+                tickLine={isPrivacyMode ? false : { stroke: '#121212' }}
+                width={isPrivacyMode ? 14 : 52}
               />
               <Tooltip content={<AssetTooltip />} />
               <Legend
@@ -500,15 +525,19 @@ export const PortfolioTrendChart: React.FC<TrendChartProps> = ({
         <div className="flex items-center gap-4 flex-wrap">
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 bg-[#05DF72] border border-[#121212]" />
-            <span className="font-sans uppercase text-[#121212] font-black">Current Value ({currencySymbol}{totalCurrentValue.toLocaleString('en-IN')})</span>
+            <span className="font-sans uppercase text-[#121212] font-black">
+              Current Value ({isPrivacyMode ? '••••••' : `${currencySymbol}${totalCurrentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`})
+            </span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 bg-[#FFE600] border border-[#121212]" />
-            <span className="font-sans uppercase text-[#121212] font-black">Invested Basis ({currencySymbol}{totalInvested.toLocaleString('en-IN')})</span>
+            <span className="font-sans uppercase text-[#121212] font-black">
+              Invested Basis ({isPrivacyMode ? '••••••' : `${currencySymbol}${totalInvested.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`})
+            </span>
           </span>
         </div>
         <span className={`font-sans font-black ${isPositive ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
-          {isPositive ? '▲ NET GAIN' : '▼ NET LOSS'}: {currencySymbol}{Math.abs(totalReturns).toLocaleString('en-IN')}
+          {isPositive ? '▲ NET GAIN' : '▼ NET LOSS'}: {isPrivacyMode ? '••••' : `${currencySymbol}${Math.abs(totalReturns).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
         </span>
       </div>
     </div>

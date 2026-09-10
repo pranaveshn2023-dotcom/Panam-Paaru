@@ -86,7 +86,7 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
             )}
             {inv.sipAmount && (
               <span className="text-[9px] font-mono font-bold bg-[#121212] text-[#00F0FF] px-1.5 py-0.5">
-                SIP: {currencySymbol}{inv.sipAmount}/mo
+                SIP: {formatPrivateAmount(inv.sipAmount, currencySymbol)}/mo
               </span>
             )}
             {inv.units && (
