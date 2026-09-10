@@ -295,9 +295,18 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
                 <RefreshCw size={15} strokeWidth={2.5} className={isSyncingNav ? 'animate-spin' : ''} />
                 <span>{isSyncingNav ? 'Syncing...' : 'Sync Market'}</span>
               </NeoButton>
-              <NeoButton variant="outline" size="md" onClick={onOpenImportModal} className="flex items-center justify-center gap-1.5 bg-white flex-1 sm:flex-initial">
+              <NeoButton
+                variant="outline"
+                size="md"
+                onClick={onOpenImportModal}
+                title="Import Holdings (Ctrl+U)"
+                className="flex items-center justify-center gap-1.5 bg-white flex-1 sm:flex-initial"
+              >
                 <UploadCloud size={16} strokeWidth={2.5} />
                 <span>Import</span>
+                <span className="hidden xl:inline text-[9px] font-mono px-1 py-0.2 bg-neutral-100 border border-neutral-300 text-neutral-600 rounded-none font-bold">
+                  Ctrl+U
+                </span>
               </NeoButton>
               <NeoButton variant="dark" size="md" onClick={() => onOpenAddModal()} className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial">
                 <Plus size={16} strokeWidth={3} className="text-[#05DF72]" />

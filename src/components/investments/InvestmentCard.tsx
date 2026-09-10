@@ -105,7 +105,7 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
               <span className="text-[9px] font-mono font-bold bg-[#E8F8F0] text-[#0B6B38] px-1.5 py-0.5 border border-[#05DF72] flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#05DF72] inline-block animate-pulse" />
                 <span>
-                  {inv.assetType === 'stocks' ? 'LTP' : inv.assetType === 'mutual_fund' ? 'NAV' : 'PRICE'}: {isPrivacyMode ? '••••' : `${currencySymbol}${effectivePrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  {inv.assetType === 'mutual_fund' ? 'NAV' : 'CP'}: {isPrivacyMode ? '••••' : `${currencySymbol}${effectivePrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                 </span>
               </span>
             )}

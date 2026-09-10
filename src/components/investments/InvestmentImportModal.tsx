@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import {
@@ -63,6 +63,8 @@ interface InvestmentImportModalProps {
     broker?: string
   ) => Promise<void>;
   currencySymbol?: string;
+  initialFile?: File | null;
+  onClearInitialFile?: () => void;
 }
 
 const GRANULAR_ASSET_TYPES: { label: string; assetType: AssetType; subType: string }[] = [
@@ -98,6 +100,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   onClose,
   onBatchImport,
   currencySymbol = '₹',
+  initialFile,
+  onClearInitialFile,
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'paste'>('upload');
   const [importMode, setImportMode] = useState<'investments' | 'expenses'>('investments');
@@ -139,10 +143,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     setShowPassword(false);
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processFile = async (file: File) => {
     try {
       setIsParsing(true);
       setError('');
@@ -171,6 +172,37 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       } else {
         setError(err?.message || 'Failed to read file. Please try pasting the table rows directly.');
       }
+    }
+  };
+
+  // Automatically process file if opened directly (e.g. via Ctrl+U)
+  useEffect(() => {
+    if (isOpen && initialFile) {
+      processFile(initialFile);
+      onClearInitialFile?.();
+    }
+  }, [isOpen, initialFile]);
+
+  // Handle Ctrl+U while modal is already active
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleModalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'u' || e.key === 'U')) {
+        e.preventDefault();
+        e.stopPropagation();
+        fileInputRef.current?.click();
+      }
+    };
+    window.addEventListener('keydown', handleModalKeyDown, true);
+    return () => window.removeEventListener('keydown', handleModalKeyDown, true);
+  }, [isOpen]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processFile(file);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 

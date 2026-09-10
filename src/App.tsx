@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { useConvexAuth } from '@convex-dev/auth/react';
 import { api } from '../convex/_generated/api';
@@ -66,6 +66,8 @@ export function AppContent() {
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [isInvestmentModalOpen, setIsInvestmentModalOpen] = useState(false);
   const [isInvestmentImportModalOpen, setIsInvestmentImportModalOpen] = useState(false);
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
+  const directUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
   const [isPinSetupModalOpen, setIsPinSetupModalOpen] = useState(false);
 
@@ -102,6 +104,15 @@ export function AppContent() {
   const isLoading = isAuthLoading || cloudInvestments === undefined || cloudPortfolioSummary === undefined;
   const isPortfolioLoading = cloudPortfolioSummary === undefined && isAuthenticated;
 
+  const handleDirectFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPendingUploadFile(file);
+    setActiveTab('investments');
+    setIsInvestmentImportModalOpen(true);
+    e.target.value = '';
+  };
+
   useEffect(() => {
     if (isAuthenticated) {
       initializeUserDataMutation().catch(() => {});
@@ -112,6 +123,13 @@ export function AppContent() {
     if (!isAuthenticated || isLocked) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Direct File Upload Shortcut (Ctrl+U / Cmd+U) -> Native OS File Dialog
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'u' || e.key === 'U')) {
+        e.preventDefault();
+        directUploadInputRef.current?.click();
+        return;
+      }
+
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
         return;
@@ -385,12 +403,28 @@ export function AppContent() {
         currencySymbol={currencySymbol}
       />
 
+      {/* Hidden File Input for Direct OS File Dialog Upload (Ctrl+U) */}
+      <input
+        type="file"
+        ref={directUploadInputRef}
+        onChange={handleDirectFileSelect}
+        accept=".pdf,.xlsx,.xls,.csv,.tsv,.docx,.doc"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+
       {isInvestmentImportModalOpen && (
         <InvestmentImportModal
           isOpen={isInvestmentImportModalOpen}
-          onClose={() => setIsInvestmentImportModalOpen(false)}
+          onClose={() => {
+            setIsInvestmentImportModalOpen(false);
+            setPendingUploadFile(null);
+          }}
           onBatchImport={handleBatchImportInvestments}
           currencySymbol={currencySymbol}
+          initialFile={pendingUploadFile}
+          onClearInitialFile={() => setPendingUploadFile(null)}
         />
       )}
 
