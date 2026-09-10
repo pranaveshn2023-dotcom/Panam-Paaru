@@ -31,7 +31,7 @@ function savePersistentCache(key: string, data: { nav: number; date: string; sch
 export function cleanSearchQuery(raw: string): string {
   return raw
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
-    .replace(/\b(direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
+    .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
     .replace(/\bppfas\b/gi, 'Parag Parikh')
     .replace(/\bdynamic\s*asset\s*allocation\b/gi, 'Balanced Advantage')
     .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')

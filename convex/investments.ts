@@ -28,8 +28,24 @@ export const list = query({
           ? Number(((returnsAmount / inv.investedAmount) * 100).toFixed(2))
           : 0;
 
+      const derivedCurrentPrice =
+        inv.currentPrice && inv.currentPrice > 0
+          ? inv.currentPrice
+          : inv.units && inv.units > 0 && inv.currentValue > 0
+          ? Math.round((inv.currentValue / inv.units) * 100) / 100
+          : undefined;
+
+      const derivedBuyPrice =
+        inv.buyPrice && inv.buyPrice > 0
+          ? inv.buyPrice
+          : inv.units && inv.units > 0 && inv.investedAmount > 0
+          ? Math.round((inv.investedAmount / inv.units) * 100) / 100
+          : undefined;
+
       return {
         ...inv,
+        currentPrice: derivedCurrentPrice,
+        buyPrice: derivedBuyPrice,
         returnsAmount,
         returnsPercent,
         isPositive: returnsAmount >= 0,
@@ -127,6 +143,20 @@ export const add = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Unauthorized");
 
+    const derivedCurrentPrice =
+      args.currentPrice && args.currentPrice > 0
+        ? args.currentPrice
+        : args.units && args.units > 0 && args.currentValue > 0
+        ? Math.round((args.currentValue / args.units) * 100) / 100
+        : undefined;
+
+    const derivedBuyPrice =
+      args.buyPrice && args.buyPrice > 0
+        ? args.buyPrice
+        : args.units && args.units > 0 && args.investedAmount > 0
+        ? Math.round((args.investedAmount / args.units) * 100) / 100
+        : undefined;
+
     const id = await ctx.db.insert("investments", {
       userId,
       name: args.name.trim(),
@@ -134,8 +164,8 @@ export const add = mutation({
       investedAmount: Math.max(0, args.investedAmount),
       currentValue: Math.max(0, args.currentValue),
       units: args.units,
-      buyPrice: args.buyPrice,
-      currentPrice: args.currentPrice,
+      buyPrice: derivedBuyPrice,
+      currentPrice: derivedCurrentPrice,
       sipAmount: args.sipAmount,
       sipDay: args.sipDay,
       xirr: args.xirr,
@@ -208,26 +238,40 @@ export const batchAdd = mutation({
 
     for (const item of args.items) {
       if (!item.name.trim()) continue;
-      const id = await ctx.db.insert("investments", {
-        userId,
-        name: item.name.trim(),
-        assetType: item.assetType,
-        subType: item.subType,
-        sector: item.sector,
-        broker: item.broker || args.broker,
-        importBatchId: batchId,
-        investedAmount: Math.max(0, item.investedAmount),
-        currentValue: Math.max(0, item.currentValue),
-        units: item.units,
-        buyPrice: item.buyPrice,
-        currentPrice: item.currentPrice,
-        sipAmount: item.sipAmount,
-        sipDay: item.sipDay,
-        xirr: item.xirr,
-        notes: item.notes,
-        createdAt: now,
-        updatedAt: now,
-      });
+        const derivedCurrentPrice =
+          item.currentPrice && item.currentPrice > 0
+            ? item.currentPrice
+            : item.units && item.units > 0 && item.currentValue > 0
+            ? Math.round((item.currentValue / item.units) * 100) / 100
+            : undefined;
+
+        const derivedBuyPrice =
+          item.buyPrice && item.buyPrice > 0
+            ? item.buyPrice
+            : item.units && item.units > 0 && item.investedAmount > 0
+            ? Math.round((item.investedAmount / item.units) * 100) / 100
+            : undefined;
+
+        const id = await ctx.db.insert("investments", {
+          userId,
+          name: item.name.trim(),
+          assetType: item.assetType,
+          subType: item.subType,
+          sector: item.sector,
+          broker: item.broker || args.broker,
+          importBatchId: batchId,
+          investedAmount: Math.max(0, item.investedAmount),
+          currentValue: Math.max(0, item.currentValue),
+          units: item.units,
+          buyPrice: derivedBuyPrice,
+          currentPrice: derivedCurrentPrice,
+          sipAmount: item.sipAmount,
+          sipDay: item.sipDay,
+          xirr: item.xirr,
+          notes: item.notes,
+          createdAt: now,
+          updatedAt: now,
+        });
       insertedIds.push(id);
     }
 
@@ -472,63 +516,71 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
 }
 
 async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; prevNav?: number } | null> {
-  const query = name
+  const cleanQuery = name
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
-    .replace(/\b(direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
+    .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
     .replace(/\bppfas\b/gi, 'Parag Parikh')
     .replace(/\bdynamic\s*asset\s*allocation\b/gi, 'Balanced Advantage')
     .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 
-  if (query.length < 3) return null;
+  if (cleanQuery.length < 3) return null;
 
-  try {
-    const searchRes = await fetch(
-      `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
-      { signal: AbortSignal.timeout(5000) }
-    );
-    if (!searchRes.ok) return null;
-    const list: any[] = await searchRes.json();
-    if (!list || list.length === 0) return null;
+  const queries = [cleanQuery];
+  const words = cleanQuery.split(' ').filter(Boolean);
+  if (words.length > 3) {
+    queries.push(words.slice(0, 3).join(' '));
+  }
 
-    const isDirect = /direct/i.test(name);
-    const isGrowth = /growth/i.test(name);
+  for (const query of queries) {
+    try {
+      const searchRes = await fetch(
+        `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (!searchRes.ok) continue;
+      const list: any[] = await searchRes.json();
+      if (!list || list.length === 0) continue;
 
-    let best = list[0];
-    for (const item of list) {
-      const itemLower = String(item.schemeName || '').toLowerCase();
-      const itemDirect = itemLower.includes('direct');
-      const itemGrowth = itemLower.includes('growth');
+      const isDirect = /direct/i.test(name);
+      const isGrowth = /growth/i.test(name);
 
-      if (isDirect === itemDirect && isGrowth === itemGrowth) {
-        best = item;
-        break;
-      } else if (isDirect && itemDirect) {
-        best = item;
+      let best = list[0];
+      for (const item of list) {
+        const itemLower = String(item.schemeName || '').toLowerCase();
+        const itemDirect = itemLower.includes('direct');
+        const itemGrowth = itemLower.includes('growth');
+
+        if (isDirect === itemDirect && isGrowth === itemGrowth) {
+          best = item;
+          break;
+        } else if (isDirect && itemDirect) {
+          best = item;
+        }
       }
-    }
 
-    const detailRes = await fetch(
-      `https://api.mfapi.in/mf/${best.schemeCode}`,
-      { signal: AbortSignal.timeout(5000) }
-    );
-    if (!detailRes.ok) return null;
-    const details: any = await detailRes.json();
-    const latest = details?.data?.[0];
-    const prev = details?.data?.[1];
+      const detailRes = await fetch(
+        `https://api.mfapi.in/mf/${best.schemeCode}`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (!detailRes.ok) continue;
+      const details: any = await detailRes.json();
+      const latest = details?.data?.[0];
+      const prev = details?.data?.[1];
 
-    if (latest && latest.nav) {
-      const navNum = parseFloat(latest.nav);
-      if (!isNaN(navNum) && navNum > 0) {
-        return {
-          nav: navNum,
-          date: latest.date,
-          prevNav: prev ? parseFloat(prev.nav) : undefined,
-        };
+      if (latest && latest.nav) {
+        const navNum = parseFloat(latest.nav);
+        if (!isNaN(navNum) && navNum > 0) {
+          return {
+            nav: navNum,
+            date: latest.date,
+            prevNav: prev ? parseFloat(prev.nav) : undefined,
+          };
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   return null;
 }

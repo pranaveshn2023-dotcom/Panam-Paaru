@@ -52,6 +52,13 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
   const gainPercent = inv.investedAmount > 0 ? Number(((gain / inv.investedAmount) * 100).toFixed(2)) : 0;
   const isGain = gain >= 0;
 
+  const effectivePrice =
+    inv.currentPrice && inv.currentPrice > 0
+      ? inv.currentPrice
+      : inv.units && inv.units > 0 && inv.currentValue > 0
+      ? inv.currentValue / inv.units
+      : undefined;
+
   const handleUpdate = async () => {
     if (isUpdating) {
       const val = parseFloat(updateValue);
@@ -94,11 +101,11 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
                 {inv.units} units
               </span>
             )}
-            {inv.currentPrice && (
+            {effectivePrice && (
               <span className="text-[9px] font-mono font-bold bg-[#E8F8F0] text-[#0B6B38] px-1.5 py-0.5 border border-[#05DF72] flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#05DF72] inline-block animate-pulse" />
                 <span>
-                  {inv.assetType === 'stocks' ? 'LTP' : inv.assetType === 'mutual_fund' ? 'NAV' : 'PRICE'}: {currencySymbol}{inv.currentPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  {inv.assetType === 'stocks' ? 'LTP' : inv.assetType === 'mutual_fund' ? 'NAV' : 'PRICE'}: {isPrivacyMode ? '••••' : `${currencySymbol}${effectivePrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                 </span>
               </span>
             )}

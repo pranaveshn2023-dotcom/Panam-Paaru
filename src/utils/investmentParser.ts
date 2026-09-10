@@ -863,6 +863,14 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         if (invested === 0 && current > 0 && invCol === -1 && buyPriceCol === -1) invested = current;
         if (current === 0 && invested > 0 && curCol === -1 && curPriceCol === -1) current = invested;
 
+        // Automatically derive buyPrice and currentPrice (NAV / LTP) when units and values exist!
+        if ((!currentPrice || currentPrice <= 0) && units && units > 0 && current > 0) {
+          currentPrice = cleanCurrency(current / units);
+        }
+        if ((!buyPrice || buyPrice <= 0) && units && units > 0 && invested > 0) {
+          buyPrice = cleanCurrency(invested / units);
+        }
+
         if (invested > 500000000 || current > 500000000) continue;
 
         if (invested > 0 || current > 0) {
