@@ -39,6 +39,7 @@ export interface ParsedHolding {
   sector?: string;
   investedAmount: number;
   currentValue: number;
+  returns?: number;
   units?: number;
   buyPrice?: number;
   currentPrice?: number;
@@ -48,6 +49,7 @@ export interface ParsedHolding {
   broker?: string;
   folioNo?: string;
   isin?: string;
+  xirr?: string;
   selected: boolean;
   isValid: boolean;
 }
@@ -74,6 +76,38 @@ export function cleanUnits(units: number | undefined): number | undefined {
 export function cleanCurrency(val: number): number {
   if (isNaN(val)) return 0;
   return Math.round(val * 100) / 100;
+}
+
+export function cleanXirr(val: any): string | undefined {
+  if (val === undefined || val === null) return undefined;
+  if (typeof val === 'number') {
+    if (isNaN(val)) return undefined;
+    if (Math.abs(val) <= 1 && val !== 0) {
+      const pct = parseFloat((val * 100).toFixed(2));
+      return `${pct}%`;
+    }
+    const pct = parseFloat(val.toFixed(2));
+    return `${pct}%`;
+  }
+  const str = String(val).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'n/a' || str.toLowerCase() === 'nan') {
+    return undefined;
+  }
+  if (str.includes('%')) {
+    const num = parseFloat(str.replace(/%/g, '').trim());
+    if (!isNaN(num)) {
+      return `${parseFloat(num.toFixed(2))}%`;
+    }
+    return str;
+  }
+  const num = parseFloat(str);
+  if (!isNaN(num)) {
+    if (Math.abs(num) <= 1 && num !== 0) {
+      return `${parseFloat((num * 100).toFixed(2))}%`;
+    }
+    return `${parseFloat(num.toFixed(2))}%`;
+  }
+  return undefined;
 }
 
 export function parseCleanNumber(val: any): number {
@@ -351,6 +385,7 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
     let marketValue = 0;
     let closingUnits = 0;
     let navValue = 0;
+    let xirrValue: string | undefined = undefined;
 
     // 2. Scan block for Units, Cost Value, Market Value, and NAV
     for (let k = startIdx; k < endIdx; k++) {
@@ -400,6 +435,12 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
           if (parsed.length > 0) navValue = parsed[parsed.length - 1];
         }
       }
+
+      // Extract XIRR / IRR / CAGR
+      if (/(?:xirr|irr|cagr)\s*[:=]?\s*([-\d\.]+%?)/i.test(line)) {
+        const m = line.match(/(?:xirr|irr|cagr)\s*[:=]?\s*([-\d\.]+%?)/i);
+        if (m) xirrValue = cleanXirr(m[1]);
+      }
     }
 
     // Infer missing values if possible
@@ -426,6 +467,7 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         units: cleanUnits(closingUnits),
         currentPrice: navValue > 0 ? cleanCurrency(navValue) : undefined,
         folioNo: folioNo || undefined,
+        xirr: xirrValue,
         selected: true,
         isValid: true,
       });
@@ -718,7 +760,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         }
 
         // 12. XIRR / IRR / CAGR
-        else if (tempXirr === -1 && /\b(xirr|irr|cagr)\b/i.test(colName)) {
+        else if (tempXirr === -1 && /\b(xirr|irr|cagr|annualized\s*returns?|annualised\s*returns?|annualized|annualised)\b/i.test(colName)) {
           tempXirr = cIdx;
         }
       });
@@ -796,7 +838,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         const rawSector = sectorCol !== -1 ? String(row[sectorCol] || '').trim() : undefined;
         const rawFolio = folioCol !== -1 ? String(row[folioCol] || '').trim() : undefined;
         const rawBroker = brokerCol !== -1 ? String(row[brokerCol] || '').trim() : undefined;
-        const rawXirr = xirrCol !== -1 ? String(row[xirrCol] || '').trim() : undefined;
+        const rawXirr = xirrCol !== -1 ? cleanXirr(row[xirrCol]) : undefined;
 
         // Build composite holding name if AMC + Sub-category exist (e.g. "HDFC Mutual Fund - Mid Cap")
         let fullName = rawName;
@@ -840,9 +882,11 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             folioNo: rawFolio || undefined,
             investedAmount: cleanCurrency(Math.abs(invested)),
             currentValue: cleanCurrency(Math.abs(current)),
+            returns: pnl !== undefined ? cleanCurrency(pnl) : cleanCurrency(current - invested),
             units: cleanUnits(units),
             buyPrice: buyPrice && buyPrice > 0 ? cleanCurrency(buyPrice) : undefined,
             currentPrice: currentPrice && currentPrice > 0 ? cleanCurrency(currentPrice) : undefined,
+            xirr: rawXirr,
             notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
             selected: true,
             isValid: true,

@@ -73,16 +73,23 @@ const expectations = {
       Math.abs(hdfc.currentValue - 3443.85) < 0.01 &&
       Math.abs(hdfc.units - 14.827) < 0.001 &&
       hdfc.assetType === 'mutual_fund' &&
+      hdfc.xirr === '17.3%' &&
+      Math.abs(hdfc.returns - 93.92) < 0.05 &&
       Boolean(axisDyn) &&
       Math.abs(axisDyn.investedAmount - 1502.99) < 0.01 &&
       axisDyn.assetType === 'mutual_fund' &&
+      axisDyn.xirr === '-6.15%' &&
+      Math.abs(axisDyn.returns - (-17.93)) < 0.05 &&
       Boolean(axisLiq) &&
       Math.abs(axisLiq.investedAmount - 3.11) < 0.01 &&
       Math.abs(axisLiq.units - 0.001) < 0.0001 &&
       axisLiq.assetType === 'mutual_fund' &&
+      axisLiq.xirr === '9.1%' &&
       Boolean(bandhan) &&
       Math.abs(bandhan.investedAmount - 300) < 0.01 &&
       Math.abs(bandhan.currentValue - 324.79) < 0.01 &&
+      bandhan.xirr === '26.81%' &&
+      Math.abs(bandhan.returns - 24.79) < 0.05 &&
       Math.abs(totalInv - 39154.31) < 0.1 &&
       Math.abs(totalCur - 39094.26) < 0.1
     );
@@ -101,7 +108,8 @@ for (const f of files.sort()) {
       console.log(
         `  • ${h.name} | type=${h.assetType} | inv=${h.investedAmount} | cur=${h.currentValue}` +
           (h.units ? ` | units=${h.units}` : '') +
-          (h.currentPrice ? ` | nav=${h.currentPrice}` : '')
+          (h.currentPrice ? ` | nav=${h.currentPrice}` : '') +
+          (h.xirr ? ` | xirr=${h.xirr}` : '')
       );
     }
     if (!ok) failures++;

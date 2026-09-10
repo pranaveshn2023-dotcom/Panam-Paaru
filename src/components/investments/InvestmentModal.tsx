@@ -18,6 +18,7 @@ interface InvestmentModalProps {
     currentPrice?: number;
     sipAmount?: number;
     sipDay?: number;
+    xirr?: string;
     notes?: string;
   }) => Promise<void>;
   initialData?: Investment | null;
@@ -51,6 +52,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   const [currentPrice, setCurrentPrice] = useState('');
   const [sipAmount, setSipAmount] = useState('');
   const [sipDay, setSipDay] = useState('5');
+  const [xirr, setXirr] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,6 +68,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setCurrentPrice(initialData.currentPrice ? String(initialData.currentPrice) : '');
       setSipAmount(initialData.sipAmount ? String(initialData.sipAmount) : '');
       setSipDay(initialData.sipDay ? String(initialData.sipDay) : '5');
+      setXirr(initialData.xirr || '');
       setNotes(initialData.notes || '');
     } else {
       setName('');
@@ -77,6 +80,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setCurrentPrice('');
       setSipAmount('');
       setSipDay('5');
+      setXirr('');
       setNotes('');
     }
     setError('');
@@ -120,6 +124,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           currentPrice: numCurrentPrice,
           sipAmount: numSip,
           sipDay: numSipDay,
+          xirr: xirr.trim() || undefined,
           notes: notes.trim() || undefined,
         }),
         timeoutPromise,
@@ -321,18 +326,33 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           </div>
         </div>
 
-        {/* Notes */}
-        <div className="flex flex-col gap-1">
-          <label className="text-[11px] font-black uppercase text-neutral-600">
-            Notes / Folio Number (Optional)
-          </label>
-          <input
-            type="text"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. Zerodha / Groww / Folio #12345"
-            className="neo-input py-1.5 px-2.5 text-xs font-bold"
-          />
+        {/* Notes and XIRR */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-black uppercase text-neutral-600">
+              XIRR / CAGR % (Optional)
+            </label>
+            <input
+              type="text"
+              value={xirr}
+              onChange={(e) => setXirr(e.target.value)}
+              placeholder="e.g. 17.3%"
+              className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-black uppercase text-neutral-600">
+              Notes / Folio Number (Optional)
+            </label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. Zerodha / Groww / Folio #12345"
+              className="neo-input py-1.5 px-2.5 text-xs font-bold"
+            />
+          </div>
         </div>
 
         {error && (

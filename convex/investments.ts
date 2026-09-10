@@ -120,6 +120,7 @@ export const add = mutation({
     currentPrice: v.optional(v.number()),
     sipAmount: v.optional(v.number()),
     sipDay: v.optional(v.number()),
+    xirr: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -137,6 +138,7 @@ export const add = mutation({
       currentPrice: args.currentPrice,
       sipAmount: args.sipAmount,
       sipDay: args.sipDay,
+      xirr: args.xirr,
       notes: args.notes,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -173,6 +175,7 @@ export const batchAdd = mutation({
         currentPrice: v.optional(v.number()),
         sipAmount: v.optional(v.number()),
         sipDay: v.optional(v.number()),
+        xirr: v.optional(v.string()),
         notes: v.optional(v.string()),
       })
     ),
@@ -220,6 +223,7 @@ export const batchAdd = mutation({
         currentPrice: item.currentPrice,
         sipAmount: item.sipAmount,
         sipDay: item.sipDay,
+        xirr: item.xirr,
         notes: item.notes,
         createdAt: now,
         updatedAt: now,
@@ -328,6 +332,7 @@ export const update = mutation({
     currentPrice: v.optional(v.number()),
     sipAmount: v.optional(v.number()),
     sipDay: v.optional(v.number()),
+    xirr: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -349,6 +354,7 @@ export const update = mutation({
       currentPrice: args.currentPrice,
       sipAmount: args.sipAmount,
       sipDay: args.sipDay,
+      xirr: args.xirr,
       notes: args.notes,
       updatedAt: Date.now(),
     });

@@ -102,6 +102,11 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
                 </span>
               </span>
             )}
+            {inv.xirr && (
+              <span className="text-[9px] font-mono font-bold bg-[#FFFDF5] text-[#121212] px-1.5 py-0.5 border border-[#121212]">
+                XIRR: {inv.xirr}
+              </span>
+            )}
           </div>
           <h4 className="text-base font-black uppercase text-[#121212] tracking-tight truncate">
             {inv.name}

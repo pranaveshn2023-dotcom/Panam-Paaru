@@ -72,6 +72,7 @@ export default defineSchema({
     sector: v.optional(v.string()), // e.g. "Banking & Finance", "Information Technology", "Energy"
     broker: v.optional(v.string()), // e.g. "Zerodha", "Groww", "CAMS", "KFintech"
     importBatchId: v.optional(v.string()), // Id for 1-click batch undo
+    xirr: v.optional(v.string()), // e.g. "17.3%", "26.81%", "-6.15%"
     notes: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),

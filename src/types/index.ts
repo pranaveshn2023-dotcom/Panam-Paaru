@@ -73,6 +73,7 @@ export interface Investment {
   currentPrice?: number;
   sipAmount?: number;
   sipDay?: number;
+  xirr?: string;
   notes?: string;
   createdAt: number;
   updatedAt: number;

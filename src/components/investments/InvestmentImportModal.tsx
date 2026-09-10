@@ -56,6 +56,7 @@ interface InvestmentImportModalProps {
       units?: number;
       buyPrice?: number;
       currentPrice?: number;
+      xirr?: string;
       notes?: string;
     }[],
     fileName?: string,
@@ -266,6 +267,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       prev.map((h) => {
         if (h.id !== id) return h;
         const updated = { ...h, [field]: val };
+        if (field === 'investedAmount' || field === 'currentValue') {
+          updated.returns = cleanCurrency(updated.currentValue - updated.investedAmount);
+        }
         // Recalculate validity
         updated.isValid = Boolean(updated.name.trim() && (updated.currentValue > 0 || updated.investedAmount > 0));
         return updated;
@@ -338,6 +342,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           units: cleanUnits(h.units),
           buyPrice: h.buyPrice ? cleanCurrency(h.buyPrice) : undefined,
           currentPrice: h.currentPrice ? cleanCurrency(h.currentPrice) : undefined,
+          xirr: h.xirr,
           notes: h.notes || 'Statement Import',
         })),
         fileName,
@@ -611,16 +616,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         {parsedHoldings.length > 0 && (
           <div className="flex flex-col gap-3">
             
-            {/* Status & Totals Bar matching Image 2 */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-[#FFFDF5] p-2.5 border-2 border-[#121212] shadow-neo-sm">
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 bg-neutral-200 text-neutral-800 text-xs font-black rounded-full border border-neutral-300">
-                  {parsedHoldings.length} rows
-                </span>
-                <span className="px-2.5 py-0.5 bg-[#05DF72] text-[#121212] text-xs font-black rounded-full border border-[#05DF72]">
-                  {validCount} valid
-                </span>
-              </div>
+            {/* Financial Totals Bar */}
+            <div className="flex flex-wrap items-center justify-end gap-3 bg-[#FFFDF5] p-2.5 border-2 border-[#121212] shadow-neo-sm">
               <div className="flex items-center gap-3 text-xs font-mono">
                 <div>
                   <span className="text-neutral-500 font-bold uppercase text-[10px]">Invested: </span>
@@ -670,7 +667,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     <th className="p-2.5 min-w-[150px]">TYPE</th>
                     <th className="p-2.5 text-right min-w-[105px]">INVESTED</th>
                     <th className="p-2.5 text-right min-w-[105px]">CUR. VALUE</th>
+                    <th className="p-2.5 text-right min-w-[95px]">RETURNS</th>
                     <th className="p-2.5 text-right min-w-[80px]">QTY</th>
+                    <th className="p-2.5 text-right min-w-[80px]">XIRR</th>
                     <th className="p-2.5 w-8 text-center">✕</th>
                   </tr>
                 </thead>
@@ -770,6 +769,19 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                             />
                           </td>
 
+                          {/* Returns (P&L) cell */}
+                          <td className="p-2.5 text-right font-mono font-black text-xs">
+                            {(() => {
+                              const ret = h.returns !== undefined ? h.returns : cleanCurrency(h.currentValue - h.investedAmount);
+                              const isPos = ret >= 0;
+                              return (
+                                <span className={isPos ? 'text-[#0B6B38]' : 'text-[#DC2626]'}>
+                                  {isPos ? '+' : ''}₹{ret.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              );
+                            })()}
+                          </td>
+
                           {/* Qty cell (editable) */}
                           <td className="p-2.5 text-right font-mono text-xs font-bold text-neutral-700">
                             <input
@@ -785,6 +797,19 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                 )
                               }
                               className="w-20 p-1 text-right font-mono text-xs border border-transparent hover:border-neutral-300 focus:border-[#121212] bg-transparent hover:bg-neutral-100 focus:bg-white"
+                            />
+                          </td>
+
+                          {/* XIRR cell (editable) */}
+                          <td className="p-2.5 text-right font-mono font-bold text-xs text-[#121212]">
+                            <input
+                              type="text"
+                              value={h.xirr ?? ''}
+                              placeholder="—"
+                              onChange={(e) =>
+                                updateItemField(h.id, 'xirr', e.target.value || undefined)
+                              }
+                              className="w-20 p-1 text-right font-mono font-bold text-xs border border-transparent hover:border-neutral-300 focus:border-[#121212] bg-transparent hover:bg-neutral-100 focus:bg-white text-[#121212]"
                             />
                           </td>
 
@@ -804,8 +829,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                         {/* Collapsible Row Details */}
                         {isExpanded && (
                           <tr className="bg-[#FFFDF5] border-b border-neutral-300 text-[11px]">
-                            <td colSpan={9} className="p-3 pl-12">
-                              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                            <td colSpan={11} className="p-3 pl-12">
+                              <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
                                 <div>
                                   <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
                                     Invested Cost ({currencySymbol})
@@ -877,6 +902,19 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                     placeholder="e.g. Folio / Demat No."
                                     onChange={(e) => updateItemField(h.id, 'folioNo', e.target.value || undefined)}
                                     className="w-full p-1 border border-neutral-300 text-xs bg-white"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
+                                    XIRR / Return %
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={h.xirr || ''}
+                                    placeholder="e.g. 17.3%"
+                                    onChange={(e) => updateItemField(h.id, 'xirr', e.target.value || undefined)}
+                                    className="w-full p-1 border border-neutral-300 font-mono text-xs bg-white"
                                   />
                                 </div>
                               </div>

@@ -212,7 +212,7 @@ export function AppContent() {
   const handleSaveInvestment = async (data: {
     name: string; assetType: AssetType; investedAmount: number; currentValue: number;
     units?: number; buyPrice?: number; currentPrice?: number;
-    sipAmount?: number; sipDay?: number; notes?: string;
+    sipAmount?: number; sipDay?: number; xirr?: string; notes?: string;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
     if (editingInvestment) {
@@ -226,7 +226,7 @@ export function AppContent() {
     items: {
       name: string; assetType: AssetType; subType?: string; sector?: string; broker?: string;
       investedAmount: number; currentValue: number;
-      units?: number; buyPrice?: number; currentPrice?: number; notes?: string;
+      units?: number; buyPrice?: number; currentPrice?: number; xirr?: string; notes?: string;
     }[],
     fileName?: string,
     broker?: string
