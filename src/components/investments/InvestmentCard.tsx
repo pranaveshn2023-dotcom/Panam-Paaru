@@ -70,18 +70,33 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <NeoBadge variant="yellow" className="text-[10px]" style={{ backgroundColor: badgeInfo.color }}>
-              {badgeInfo.label}
+          <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+            <NeoBadge variant="yellow" className="text-[10px] uppercase font-black" style={{ backgroundColor: badgeInfo.color }}>
+              {inv.subType || badgeInfo.label}
             </NeoBadge>
+            {inv.sector && (
+              <span className="text-[9px] font-black uppercase bg-neutral-100 text-neutral-800 px-1.5 py-0.5 border border-neutral-300">
+                {inv.sector}
+              </span>
+            )}
+            {inv.broker && (
+              <span className="text-[9px] font-black uppercase bg-[#FFE600] text-[#121212] px-1.5 py-0.5 border border-[#121212]">
+                {inv.broker}
+              </span>
+            )}
             {inv.sipAmount && (
-              <span className="text-[10px] font-mono font-bold bg-[#121212] text-[#00F0FF] px-1.5 py-0.5">
+              <span className="text-[9px] font-mono font-bold bg-[#121212] text-[#00F0FF] px-1.5 py-0.5">
                 SIP: {currencySymbol}{inv.sipAmount}/mo
               </span>
             )}
             {inv.units && (
-              <span className="text-[10px] font-mono font-bold bg-white text-neutral-600 px-1.5 py-0.5 border border-[#121212]">
+              <span className="text-[9px] font-mono font-bold bg-white text-neutral-700 px-1.5 py-0.5 border border-[#121212]">
                 {inv.units} units
+              </span>
+            )}
+            {inv.currentPrice && (
+              <span className="text-[9px] font-mono font-bold bg-[#E8F8F0] text-[#0B6B38] px-1.5 py-0.5 border border-[#05DF72]">
+                NAV: {currencySymbol}{inv.currentPrice}
               </span>
             )}
           </div>

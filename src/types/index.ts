@@ -62,6 +62,10 @@ export interface Investment {
   userId?: string;
   name: string;
   assetType: AssetType;
+  subType?: string;
+  sector?: string;
+  broker?: string;
+  importBatchId?: string;
   investedAmount: number;
   currentValue: number;
   units?: number;
@@ -75,6 +79,17 @@ export interface Investment {
   returnsAmount?: number;
   returnsPercent?: number;
   isPositive?: boolean;
+}
+
+export interface ImportBatch {
+  _id: string;
+  userId?: string;
+  fileName: string;
+  broker?: string;
+  type: 'investments' | 'transactions';
+  itemCount: number;
+  totalValue: number;
+  createdAt: number;
 }
 
 export interface PortfolioSummary {

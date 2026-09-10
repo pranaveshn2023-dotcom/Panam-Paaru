@@ -147,6 +147,8 @@ export const add = mutation({
 
 export const batchAdd = mutation({
   args: {
+    fileName: v.optional(v.string()),
+    broker: v.optional(v.string()),
     items: v.array(
       v.object({
         name: v.string(),
@@ -160,6 +162,9 @@ export const batchAdd = mutation({
           v.literal("real_estate"),
           v.literal("other")
         ),
+        subType: v.optional(v.string()),
+        sector: v.optional(v.string()),
+        broker: v.optional(v.string()),
         investedAmount: v.number(),
         currentValue: v.number(),
         units: v.optional(v.number()),
@@ -177,6 +182,25 @@ export const batchAdd = mutation({
 
     const insertedIds = [];
     const now = Date.now();
+    let totalBatchValue = 0;
+
+    // Create import batch record if fileName or items present
+    let batchId: string | undefined = undefined;
+    if (args.items.length > 0) {
+      for (const it of args.items) {
+        totalBatchValue += it.currentValue || it.investedAmount || 0;
+      }
+      const bDoc = await ctx.db.insert("importBatches", {
+        userId,
+        fileName: args.fileName || "Statement Import",
+        broker: args.broker,
+        type: "investments",
+        itemCount: args.items.length,
+        totalValue: Number(totalBatchValue.toFixed(2)),
+        createdAt: now,
+      });
+      batchId = bDoc;
+    }
 
     for (const item of args.items) {
       if (!item.name.trim()) continue;
@@ -184,6 +208,10 @@ export const batchAdd = mutation({
         userId,
         name: item.name.trim(),
         assetType: item.assetType,
+        subType: item.subType,
+        sector: item.sector,
+        broker: item.broker || args.broker,
+        importBatchId: batchId,
         investedAmount: Math.max(0, item.investedAmount),
         currentValue: Math.max(0, item.currentValue),
         units: item.units,
@@ -198,7 +226,83 @@ export const batchAdd = mutation({
       insertedIds.push(id);
     }
 
-    return { success: true, count: insertedIds.length };
+    return { success: true, count: insertedIds.length, batchId };
+  },
+});
+
+export const listImportBatches = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+
+    return await ctx.db
+      .query("importBatches")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .order("desc")
+      .take(20);
+  },
+});
+
+export const undoImportBatch = mutation({
+  args: {
+    batchId: v.id("importBatches"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Unauthorized");
+
+    const batch = await ctx.db.get(args.batchId);
+    if (!batch || batch.userId !== userId) {
+      throw new Error("Batch not found or unauthorized");
+    }
+
+    // Delete all investments linked to this batchId
+    const investments = await ctx.db
+      .query("investments")
+      .withIndex("by_user_batch", (q) =>
+        q.eq("userId", userId).eq("importBatchId", args.batchId)
+      )
+      .collect();
+
+    for (const inv of investments) {
+      await ctx.db.delete(inv._id);
+    }
+
+    // Delete the batch record
+    await ctx.db.delete(args.batchId);
+
+    return { success: true, removedCount: investments.length };
+  },
+});
+
+export const batchUpdateLivePrices = mutation({
+  args: {
+    updates: v.array(
+      v.object({
+        id: v.id("investments"),
+        currentValue: v.number(),
+        currentPrice: v.optional(v.number()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Unauthorized");
+
+    const now = Date.now();
+    for (const u of args.updates) {
+      const inv = await ctx.db.get(u.id);
+      if (inv && inv.userId === userId) {
+        await ctx.db.patch(u.id, {
+          currentValue: Math.max(0, u.currentValue),
+          currentPrice: u.currentPrice ?? inv.currentPrice,
+          updatedAt: now,
+        });
+      }
+    }
+
+    return { success: true, count: args.updates.length };
   },
 });
 

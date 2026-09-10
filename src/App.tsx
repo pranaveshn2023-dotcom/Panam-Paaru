@@ -224,12 +224,15 @@ export function AppContent() {
 
   const handleBatchImportInvestments = async (
     items: {
-      name: string; assetType: AssetType; investedAmount: number; currentValue: number;
+      name: string; assetType: AssetType; subType?: string; sector?: string; broker?: string;
+      investedAmount: number; currentValue: number;
       units?: number; buyPrice?: number; currentPrice?: number; notes?: string;
-    }[]
+    }[],
+    fileName?: string,
+    broker?: string
   ) => {
     if (navigator.vibrate) navigator.vibrate(30);
-    await batchAddInvestmentMutation({ items });
+    await batchAddInvestmentMutation({ items, fileName, broker });
   };
 
   const handleQuickUpdateInvestmentValue = async (id: string, currentValue: number) => {

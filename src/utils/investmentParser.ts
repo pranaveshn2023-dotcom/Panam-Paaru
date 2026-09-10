@@ -1,22 +1,19 @@
 import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
 import { AssetType } from '../types';
+import { detectDetailedAssetType, detectStockSector } from './liveMarketService';
 
 // PDF Worker Initialization
-// In browser (Vite), loads worker from '/pdf.worker.min.mjs' (served statically from public/).
-// In Node.js (test suites/scripts), falls back to the legacy worker path.
 function initPdfWorker() {
-  if (pdfjsLib.GlobalWorkerOptions.workerSrc) return;
-
   if (typeof window !== 'undefined') {
+    if (pdfjsLib.GlobalWorkerOptions.workerSrc && pdfjsLib.GlobalWorkerOptions.workerSrc !== './pdf.worker.mjs') return;
     const base = (typeof import.meta !== 'undefined' && (import.meta as any).env?.BASE_URL) || '/';
     pdfjsLib.GlobalWorkerOptions.workerSrc = `${base.replace(/\/$/, '')}/pdf.worker.min.mjs`;
-  } else if (typeof process !== 'undefined' && process.cwd) {
+  } else if (typeof process !== 'undefined') {
     try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-        'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',
-        'file:///' + process.cwd().replace(/\\/g, '/') + '/'
-      ).href;
+      const cwd = process.cwd().replace(/\\/g, '/');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `file:///${cwd}/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs`;
     } catch {
       // ignore
     }
@@ -38,6 +35,8 @@ export interface ParsedHolding {
   id: string;
   name: string;
   assetType: AssetType;
+  subType?: string;
+  sector?: string;
   investedAmount: number;
   currentValue: number;
   units?: number;
@@ -46,7 +45,11 @@ export interface ParsedHolding {
   sipAmount?: number;
   sipDay?: number;
   notes?: string;
+  broker?: string;
+  folioNo?: string;
+  isin?: string;
   selected: boolean;
+  isValid: boolean;
 }
 
 export interface RawFileContent {
@@ -61,39 +64,108 @@ export interface RawFileContent {
 // Pure Utility — Number and Text Cleaning
 // ──────────────────────────────────────────
 
+export function cleanUnits(units: number | undefined): number | undefined {
+  if (units === undefined || isNaN(units) || units <= 0) return undefined;
+  // Round to 4 decimal places to remove JS IEEE 754 float artifacts (e.g. 0.001000000000000009 -> 0.001)
+  const rounded = Math.round(units * 10000) / 10000;
+  return rounded;
+}
+
+export function cleanCurrency(val: number): number {
+  if (isNaN(val)) return 0;
+  return Math.round(val * 100) / 100;
+}
+
 export function parseCleanNumber(val: any): number {
+  if (val instanceof Date) return 0;
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   if (!val) return 0;
+
   let str = String(val)
     .replace(/[₹$,\s%]/gi, '')
     .replace(/INR/gi, '')
     .replace(/\((.*?)\)/g, '-$1')
     .trim();
 
-  // Reject phone numbers (10 digits starting with 6-9)
+  // Strict rejection of phone numbers (10 digits starting with 6-9)
   if (/^[6-9]\d{9}$/.test(str)) return 0;
-  // Reject dates like 01-01-2025 or 01/01/25
-  if (/^\d{2}[-/]\d{2}[-/]\d{2,4}$/.test(str)) return 0;
-  // Reject PAN-like patterns
+  // Rejection of Indian PAN cards
   if (/^[A-Z]{5}\d{4}[A-Z]$/i.test(str)) return 0;
+  // Reject dates
+  if (/^\d{2}[-/]\d{2}[-/]\d{2,4}$/.test(str)) return 0;
 
   const num = parseFloat(str);
   return isNaN(num) ? 0 : num;
 }
 
+/**
+ * Strict check for Personal Information (PAN, Investor Names, Phones, Emails, Addresses)
+ * Guarantees zero personal details are ever captured as asset holdings.
+ */
+export function isPersonalInfo(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+
+  // PAN card pattern (e.g. ABCDE1234F)
+  if (/\b[A-Z]{5}[0-9]{4}[A-Z]\b/i.test(t)) return true;
+
+  // Phone / Mobile number (exempt folio lines from phone number check)
+  if (!/\bfolio\b/i.test(t) && (/\b(mobile|phone|contact|tel)\s*[:.]/i.test(t) || /\b[6-9]\d{9}\b/.test(t))) {
+    return true;
+  }
+
+  // Email address
+  if (/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/.test(t) || /\bemail\s*[:.]/i.test(t)) return true;
+
+  // Investor / Account holder headers
+  if (/^(name\s*of\s*(the\s*)?(investor|holder|client|unit\s*holder|account)|investor\s*name|account\s*holder|client\s*name)\s*[:.]/i.test(t)) return true;
+  if (/\b(nominee|guardian|joint\s*holder|dp\s*id|client\s*id)\b/i.test(t)) return true;
+
+  // Residential / Postal addresses
+  if (/\b(pincode|pin\s*code|address|street|road|nagar|floor|dist)\s*[:.]/i.test(t)) return true;
+  if (/kyc\s*(verified|compliant|ok|status|details)/i.test(t)) return true;
+
+  return false;
+}
+
 /** Noise tokens that look like tickers but are metadata */
 const NOISE_TOKENS = new Set([
   'PAN', 'AADHAAR', 'GSTIN', 'GST', 'TAN', 'CIN', 'NA', 'NIL', 'YES', 'NO', 'PAGE', 'TOTAL',
+  'SUMMARY', 'PORTFOLIO', 'STATEMENT', 'HOLDINGS', 'REPORT', 'VALUE', 'INVESTMENT',
 ]);
+
+/**
+ * Checks if a line is CAS metadata, summary, or table noise
+ */
+export function isCASMetadata(text: string): boolean {
+  const t = text.toLowerCase().trim();
+  if (t.length < 3) return true;
+  if (/^\d+$/.test(t)) return true;
+
+  // Personal information check
+  if (isPersonalInfo(t)) return true;
+
+  // Valuation summary lines are NOT scheme names
+  if (/(?:market|cost|total\s*cost|current|present|latest)\s*val(?:ue)?\s*[:：]/i.test(t)) return true;
+  if (/(?:closing|opening|balance)\s*(?:unit\s*)?balance\s*[:：]/i.test(t)) return true;
+  if (/^valuation\s*on\b/i.test(t)) return true;
+
+  // Grand totals and summary rows
+  if (/^(grand\s*total|sub\s*total|total|summary|portfolio\s*summary|portfolio\s*valuation)/i.test(t)) return true;
+  if (/^consolidated\s*account\s*statement|^statement\s*period|^page\s+\d/i.test(t)) return true;
+  if (/^registrar|^amc\s*[:]|brokerage|^advisor|^distributor/i.test(t)) return true;
+  if (/^\d{2}[-/]\w{3}[-/]\d{2,4}/.test(t)) return true; // transaction date row
+
+  return false;
+}
 
 export function isValidHoldingName(text: string): boolean {
   const t = text.trim();
   if (t.length < 2) return false;
 
-  // Reject summary/valuation lines
-  if (/(?:market|cost|total\s*cost|present|current|latest)\s*val(?:ue)?\s*[:：]/i.test(t)) return false;
-  if (/(?:closing|opening|balance)\s*(?:unit\s*)?balance\s*[:：]/i.test(t)) return false;
-  if (/^nav\s*[:：]/i.test(t)) return false;
+  // Reject personal info & metadata
+  if (isPersonalInfo(t)) return false;
+  if (isCASMetadata(t)) return false;
 
   // Allow short all-caps tickers (TCS, ITC, INFY, HDFC, RELIANCE, etc.)
   if (/^[A-Z]{2,8}$/.test(t) && !NOISE_TOKENS.has(t.toUpperCase())) return true;
@@ -103,52 +175,14 @@ export function isValidHoldingName(text: string): boolean {
   const letterCount = (t.match(/[a-zA-Z]/g) || []).length;
   if (letterCount < 2) return false;
   if (/^\d+$/.test(t)) return false;
-  if (isCASMetadata(t)) return false;
+
   return true;
 }
 
-/**
- * Checks if a line is CAS metadata / noise — NOT a scheme name.
- * Uses structural patterns only, no hardcoded fund/company names.
- */
-export function isCASMetadata(text: string): boolean {
-  const t = text.toLowerCase().trim();
-  if (t.length < 3) return true;
-  if (/^\d+$/.test(t)) return true;
-
-  // Valuation summary lines are NOT scheme names
-  if (/(?:market|cost|total\s*cost|current|present|latest)\s*val(?:ue)?\s*[:：]/i.test(t)) return true;
-  if (/(?:closing|opening|balance)\s*(?:unit\s*)?balance\s*[:：]/i.test(t)) return true;
-  if (/^valuation\s*on\b/i.test(t)) return true;
-
-  // Structural CAS metadata patterns
-  const metadataPatterns = [
-    // Personal / Account info (specifically match investor/holder, not "scheme name")
-    /mobile|phone|email|address|pin\s*code|pincode/,
-    /pan\s*[:]/,
-    /nominee|guardian|joint.*holder/,
-    /account\s*holder|investor\s*name|name\s*of\s*(the\s*)?(investor|holder|client|unit\s*holder|account)/i,
-    /kyc|know\s*your\s*customer/i,
-    // Statement structure
-    /statement\s*period|valuation\s*date|generated\s*on/,
-    /consolidated|page\s+\d|disclaimer/,
-    /\bfolio\s*(no|number)?\s*[:.]|\bisin\s*[:]/,
-    // Summary / header rows
-    /^date\b|^nav\b|^total\b|^sub\s*total|^grand\s*total/,
-    /opening\s*balance|closing\s*balance/,
-    /registrar|amc\s*[:]|brokerage/,
-    // Transaction row markers
-    /^\d{2}[-/]\w{3}[-/]\d{2,4}/,
-  ];
-
-  return metadataPatterns.some((pattern) => pattern.test(t));
-}
-
-// Strip common label prefixes before a scheme name (used by KFintech-style CAS:
-// "Name of the Scheme: X", "Scheme Name: X", etc.) so the scheme itself is parsed.
 export function cleanSchemeName(line: string): string {
   return line
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme|scrip\s*name|instrument|particulars?)\s*[:：]\s*/i, '')
+    .replace(/\bfolio\s*(no|number)?\s*[:.]\s*[\w\d/ -]+/i, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -170,56 +204,22 @@ function extractLabeledValue(line: string, labelRegex: RegExp): number {
     const li = lower.indexOf(lb, start);
     if (li !== -1 && li < end) end = li;
   }
-  // Match integer or decimal numbers
   const nums = line.slice(start, end).match(/[\d,]+(?:\.\d+)?/g);
   if (!nums) return 0;
   const parsed = nums.map(parseCleanNumber).filter((n) => n > 0);
   return parsed.length > 0 ? parsed[0] : 0;
 }
 
-/**
- * Detect asset type from name using generic category descriptors.
- */
+// ──────────────────────────────────────────
+// Backward-compatible asset detector (delegates to liveMarketService)
+// ──────────────────────────────────────────
+
 export function detectAssetType(name: string): AssetType {
-  const lower = name.toLowerCase();
-
-  // Mutual fund category keywords
-  if (
-    /\bfund\b|\bgrowth\b|\bdirect\b|\bregular\b|\belss\b|\bindex\b/.test(lower) ||
-    /\bflexi\b|\bsmall\s*cap\b|\bmid\s*cap\b|\blarge\s*cap\b|\bmulti\s*cap\b/.test(lower) ||
-    /\bhybrid\b|\barbitrage\b|\bliquid\b|\bdebt\b|\bovernight\b/.test(lower) ||
-    /\bdividend\b|\bidcw\b|\bpayout\b|\breinvest\b/.test(lower) ||
-    /\bbalanced\b|\baggressive\b|\bconservative\b|\bdynamic\b/.test(lower) ||
-    /\bthematic\b|\bsectoral\b|\bvalue\b|\bcontra\b|\bfocused\b/.test(lower) ||
-    /\bbluechip\b|\bflexi\s*cap\b|\bmulti\s*asset\b/.test(lower)
-  ) return 'mutual_fund';
-
-  // Stock / equity keywords
-  if (/\bltd\b|\blimited\b|\bshares\b|\bequity\b|\betf\b|\bnse\b|\bbse\b/.test(lower)) return 'stocks';
-
-  // Precious metals
-  if (/\bgold\b|\bsilver\b|\bsgb\b|\bsovereign\b|\bplatinum\b/.test(lower)) return 'gold';
-
-  // Fixed income
-  if (/\bfd\b|\bfixed\s*deposit\b|\brecurring\s*deposit\b|\brd\b|\bbond\b|\bdebenture\b|\bncd\b/.test(lower)) return 'fd_rd';
-
-  // Crypto
-  if (/\bbitcoin\b|\bbtc\b|\bethereum\b|\beth\b|\bcrypto\b|\bsolana\b|\btoken\b|\bnft\b/.test(lower)) return 'crypto';
-
-  // Retirement / provident
-  if (/\bppf\b|\bepf\b|\bnps\b|\bprovident\b|\bpension\b|\bretirement\b/.test(lower)) return 'ppf_epf';
-
-  // Real estate
-  if (/\breit\b|\bland\b|\bplot\b|\bproperty\b|\bflat\b|\bapartment\b|\bhouse\b/.test(lower)) return 'real_estate';
-
-  // All-caps short tickers (TCS, ITC, INFY, HDFCBANK, RELIANCE, etc.) -> stocks
-  if (/^[A-Z]{2,8}$/.test(name.trim())) return 'stocks';
-
-  return 'other';
+  return detectDetailedAssetType(name).assetType;
 }
 
 // ──────────────────────────────────────────
-// CAS PDF Parser — Structure-Based
+// Fund & Stock Entity-Based CAS PDF Parser
 // ──────────────────────────────────────────
 
 async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding[]> {
@@ -249,8 +249,6 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
   }
 
   const numPages = pdf.numPages;
-
-  // Step 1: Collect all text items with coordinates
   const allItems: { text: string; y: number; x: number; page: number }[] = [];
 
   for (let p = 1; p <= numPages; p++) {
@@ -269,7 +267,7 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
     }
   }
 
-  // Step 2: Group text into lines by Y coordinate (3px tolerance)
+  // Group text into lines by Y coordinate (3px tolerance)
   const lineMap = new Map<string, { text: string; x: number }[]>();
   for (const item of allItems) {
     const key = `${item.page}_${Math.round(item.y / 3) * 3}`;
@@ -277,196 +275,164 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
     lineMap.get(key)!.push({ text: item.text, x: item.x });
   }
 
-  // Step 3: Sort lines top-to-bottom across pages
+  // Sort lines top-to-bottom across pages
   const sortedLines = Array.from(lineMap.entries())
     .sort((a, b) => {
       const [pageA, yA] = a[0].split('_').map(Number);
       const [pageB, yB] = b[0].split('_').map(Number);
       if (pageA !== pageB) return pageA - pageB;
-      return yB - yA; // PDF Y is bottom-up
+      return yB - yA; // Bottom-up Y
     })
     .map(([, items]) => {
       items.sort((a, b) => a.x - b.x);
       return items.map((i) => i.text).join('  ');
     });
 
-  // Step 4: Parse using CAS structural markers
+  // ────────────────────────────────────────
+  // Fund & Stock Entity Block Gathering
+  // ────────────────────────────────────────
   const holdings: ParsedHolding[] = [];
   let idCounter = 0;
-  let i = 0;
 
-  while (i < sortedLines.length) {
+  // Identify all entity block start indices (Folio lines, "Name of the Scheme:", or recognized fund names)
+  const blockIndices: number[] = [];
+  for (let i = 0; i < sortedLines.length; i++) {
     const line = sortedLines[i];
+    if (isPersonalInfo(line)) continue;
 
-    // ── STRUCTURAL MARKER: "Folio No" line ──
-    if (/\bfolio\s*(no|number)?\s*[:.]/i.test(line)) {
-      let schemeName = '';
+    if (
+      /\bfolio\s*(no|number)?\s*[:.]/i.test(line) ||
+      /^name\s+of\s+the\s+scheme\s*[:.]/i.test(line) ||
+      /\bisin\s*[:.]\s*INF/i.test(line)
+    ) {
+      blockIndices.push(i);
+    }
+  }
 
-      // Look at the next few lines for the scheme name
-      for (let j = i + 1; j < Math.min(sortedLines.length, i + 8); j++) {
-        let candidate = sortedLines[j].replace(/\s{2,}/g, ' ').trim();
-        if (!candidate || candidate.length < 4) continue;
+  // Parse each entity block
+  for (let bi = 0; bi < blockIndices.length; bi++) {
+    const startIdx = blockIndices[bi];
+    const endIdx = bi + 1 < blockIndices.length ? blockIndices[bi + 1] : Math.min(sortedLines.length, startIdx + 200);
 
-        // Clean label prefix BEFORE evaluating metadata/validity!
-        const cleaned = cleanSchemeName(candidate);
-        if (/^kyc|know\s*your\s*customer/i.test(cleaned)) continue;
-        if (isCASMetadata(cleaned)) continue;
-        if (/^registrar|^advisor|^distributor/i.test(cleaned)) continue;
-        if (/^\d[\d\s.,-]*$/.test(cleaned)) continue;
+    let schemeName = '';
+    let folioNo = '';
 
-        if (isValidHoldingName(cleaned)) {
-          schemeName = cleaned;
-          break;
+    // 1. Locate Scheme Name: Search forward from startIdx first (where scheme name usually sits), then backward
+    const forwardCandidates: number[] = [];
+    for (let j = startIdx; j < Math.min(endIdx, startIdx + 6); j++) forwardCandidates.push(j);
+    for (let j = startIdx - 1; j >= Math.max(0, startIdx - 3); j--) forwardCandidates.push(j);
+
+    for (const j of forwardCandidates) {
+      const candidate = sortedLines[j];
+      if (isPersonalInfo(candidate)) continue;
+
+      // Extract Folio if present
+      const folioMatch = candidate.match(/\bfolio\s*(no|number)?\s*[:.]\s*([\w\d/ -]+)/i);
+      if (folioMatch && !folioNo) {
+        folioNo = folioMatch[2].trim();
+      }
+
+      const cleaned = cleanSchemeName(candidate);
+      if (
+        isValidHoldingName(cleaned) &&
+        !isCASMetadata(cleaned) &&
+        !/\bfolio\s*(no|number)?\s*[:.]/i.test(candidate) &&
+        !/^(registrar|advisor|distributor|opening|closing|statement|weight|allocation|ratio)/i.test(cleaned) &&
+        !/(?:market|cost|nav|closing|unit|balance)\s*val/i.test(cleaned)
+      ) {
+        schemeName = cleaned;
+        break;
+      }
+    }
+
+    if (!schemeName) continue;
+
+    let costValue = 0;
+    let marketValue = 0;
+    let closingUnits = 0;
+    let navValue = 0;
+
+    // 2. Scan block for Units, Cost Value, Market Value, and NAV
+    for (let k = startIdx; k < endIdx; k++) {
+      const line = sortedLines[k];
+      if (isPersonalInfo(line)) continue;
+
+      // Stop if hitting a grand total or summary section
+      if (/^(grand\s*total|portfolio\s*valuation|sub\s*total\s*[:：])/i.test(line)) break;
+
+      // Extract Cost Value
+      if (/(?:total\s*)?cost\s*(?:value)?/i.test(line)) {
+        const val = extractLabeledValue(line, /(?:total\s*)?cost\s*(?:value)?/i);
+        if (val > 0) costValue = val;
+      }
+
+      // Extract Market Value / Present Value / Valuation
+      if (/(?:market|current|present|latest)\s*(?:value|val)/i.test(line)) {
+        const val = extractLabeledValue(line, /(?:market|current|present|latest)\s*(?:value|val)/i);
+        if (val > 0) marketValue = val;
+      }
+
+      // Extract "Valuation on [Date]: Amount"
+      if (/valuation\s*on/i.test(line)) {
+        const nums = line.match(/[\d,]+(?:\.\d+)?/g);
+        if (nums) {
+          const parsed = nums.map(parseCleanNumber).filter((n) => n > 0);
+          if (parsed.length > 0 && marketValue === 0) {
+            marketValue = parsed[parsed.length - 1];
+          }
         }
       }
 
-      if (schemeName) {
-        let costValue = 0;
-        let marketValue = 0;
-        let closingUnits = 0;
-        let navValue = 0;
-
-        for (let k = i + 1; k < Math.min(sortedLines.length, i + 200); k++) {
-          const valLine = sortedLines[k];
-
-          // Stop at next folio block
-          if (k > i + 3 && /\bfolio\s*(no|number)?\s*[:.]/i.test(valLine)) break;
-
-          // Extract "Cost Value" / "Total Cost Value"
-          if (/(?:total\s*)?cost\s*(?:value)?/i.test(valLine) && !/^(grand\s*|sub\s*)?total\s*[:：]/i.test(valLine)) {
-            const val = extractLabeledValue(valLine, /(?:total\s*)?cost\s*(?:value)?/i);
-            if (val > 0) costValue = val;
-          }
-
-          // Extract "Market Value" / "Current Value" / "Present Value"
-          if (/(?:market|current|present|latest)\s*(?:value|val)/i.test(valLine) && !/^(grand\s*|sub\s*)?total\s*[:：]/i.test(valLine)) {
-            const val = extractLabeledValue(valLine, /(?:market|current|present|latest)\s*(?:value|val)/i);
-            if (val > 0) marketValue = val;
-          }
-
-          // Extract "Valuation on DD-MMM-YYYY: XX,XXX.XX"
-          if (/valuation\s*on/i.test(valLine)) {
-            const nums = valLine.match(/[\d,]+(?:\.\d+)?/g);
-            if (nums) {
-              const parsed = nums.map(parseCleanNumber).filter((n) => n > 0);
-              if (parsed.length > 0 && marketValue === 0) {
-                marketValue = parsed[parsed.length - 1];
-              }
-            }
-          }
-
-          // Extract "Closing Unit Balance" / "Balance Units" / "Closing Balance"
-          if (/(?:closing|balance)\s*(?:unit\s*)?(?:balance|units)?/i.test(valLine) || /unit\s*balance/i.test(valLine)) {
-            const nums = valLine.match(/[\d,]+(?:\.\d+)?/g);
-            if (nums) {
-              const parsed = nums.map(parseCleanNumber).filter((n) => n > 0);
-              if (parsed.length > 0) closingUnits = parsed[parsed.length - 1];
-            }
-          }
-
-          // Extract NAV value
-          if (/^nav\s|nav\s*on|nav\s*[:(]/i.test(valLine)) {
-            const nums = valLine.match(/[\d,]+(?:\.\d+)?/g);
-            if (nums) {
-              const parsed = nums.map(parseCleanNumber).filter((n) => n > 0);
-              if (parsed.length > 0) navValue = parsed[parsed.length - 1];
-            }
-          }
-
-          if (costValue > 0 && marketValue > 0) break;
+      // Extract Closing Units
+      if (/(?:closing|balance)\s*(?:unit\s*)?(?:balance|units)?/i.test(line) || /unit\s*balance/i.test(line)) {
+        const nums = line.match(/[\d,]+(?:\.\d+)?/g);
+        if (nums) {
+          const parsed = nums.map(parseCleanNumber).filter((n) => n > 0);
+          if (parsed.length > 0) closingUnits = parsed[parsed.length - 1];
         }
+      }
 
-        if (costValue > 0 || marketValue > 0) {
-          holdings.push({
-            id: `cas_${idCounter++}`,
-            name: schemeName,
-            assetType: detectAssetType(schemeName),
-            investedAmount: costValue || marketValue,
-            currentValue: marketValue || costValue,
-            units: closingUnits > 0 ? closingUnits : undefined,
-            currentPrice: navValue > 0 ? navValue : undefined,
-            selected: true,
-          });
+      // Extract NAV
+      if (/^nav\s|nav\s*on|nav\s*[:(]/i.test(line)) {
+        const nums = line.match(/[\d,]+(?:\.\d+)?/g);
+        if (nums) {
+          const parsed = nums.map(parseCleanNumber).filter((n) => n > 0);
+          if (parsed.length > 0) navValue = parsed[parsed.length - 1];
         }
       }
     }
 
-    i++;
-  }
-
-  // ── FALLBACK: For non-standard or broker PDFs ──
-  if (holdings.length === 0) {
-    let currentScheme = '';
-    let costAcc = 0, mktAcc = 0;
-
-    const flushScheme = () => {
-      if (currentScheme && (costAcc > 0 || mktAcc > 0)) {
-        const current = mktAcc > 0 ? mktAcc : costAcc;
-        holdings.push({
-          id: `fallback_${idCounter++}`,
-          name: currentScheme,
-          assetType: detectAssetType(currentScheme),
-          investedAmount: costAcc || current,
-          currentValue: current,
-          selected: true,
-        });
-      }
-      currentScheme = ''; costAcc = 0; mktAcc = 0;
-    };
-
-    for (let li = 0; li < sortedLines.length; li++) {
-      const line = sortedLines[li];
-      const lineLower = line.toLowerCase();
-
-      // Don't treat valuation summary lines as schemes
-      if (/(?:market|cost|total\s*cost|current|present|latest)\s*val(?:ue)?\s*[:：]/i.test(line)) {
-        const c = extractLabeledValue(line, /(?:total\s*)?cost\s*(?:value)?/i);
-        const m = extractLabeledValue(line, /(?:market|current|present|latest)\s*(?:value|val)/i);
-        if (c > 0) costAcc = c;
-        if (m > 0) mktAcc = m;
-        continue;
-      }
-
-      if (!currentScheme) {
-        let candidate = line.replace(/\s{2,}/g, ' ').trim();
-        const cleaned = cleanSchemeName(candidate);
-        if (
-          cleaned.length > 5 && cleaned.length < 150 &&
-          isValidHoldingName(cleaned) &&
-          !cleaned.toLowerCase().includes('cost') &&
-          !cleaned.toLowerCase().includes('market') &&
-          !cleaned.toLowerCase().includes('value') &&
-          !cleaned.toLowerCase().includes('valuation') &&
-          !/^\d/.test(cleaned) &&
-          !/^(dividend|sip|stp|swp|systematic|switch|redemption|purchase|sale|transaction|allotment)/i.test(cleaned)
-        ) {
-          currentScheme = cleaned;
-          continue;
-        }
-      } else {
-        let candidate = line.replace(/\s{2,}/g, ' ').trim();
-        const cleaned = cleanSchemeName(candidate);
-        if (
-          isValidHoldingName(cleaned) && cleaned.length > 5 && cleaned.length < 150 && !/^\d/.test(cleaned) &&
-          !lineLower.includes('cost') && !lineLower.includes('market') && !lineLower.includes('value') && !lineLower.includes('valuation') &&
-          !/^(dividend|sip|stp|swp|systematic|switch|redemption|purchase|sale|transaction|allotment)/i.test(lineLower)
-        ) {
-          flushScheme();
-          currentScheme = cleaned;
-          continue;
-        }
-
-        const c = extractLabeledValue(line, /(?:total\s*)?cost\s*(?:value)?/i);
-        const m = extractLabeledValue(line, /(?:market|current|present|latest)\s*(?:value|val)/i);
-        if (c > 0) costAcc = c;
-        if (m > 0) mktAcc = m;
-        if (/\bfolio\s*(no|number)?\s*[:.]/i.test(line)) flushScheme();
-      }
+    // Infer missing values if possible
+    if (marketValue === 0 && closingUnits > 0 && navValue > 0) {
+      marketValue = closingUnits * navValue;
     }
-    flushScheme();
+    if (marketValue > 0 && costValue === 0) {
+      costValue = marketValue;
+    }
+    if (costValue > 0 && marketValue === 0) {
+      marketValue = costValue;
+    }
+
+    if (costValue > 0 || marketValue > 0) {
+      const detailed = detectDetailedAssetType(schemeName);
+      holdings.push({
+        id: `cas_${idCounter++}`,
+        name: schemeName,
+        assetType: detailed.assetType,
+        subType: detailed.subType,
+        sector: detailed.sector,
+        investedAmount: cleanCurrency(costValue),
+        currentValue: cleanCurrency(marketValue),
+        units: cleanUnits(closingUnits),
+        currentPrice: navValue > 0 ? cleanCurrency(navValue) : undefined,
+        folioNo: folioNo || undefined,
+        selected: true,
+        isValid: true,
+      });
+    }
   }
 
-  // Deduplicate by name prefix
+  // Deduplicate by scheme name
   const seen = new Set<string>();
   return holdings.filter((h) => {
     const key = h.name.toLowerCase().substring(0, 30);
@@ -535,6 +501,63 @@ export async function extractRawGrid(file: File, password?: string): Promise<Raw
     return { fileName: file.name, sheets: [{ sheetName: 'PDF', rows: lines }] };
   }
 
+  // Word Document (.docx / .doc)
+  if (ext === 'docx' || ext === 'doc') {
+    const buffer = await file.arrayBuffer();
+    let html = '';
+    try {
+      const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
+      html = result.value || '';
+    } catch (e) {
+      // ignore
+    }
+
+    const sheets: { sheetName: string; rows: (string | number)[][] }[] = [];
+    const tableMatches = Array.from(html.matchAll(/<table[^>]*>([\s\S]*?)<\/table>/gi));
+
+    if (tableMatches.length > 0) {
+      tableMatches.forEach((tableMatch, tIdx) => {
+        const tableHtml = tableMatch[1];
+        const trMatches = tableHtml.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi);
+        const rows: (string | number)[][] = [];
+        for (const trMatch of trMatches) {
+          const cells: string[] = [];
+          const tdMatches = trMatch[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi);
+          for (const tdMatch of tdMatches) {
+            const cleanCell = tdMatch[1]
+              .replace(/<[^>]+>/g, '')
+              .replace(/&nbsp;/g, ' ')
+              .replace(/&amp;/g, '&')
+              .replace(/&#39;/g, "'")
+              .replace(/&quot;/g, '"')
+              .trim();
+            cells.push(cleanCell);
+          }
+          if (cells.length > 0) rows.push(cells);
+        }
+        if (rows.length > 0) {
+          sheets.push({ sheetName: `Word Table ${tIdx + 1}`, rows });
+        }
+      });
+    }
+
+    if (sheets.length > 0) {
+      return { fileName: file.name, sheets };
+    }
+
+    // Fallback for paragraph-based tables or lists
+    const pMatches = html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi);
+    const pRows: (string | number)[][] = [];
+    for (const pMatch of pMatches) {
+      const text = pMatch[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+      if (text) {
+        const parts = text.includes('\t') ? text.split('\t') : text.includes(',') ? text.split(',') : [text];
+        pRows.push(parts.map((s) => s.trim()));
+      }
+    }
+    return { fileName: file.name, sheets: [{ sheetName: 'Word Document', rows: pRows }] };
+  }
+
   // Excel / CSV / TSV
   const buffer = await file.arrayBuffer();
   let workbook: XLSX.WorkBook;
@@ -549,7 +572,10 @@ export async function extractRawGrid(file: File, password?: string): Promise<Raw
     const sheet = workbook.Sheets[name];
     let rawRows: any[][] = sheet ? XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) : [];
 
-    // If CSV with semicolon or tab was parsed into 1 column with delimiter in text:
+    rawRows = rawRows.map((row) =>
+      row.map((c) => ((c as any) instanceof Date ? '' : c))
+    );
+
     if (rawRows.length > 0 && rawRows[0].length === 1 && typeof rawRows[0][0] === 'string') {
       const firstCell = rawRows[0][0];
       const delim = firstCell.includes(';') ? ';' : firstCell.includes('\t') ? '\t' : firstCell.includes('|') ? '|' : null;
@@ -565,7 +591,7 @@ export async function extractRawGrid(file: File, password?: string): Promise<Raw
 }
 
 // ──────────────────────────────────────────
-// Excel / CSV Auto-Extraction (Header-Based)
+// Fund & Stock Grid Auto-Extractor (Header & Entity Based)
 // ──────────────────────────────────────────
 
 export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
@@ -575,7 +601,10 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
     const matrix = sheet.rows;
     if (!matrix || matrix.length === 0) continue;
 
-    // 1. Find header row — search for column names using structural patterns
+    const safeMatrix = matrix.map((row) =>
+      row.map((c) => ((c as any) instanceof Date ? '' : c))
+    );
+
     let headerIdx = -1;
     let nameCol = -1;
     let invCol = -1;
@@ -584,60 +613,155 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
     let buyPriceCol = -1;
     let curPriceCol = -1;
     let pnlCol = -1;
+    let typeCol = -1;
+    let sectorCol = -1;
+    let folioCol = -1;
+    let brokerCol = -1;
 
-    for (let r = 0; r < Math.min(matrix.length, 35); r++) {
-      const row = matrix[r].map((c) => String(c || '').trim().toLowerCase());
+    // Scan up to 35 rows for the true table header
+    for (let r = 0; r < Math.min(safeMatrix.length, 35); r++) {
+      const rawRow = safeMatrix[r];
+      const row = rawRow.map((c) => String(c || '').replace(/\s+/g, ' ').trim().toLowerCase());
 
-      // Look for a holding / instrument / scheme name column, excluding metadata names like "client name"
-      let foundNameCol = -1;
-      const specificIdx = row.findIndex((c) =>
-        /^(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|instrument|symbol|security\s*name|holding\s*name|particulars?)$/i.test(c)
-      );
+      let tempInv = -1;
+      let tempCur = -1;
+      let tempQty = -1;
+      let tempBuy = -1;
+      let tempCurP = -1;
+      let tempPnl = -1;
+      let tempType = -1;
+      let tempSector = -1;
+      let tempFolio = -1;
+      let tempBroker = -1;
+      let tempName = -1;
 
-      if (specificIdx !== -1) {
-        foundNameCol = specificIdx;
-      } else {
-        foundNameCol = row.findIndex((c) =>
-          !/client|investor|nominee|account\s*holder|user\s*name|broker|depository|dp\s*name/i.test(c) &&
-          /scheme|instrument|symbol|stock|holding|particular|security|company|scrip|asset|description|name/i.test(c)
-        );
-      }
+      row.forEach((colName, cIdx) => {
+        if (!colName) return;
 
-      if (foundNameCol !== -1) {
-        let tempInv = -1, tempCur = -1, tempQty = -1, tempBuy = -1, tempCurP = -1, tempPnl = -1;
-        row.forEach((colName, cIdx) => {
-          if (/qty|quantity|units|shares|volume|balance/i.test(colName) && tempQty === -1) tempQty = cIdx;
-          else if (/invested|cost.*val|purchase.*val|inv.*val|total.*cost|buy.*val|principal/i.test(colName) && tempInv === -1) tempInv = cIdx;
-          else if (/current|market.*val|cur.*val|present.*val|latest.*val|val.*today|valuation/i.test(colName) && tempCur === -1) tempCur = cIdx;
-          else if (/buy.*price|avg.*cost|avg.*price|buy.*avg|cost.*price/i.test(colName) && tempBuy === -1) tempBuy = cIdx;
-          else if (/ltp|cmp|current.*price|market.*price|nav|closing/i.test(colName) && tempCurP === -1) tempCurP = cIdx;
-          else if (/p\&l|profit.*loss|unrealized/i.test(colName) && tempPnl === -1) tempPnl = cIdx;
-        });
-
-        const hasValueCol = tempInv !== -1 || tempCur !== -1 || tempQty !== -1 || tempPnl !== -1 || tempBuy !== -1 || tempCurP !== -1;
-        if (!hasValueCol) {
-          // It's a title row or client name label — continue searching for the real header
-          continue;
+        // Skip metadata / personal info headers
+        if (/client|investor|nominee|account\s*holder|user\s*name|pan|aadhaar|mobile|phone|email|address/i.test(colName)) {
+          return;
         }
 
+        // 1. Quantity / Units
+        if (tempQty === -1 && /^(qty|quantity|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty)$/i.test(colName)) {
+          tempQty = cIdx;
+        } else if (tempQty === -1 && /\b(qty|quantity|units?|shares|volume)\b/i.test(colName) && !/price|val|cost|amount/i.test(colName)) {
+          tempQty = cIdx;
+        }
+
+        // 2. Buy Price / Avg Price
+        else if (tempBuy === -1 && /\b(buy\s*price|avg\s*price|average\s*price|avg\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate)\b/i.test(colName)) {
+          tempBuy = cIdx;
+        }
+
+        // 3. Current Price / LTP / CMP / NAV
+        else if (tempCurP === -1 && /\b(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|\bnav\b|closing\s*price|last\s*traded\s*price)\b/i.test(colName) && !/total|val/i.test(colName)) {
+          tempCurP = cIdx;
+        }
+
+        // 4. Current Value / Market Value
+        else if (tempCur === -1 && (/(current|market|present|latest|today|portfolio|cur|mkt)\s*val(ue)?/i.test(colName) || /^(valuation|value|current|mkt\s*val)$/i.test(colName)) && !/price|nav|cost/i.test(colName)) {
+          tempCur = cIdx;
+        }
+
+        // 5. Invested Amount / Cost Basis
+        else if (tempInv === -1 && /(invested|investment|principal|purchase\s*val(ue)?|purchase\s*cost|cost\s*val(ue)?|book\s*val(ue)?|total\s*cost|amt\s*inv|amount\s*invested)/i.test(colName) && !/price|nav|avg/i.test(colName)) {
+          tempInv = cIdx;
+        } else if (tempInv === -1 && /^(cost|invested|investment|principal|cost\s*basis)$/i.test(colName)) {
+          tempInv = cIdx;
+        }
+
+        // 6. P&L / Returns
+        else if (tempPnl === -1 && /\b(p\&l|profit|loss|gain|returns?|unrealized|unrealised)\b/i.test(colName)) {
+          tempPnl = cIdx;
+        }
+
+        // 7. Asset Class / Type / Category
+        else if (tempType === -1 && /\b(asset\s*class|asset\s*type|asset\s*category|instrument\s*type|security\s*type|holding\s*type|investment\s*type)\b/i.test(colName)) {
+          tempType = cIdx;
+        } else if (tempType === -1 && /^(type|category|sub\s*category|class|segment)$/i.test(colName)) {
+          tempType = cIdx;
+        }
+
+        // 8. Sector / Industry
+        else if (tempSector === -1 && /\b(sector|industry|theme)\b/i.test(colName) && !/fund|scheme/i.test(colName)) {
+          tempSector = cIdx;
+        }
+
+        // 9. Folio / ISIN
+        else if (tempFolio === -1 && /\b(folio|isin|dp\s*id|demat|scrip\s*code)\b/i.test(colName)) {
+          tempFolio = cIdx;
+        }
+
+        // 10. Broker / Platform
+        else if (tempBroker === -1 && /\b(broker|platform|depository|source)\b/i.test(colName)) {
+          tempBroker = cIdx;
+        }
+      });
+
+      // Find the holding / stock / scheme name column, explicitly excluding value/type/metadata columns
+      const specificNameIdx = row.findIndex((c) =>
+        /^(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|instrument|symbol|security\s*name|holding\s*name|scrip|particulars?|instrument\s*name|asset\s*name)$/i.test(c)
+      );
+
+      if (specificNameIdx !== -1) {
+        tempName = specificNameIdx;
+      } else {
+        tempName = row.findIndex((c, idx) => {
+          if (
+            idx === tempInv ||
+            idx === tempCur ||
+            idx === tempQty ||
+            idx === tempBuy ||
+            idx === tempCurP ||
+            idx === tempPnl ||
+            idx === tempType ||
+            idx === tempSector ||
+            idx === tempFolio ||
+            idx === tempBroker
+          ) {
+            return false;
+          }
+          if (/client|investor|nominee|account|user|pan|aadhaar|mobile|phone|email|address|date|status|sl\s*no|s\.no|sr\s*no/i.test(c)) {
+            return false;
+          }
+          return /scheme|fund|stock|scrip|company|symbol|security|holding|particular|instrument|description|name/i.test(c);
+        });
+      }
+
+      const hasValue = tempInv !== -1 || tempCur !== -1 || tempQty !== -1 || tempCurP !== -1 || tempBuy !== -1 || tempPnl !== -1;
+      if (tempName !== -1 && hasValue) {
         headerIdx = r;
-        nameCol = foundNameCol;
+        nameCol = tempName;
         invCol = tempInv;
         curCol = tempCur;
         qtyCol = tempQty;
         buyPriceCol = tempBuy;
         curPriceCol = tempCurP;
         pnlCol = tempPnl;
+        typeCol = tempType;
+        sectorCol = tempSector;
+        folioCol = tempFolio;
+        brokerCol = tempBroker;
         break;
       }
     }
 
     if (headerIdx !== -1 && nameCol !== -1) {
-      for (let r = headerIdx + 1; r < matrix.length; r++) {
-        const row = matrix[r];
+      for (let r = headerIdx + 1; r < safeMatrix.length; r++) {
+        const row = safeMatrix[r];
         if (!row || row.length === 0) continue;
+        if (row.length <= nameCol) continue;
 
         const rawName = String(row[nameCol] || '').trim();
+        if (!rawName) continue;
+
+        // Skip date rows, personal info, and summary/footer rows
+        if (/^\d{2}[-/]\d{2}[-/]\d{2,4}/.test(rawName)) continue;
+        if (/^\d+$/.test(rawName)) continue;
+        if (isPersonalInfo(rawName)) continue;
+        if (/total|sub\s*total|grand\s*total|summary|footer|page\s+\d/i.test(rawName)) continue;
         if (!isValidHoldingName(rawName)) continue;
 
         let units = qtyCol !== -1 ? parseCleanNumber(row[qtyCol]) : undefined;
@@ -647,7 +771,13 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         let current = curCol !== -1 ? parseCleanNumber(row[curCol]) : 0;
         let pnl = pnlCol !== -1 ? parseCleanNumber(row[pnlCol]) : undefined;
 
-        // Compute missing values from available data
+        // Read real, original type, sector, broker and folio directly from file columns!
+        const rawType = typeCol !== -1 ? String(row[typeCol] || '').trim() : undefined;
+        const rawSector = sectorCol !== -1 ? String(row[sectorCol] || '').trim() : undefined;
+        const rawFolio = folioCol !== -1 ? String(row[folioCol] || '').trim() : undefined;
+        const rawBroker = brokerCol !== -1 ? String(row[brokerCol] || '').trim() : undefined;
+
+        // Derive missing financial numbers from existing row data if needed
         if (invested === 0 && units && buyPrice) invested = units * buyPrice;
         if (current === 0 && units && currentPrice) current = units * currentPrice;
         if (current === 0 && invested > 0 && pnl !== undefined) current = invested + pnl;
@@ -655,45 +785,56 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         if (invested === 0 && current > 0) invested = current;
         if (current === 0 && invested > 0) current = invested;
 
-        // Reject absurdly large values
         if (invested > 500000000 || current > 500000000) continue;
 
         if (invested > 0 || current > 0) {
+          const detailed = detectDetailedAssetType(rawName, rawType, rawSector);
           holdings.push({
             id: `auto_${sheet.sheetName}_${r}_${Date.now()}`,
             name: rawName,
-            assetType: detectAssetType(rawName),
-            investedAmount: Math.abs(Number(invested.toFixed(2))),
-            currentValue: Math.abs(Number(current.toFixed(2))),
-            units: units && units > 0 ? Number(units.toFixed(3)) : undefined,
-            buyPrice: buyPrice && buyPrice > 0 ? Number(buyPrice.toFixed(2)) : undefined,
-            currentPrice: currentPrice && currentPrice > 0 ? Number(currentPrice.toFixed(2)) : undefined,
+            assetType: detailed.assetType,
+            subType: rawType || detailed.subType,
+            sector: rawSector || undefined,
+            broker: rawBroker || undefined,
+            folioNo: rawFolio || undefined,
+            investedAmount: cleanCurrency(Math.abs(invested)),
+            currentValue: cleanCurrency(Math.abs(current)),
+            units: cleanUnits(units),
+            buyPrice: buyPrice && buyPrice > 0 ? cleanCurrency(buyPrice) : undefined,
+            currentPrice: currentPrice && currentPrice > 0 ? cleanCurrency(currentPrice) : undefined,
             selected: true,
+            isValid: true,
           });
         }
       }
     } else {
       // Positional Scan fallback
       const TX_MARKERS = /^(purchase|redemption|switch|sip|dividend|stp|swp|systematic|allotment|bonus|split|merger|transaction|nav|price|amount|balance|units)$/i;
-      for (let r = 0; r < matrix.length; r++) {
-        const row = matrix[r];
+      for (let r = 0; r < safeMatrix.length; r++) {
+        const row = safeMatrix[r];
         if (!row || row.length < 2) continue;
 
-        const stringCell = row.find((c: any) => typeof c === 'string' && isValidHoldingName(c) && !TX_MARKERS.test(c));
+        const stringCell = row.find(
+          (c: any) => typeof c === 'string' && isValidHoldingName(c) && !TX_MARKERS.test(c) && !isPersonalInfo(c)
+        );
         if (!stringCell) continue;
 
         const numCells = row.map(parseCleanNumber).filter((n: number) => n > 100 && n < 500000000);
         if (numCells.length >= 1) {
           const invested = numCells[0];
           const current = numCells.length >= 2 ? numCells[1] : invested;
+          const detailed = detectDetailedAssetType(String(stringCell));
 
           holdings.push({
             id: `pos_${sheet.sheetName}_${r}_${Date.now()}`,
             name: String(stringCell).trim(),
-            assetType: detectAssetType(String(stringCell)),
-            investedAmount: Math.abs(Number(invested.toFixed(2))),
-            currentValue: Math.abs(Number(current.toFixed(2))),
+            assetType: detailed.assetType,
+            subType: detailed.subType,
+            sector: undefined,
+            investedAmount: cleanCurrency(Math.abs(invested)),
+            currentValue: cleanCurrency(Math.abs(current)),
             selected: true,
+            isValid: true,
           });
         }
       }
@@ -724,7 +865,6 @@ export async function parseInvestmentFile(
   const ext = file.name.split('.').pop()?.toLowerCase();
 
   if (ext === 'pdf') {
-    // Dedicated CAS PDF parser first (structure-based)
     const casHoldings = await parseCASPdf(file, password);
     const rawGrid = await extractRawGrid(file, password);
 
@@ -732,7 +872,6 @@ export async function parseInvestmentFile(
       return { holdings: casHoldings, rawGrid };
     }
 
-    // Fallback to raw grid auto-extract for non-CAS PDFs
     const gridHoldings = autoExtractHoldings(rawGrid);
     return { holdings: gridHoldings, rawGrid };
   }

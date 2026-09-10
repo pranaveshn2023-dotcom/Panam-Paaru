@@ -7,6 +7,9 @@ import { AllocationChart } from './InvestmentChart';
 import { ReturnsChart } from './InvestmentChart';
 import { PortfolioTrendChart } from './InvestmentChart';
 import { InvestmentCard } from './InvestmentCard';
+import { useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
+import { fetchAmfiNav } from '../../utils/liveMarketService';
 import {
   TrendingUp,
   TrendingDown,
@@ -39,6 +42,7 @@ import {
   Download,
   Filter,
   Search,
+  Building2,
 } from 'lucide-react';
 
 interface InvestmentDashboardProps {
@@ -65,10 +69,14 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   const { formatPrivateAmount, isPrivacyMode, togglePrivacyMode } = usePrivacy();
   
   const [selectedFilter, setSelectedFilter] = useState<'all' | AssetType>('all');
+  const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>('all');
   const [quickUpdateId, setQuickUpdateId] = useState<string | null>(null);
   const [quickValueInput, setQuickValueInput] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'value' | 'returns' | 'gainPercent'>('value');
+  const [isSyncingNav, setIsSyncingNav] = useState(false);
+
+  const batchUpdateLivePricesMutation = useMutation(api.investments.batchUpdateLivePrices);
 
   const totalInvested = portfolioSummary?.totalInvested ?? 0;
   const totalCurrentValue = portfolioSummary?.totalCurrentValue ?? 0;
@@ -79,12 +87,22 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   const isPositiveReturns = totalReturns >= 0;
   const portfolioGainPercent = totalCurrentValue > 0 ? Number(((totalReturns / totalInvested) * 100).toFixed(2)) : 0;
 
+  // Distinct brokers present in portfolio
+  const availableBrokers = Array.from(
+    new Set(investments.map((i) => i.broker).filter(Boolean))
+  ) as string[];
+
   const filteredInvestments = investments
     .filter((inv) => {
       const matchesFilter = selectedFilter === 'all' || inv.assetType === selectedFilter;
-      const matchesSearch = inv.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      const matchesBroker = selectedBrokerFilter === 'all' || inv.broker === selectedBrokerFilter;
+      const matchesSearch =
+        inv.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (inv.sector?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
+        (inv.subType?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
+        (inv.broker?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
         (inv.notes?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false);
-      return matchesFilter && matchesSearch;
+      return matchesFilter && matchesBroker && matchesSearch;
     })
     .sort((a, b) => {
       switch (sortBy) {
@@ -116,8 +134,48 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     toast.success('Value updated!');
   };
 
-  const handleRefreshAll = async () => {
-    toast.info('Refreshing portfolio...');
+  const handleSyncLiveNav = async () => {
+    try {
+      setIsSyncingNav(true);
+      toast.info('Fetching live AMFI daily NAVs & market prices...');
+
+      const updates: { id: any; currentValue: number; currentPrice?: number }[] = [];
+
+      for (const inv of investments) {
+        if (inv.assetType === 'mutual_fund') {
+          const live = await fetchAmfiNav(inv.name);
+          if (live && live.nav > 0) {
+            const units = inv.units ?? (inv.investedAmount > 0 && inv.buyPrice ? inv.investedAmount / inv.buyPrice : 0);
+            if (units > 0) {
+              const updatedVal = Math.round(units * live.nav * 100) / 100;
+              updates.push({
+                id: inv._id as any,
+                currentValue: updatedVal,
+                currentPrice: live.nav,
+              });
+            }
+          }
+        } else if (inv.assetType === 'stocks' && inv.units && inv.currentPrice) {
+          const updatedVal = Math.round(inv.units * inv.currentPrice * 100) / 100;
+          updates.push({
+            id: inv._id as any,
+            currentValue: updatedVal,
+            currentPrice: inv.currentPrice,
+          });
+        }
+      }
+
+      if (updates.length > 0) {
+        await batchUpdateLivePricesMutation({ updates });
+        toast.success(`Updated ${updates.length} holdings to real market value!`);
+      } else {
+        toast.info('All holdings are up to date with real market valuation.');
+      }
+      setIsSyncingNav(false);
+    } catch (err: any) {
+      setIsSyncingNav(false);
+      toast.error('Sync failed: ' + (err?.message || 'Network error'));
+    }
   };
 
   const ASSET_TABS: { label: string; value: 'all' | AssetType }[] = [
@@ -147,6 +205,9 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
                 <span className="text-[10px] font-mono font-black uppercase tracking-widest bg-[#121212] text-[#FFE600] px-2 py-0.5">
                   WEALTH & PORTFOLIO ENGINE
                 </span>
+                <span className="text-[10px] font-black bg-[#00F0FF] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
+                  <Activity size={11} className="text-[#121212]" /> AMFI LIVE NAVs
+                </span>
                 {totalReturnsPercent >= 12 && (
                   <span className="text-[10px] font-black bg-[#05DF72] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
                     <Sparkles size={11} /> HIGH ALPHA
@@ -164,11 +225,21 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
                 INVESTMENT TRACKER
               </h2>
               <p className="text-xs font-bold text-neutral-800 mt-0.5">
-                {totalHoldings} holdings · {currencySymbol}{isPrivacyMode ? '••••' : totalCurrentValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })} portfolio value
+                {totalHoldings} holdings · {currencySymbol}{isPrivacyMode ? '••••' : totalCurrentValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })} real market valuation
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <NeoButton
+                variant="outline"
+                size="md"
+                onClick={handleSyncLiveNav}
+                disabled={isSyncingNav}
+                className="flex items-center gap-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212]"
+              >
+                <RefreshCw size={15} strokeWidth={2.5} className={isSyncingNav ? 'animate-spin' : ''} />
+                <span className="hidden sm:inline">{isSyncingNav ? 'Syncing...' : 'Sync Market NAVs'}</span>
+              </NeoButton>
               <NeoButton variant="outline" size="md" onClick={onOpenImportModal} className="flex items-center gap-1.5 bg-white">
                 <UploadCloud size={16} strokeWidth={2.5} />
                 <span className="hidden sm:inline">Import</span>
@@ -275,6 +346,25 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             <option value="name">Sort by Name</option>
           </select>
 
+          {/* Broker Filter */}
+          {availableBrokers.length > 0 && (
+            <div className="flex items-center gap-1">
+              <Building2 size={13} className="text-neutral-500" />
+              <select
+                value={selectedBrokerFilter}
+                onChange={(e) => setSelectedBrokerFilter(e.target.value)}
+                className="px-2 py-1.5 text-xs font-black bg-[#FFE600] border border-[#121212] cursor-pointer text-[#121212]"
+              >
+                <option value="all">All Brokers ({availableBrokers.length})</option>
+                {availableBrokers.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Filter Tabs */}
           <div className="flex items-center gap-1 overflow-x-auto pb-1">
             {ASSET_TABS.map((tab) => (
@@ -298,11 +388,12 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             {filteredInvestments.length} holdings
           </span>
           <button
-            onClick={handleRefreshAll}
+            onClick={handleSyncLiveNav}
+            disabled={isSyncingNav}
             className="p-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-            title="Refresh"
+            title="Sync Real Market NAVs & Prices"
           >
-            <RefreshCw size={14} strokeWidth={2.5} />
+            <RefreshCw size={14} strokeWidth={2.5} className={isSyncingNav ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>

@@ -3,16 +3,19 @@ import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import {
   extractRawGrid,
-  autoExtractHoldings,
   parseInvestmentFile,
   parsePastedText,
   parseCleanNumber,
-  detectAssetType,
+  cleanCurrency,
+  cleanUnits,
   ParsedHolding,
   RawFileContent,
   PasswordRequiredError,
 } from '../../utils/investmentParser';
-import { AssetType } from '../../types';
+import { detectDetailedAssetType } from '../../utils/liveMarketService';
+import { AssetType, ImportBatch } from '../../types';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 import {
   Upload,
   FileSpreadsheet,
@@ -22,14 +25,20 @@ import {
   Trash2,
   Sparkles,
   Layers,
-  Clipboard,
+  ChevronDown,
+  ChevronRight,
   Plus,
   SlidersHorizontal,
   Lock,
   KeyRound,
   Eye,
   EyeOff,
+  RotateCcw,
+  Clock,
+  Building2,
+  X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
 
 interface InvestmentImportModalProps {
@@ -39,26 +48,48 @@ interface InvestmentImportModalProps {
     items: {
       name: string;
       assetType: AssetType;
+      subType?: string;
+      sector?: string;
+      broker?: string;
       investedAmount: number;
       currentValue: number;
       units?: number;
       buyPrice?: number;
       currentPrice?: number;
       notes?: string;
-    }[]
+    }[],
+    fileName?: string,
+    broker?: string
   ) => Promise<void>;
   currencySymbol?: string;
 }
 
-const ASSET_TYPES: { label: string; value: AssetType }[] = [
-  { label: 'Mutual Fund', value: 'mutual_fund' },
-  { label: 'Stocks', value: 'stocks' },
-  { label: 'FD & RD', value: 'fd_rd' },
-  { label: 'Gold & Silver', value: 'gold' },
-  { label: 'Crypto', value: 'crypto' },
-  { label: 'PPF / EPF', value: 'ppf_epf' },
-  { label: 'Real Estate', value: 'real_estate' },
-  { label: 'Other', value: 'other' },
+const GRANULAR_ASSET_TYPES: { label: string; assetType: AssetType; subType: string }[] = [
+  { label: 'Equity Mutual Fund', assetType: 'mutual_fund', subType: 'Equity Mutual Fund' },
+  { label: 'Hybrid Mutual Fund', assetType: 'mutual_fund', subType: 'Hybrid Mutual Fund' },
+  { label: 'Debt Mutual Fund', assetType: 'mutual_fund', subType: 'Debt Mutual Fund' },
+  { label: 'Stock / Equity', assetType: 'stocks', subType: 'Stock / Equity' },
+  { label: 'Gold & Precious Metals', assetType: 'gold', subType: 'Gold & Precious Metals' },
+  { label: 'Cryptocurrency', assetType: 'crypto', subType: 'Cryptocurrency' },
+  { label: 'Fixed Deposit / Bonds', assetType: 'fd_rd', subType: 'Fixed Deposit / Bonds' },
+  { label: 'Retirement & Provident', assetType: 'ppf_epf', subType: 'Retirement & Provident' },
+  { label: 'Real Estate & REITs', assetType: 'real_estate', subType: 'Real Estate & REITs' },
+  { label: 'Other Asset', assetType: 'other', subType: 'Other Asset' },
+];
+
+const BROKER_OPTIONS = [
+  'Auto-Detect Broker',
+  'CAMS / KFintech CAS',
+  'Zerodha (Kite / Console)',
+  'Groww',
+  'Upstox',
+  'Angel One',
+  'INDmoney',
+  'Dhan',
+  'ICICI Direct',
+  'HDFC Sky',
+  'Bank Statement',
+  'Custom CSV / Excel',
 ];
 
 export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
@@ -68,13 +99,16 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   currencySymbol = '₹',
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'paste'>('upload');
+  const [importMode, setImportMode] = useState<'investments' | 'expenses'>('investments');
+  const [selectedBroker, setSelectedBroker] = useState<string>('Auto-Detect Broker');
   const [isParsing, setIsParsing] = useState(false);
   const [rawGrid, setRawGrid] = useState<RawFileContent | null>(null);
   const [parsedHoldings, setParsedHoldings] = useState<ParsedHolding[]>([]);
   const [pastedText, setPastedText] = useState('');
   const [error, setError] = useState<string>('');
   const [isImporting, setIsImporting] = useState(false);
-  const [showColumnMapper, setShowColumnMapper] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+  const [isRecentImportsOpen, setIsRecentImportsOpen] = useState(false);
 
   // Password Protection State
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -83,16 +117,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const [passwordError, setPasswordError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // Column Mapper State
-  const [selectedSheetIdx, setSelectedSheetIdx] = useState(0);
-  const [headerRowIdx, setHeaderRowIdx] = useState(0);
-  const [nameColIdx, setNameColIdx] = useState<number>(0);
-  const [investedColIdx, setInvestedColIdx] = useState<number>(1);
-  const [currentColIdx, setCurrentColIdx] = useState<number>(2);
-  const [qtyColIdx, setQtyColIdx] = useState<number>(-1);
-  const [buyPriceColIdx, setBuyPriceColIdx] = useState<number>(-1);
-  const [curPriceColIdx, setCurPriceColIdx] = useState<number>(-1);
-  const [notesColIdx, setNotesColIdx] = useState<number>(-1);
+  // Convex Queries & Mutations for Batch History & 1-Click Rollback
+  const importBatches = useQuery(api.investments.listImportBatches) as ImportBatch[] | undefined;
+  const undoBatchMutation = useMutation(api.investments.undoImportBatch);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -103,19 +130,12 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     setError('');
     setIsParsing(false);
     setIsImporting(false);
-    setShowColumnMapper(false);
+    setExpandedRows({});
     setPendingFile(null);
     setPdfPassword('');
     setIsPasswordPrompt(false);
     setPasswordError('');
     setShowPassword(false);
-    setNameColIdx(0);
-    setInvestedColIdx(1);
-    setCurrentColIdx(2);
-    setQtyColIdx(-1);
-    setBuyPriceColIdx(-1);
-    setCurPriceColIdx(-1);
-    setNotesColIdx(-1);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -133,34 +153,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
       if (result.holdings.length > 0) {
         setParsedHoldings(result.holdings);
-        setShowColumnMapper(false);
       } else {
-        // Fallback to Visual Column Mapper — detect headers from the file header row
-        setShowColumnMapper(true);
-        if (result.rawGrid.sheets[0]?.rows?.[0]) {
-          const headerRow = result.rawGrid.sheets[0].rows[0];
-          // Detect column indices using the same logic as autoExtractHoldings
-          let nameCol = -1, invCol = -1, curCol = -1;
-          headerRow.forEach((colName, cIdx) => {
-            const lower = String(colName || '').trim().toLowerCase();
-            // Scheme/instrument name column
-            if (nameCol === -1 && !/client|investor|nominee|account|user|broker|depository|dp/i.test(lower) && (/scheme|instrument|symbol|stock|holding|particular|security|company|scrip|asset|description|name/i.test(lower))) {
-              nameCol = cIdx;
-            }
-            // Invested/cost amount
-            if (invCol === -1 && /invested|cost.*val|purchase.*val|inv.*val|total.*cost|buy.*val|principal/i.test(lower)) {
-              invCol = cIdx;
-            }
-            // Current/market value
-            if (curCol === -1 && /current|market.*val|cur.*val|present.*val|latest.*val|val.*today|valuation/i.test(lower)) {
-              curCol = cIdx;
-            }
-          });
-          // Set defaults: use detected columns, fallback to positional if needed
-          setNameColIdx(nameCol !== -1 ? nameCol : 0);
-          setInvestedColIdx(invCol !== -1 ? invCol : Math.min(1, headerRow.length - 1));
-          setCurrentColIdx(curCol !== -1 ? curCol : Math.min(2, headerRow.length - 1));
-        }
+        setError('No holdings found in file. Please ensure it is a statement or copy-paste rows.');
       }
       setIsParsing(false);
     } catch (err: any) {
@@ -174,7 +168,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         setIsPasswordPrompt(true);
         setPasswordError(err?.isIncorrectPassword ? 'Incorrect password. Try PAN in uppercase or DOB.' : '');
       } else {
-        setError(err?.message || 'Failed to read file. Please try pasting the text/table directly.');
+        setError(err?.message || 'Failed to read file. Please try pasting the table rows directly.');
       }
     }
   };
@@ -192,15 +186,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       if (result.holdings.length > 0) {
         setParsedHoldings(result.holdings);
         setIsPasswordPrompt(false);
-        setShowColumnMapper(false);
       } else {
-        setShowColumnMapper(true);
+        setError('Password accepted, but no asset rows were found.');
         setIsPasswordPrompt(false);
-        if (result.rawGrid.sheets[0]?.rows?.[0]) {
-          setNameColIdx(0);
-          setInvestedColIdx(Math.min(1, result.rawGrid.sheets[0].rows[0].length - 1));
-          setCurrentColIdx(Math.min(2, result.rawGrid.sheets[0].rows[0].length - 1));
-        }
       }
       setIsParsing(false);
     } catch (err: any) {
@@ -213,58 +201,12 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         setPasswordError(
           err?.isIncorrectPassword
             ? 'Incorrect password. (CAS statements usually use PAN in uppercase or DOB DDMMYYYY).'
-            : 'Password required to unlock this PDF.'
+            : 'Password required to unlock this statement.'
         );
       } else {
         setPasswordError(err?.message || 'Failed to decrypt and parse PDF.');
       }
     }
-  };
-
-  const handleApplyColumnMapping = () => {
-    if (!rawGrid || !rawGrid.sheets[selectedSheetIdx]) return;
-    const sheet = rawGrid.sheets[selectedSheetIdx];
-    const rows = sheet.rows;
-
-    const holdings: ParsedHolding[] = [];
-    for (let r = headerRowIdx + 1; r < rows.length; r++) {
-      const row = rows[r];
-      if (!row || row.length === 0) continue;
-
-      const name = String(row[nameColIdx] || '').trim();
-      if (!name) continue;
-
-      const invested = parseCleanNumber(row[investedColIdx]);
-      const current = parseCleanNumber(row[currentColIdx]) || invested;
-      const units = qtyColIdx !== -1 ? parseCleanNumber(row[qtyColIdx]) : undefined;
-      const buyPrice = buyPriceColIdx !== -1 ? parseCleanNumber(row[buyPriceColIdx]) : undefined;
-      const currentPrice = curPriceColIdx !== -1 ? parseCleanNumber(row[curPriceColIdx]) : undefined;
-      const notes = notesColIdx !== -1 ? String(row[notesColIdx] || '').trim() : 'Statement Import';
-
-      if (invested > 0 || current > 0) {
-        holdings.push({
-          id: `manual_${r}_${Date.now()}`,
-          name,
-          assetType: detectAssetType(name),
-          investedAmount: Math.abs(Number(invested.toFixed(2))),
-          currentValue: Math.abs(Number(current.toFixed(2))),
-          units: units && units > 0 ? Number(units.toFixed(3)) : undefined,
-          buyPrice: buyPrice && buyPrice > 0 ? Number(buyPrice.toFixed(2)) : undefined,
-          currentPrice: currentPrice && currentPrice > 0 ? Number(currentPrice.toFixed(2)) : undefined,
-          notes: notes || 'Statement Import',
-          selected: true,
-        });
-      }
-    }
-
-    if (holdings.length === 0) {
-      setError('No valid rows found with the selected columns. Please check your column selections.');
-      return;
-    }
-
-    setParsedHoldings(holdings);
-    setShowColumnMapper(false);
-    setError('');
   };
 
   const handleParsePasted = () => {
@@ -294,9 +236,12 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         id: newId,
         name: 'New Asset',
         assetType: 'mutual_fund',
+        subType: 'Equity Mutual Fund',
         investedAmount: 10000,
         currentValue: 10000,
+        units: 100,
         selected: true,
+        isValid: true,
       },
     ]);
   };
@@ -312,28 +257,62 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     );
   };
 
+  const toggleRowExpansion = (id: string) => {
+    setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   const updateItemField = (id: string, field: keyof ParsedHolding, val: any) => {
     setParsedHoldings((prev) =>
-      prev.map((h) => (h.id === id ? { ...h, [field]: val } : h))
+      prev.map((h) => {
+        if (h.id !== id) return h;
+        const updated = { ...h, [field]: val };
+        // Recalculate validity
+        updated.isValid = Boolean(updated.name.trim() && (updated.currentValue > 0 || updated.investedAmount > 0));
+        return updated;
+      })
     );
+  };
+
+  const handleTypeChange = (id: string, compositeValue: string) => {
+    const found = GRANULAR_ASSET_TYPES.find((t) => t.subType === compositeValue);
+    if (found) {
+      setParsedHoldings((prev) =>
+        prev.map((h) =>
+          h.id === id ? { ...h, assetType: found.assetType, subType: found.subType } : h
+        )
+      );
+    } else {
+      setParsedHoldings((prev) =>
+        prev.map((h) =>
+          h.id === id ? { ...h, subType: compositeValue } : h
+        )
+      );
+    }
   };
 
   const removeItem = (id: string) => {
     setParsedHoldings((prev) => prev.filter((h) => h.id !== id));
   };
 
-  const selectedCount = parsedHoldings.filter((h) => h.selected).length;
-  const totalSelectedInvested = parsedHoldings
-    .filter((h) => h.selected)
-    .reduce((sum, h) => sum + h.investedAmount, 0);
+  const handleUndoBatch = async (batchId: string) => {
+    try {
+      const res = await undoBatchMutation({ batchId: batchId as any });
+      toast.success(`Rolled back import batch (${res.removedCount} items removed).`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to undo import.');
+    }
+  };
+
+  const validCount = parsedHoldings.filter((h) => h.isValid).length;
+  const selectedCount = parsedHoldings.filter((h) => h.selected && h.isValid).length;
   const totalSelectedCurrent = parsedHoldings
-    .filter((h) => h.selected)
+    .filter((h) => h.selected && h.isValid)
     .reduce((sum, h) => sum + h.currentValue, 0);
 
   const handleImportCommit = async () => {
-    const selected = parsedHoldings.filter((h) => h.selected && h.name.trim());
+    const selected = parsedHoldings.filter((h) => h.selected && h.isValid && h.name.trim());
     if (selected.length === 0) {
-      setError('Please select at least 1 holding to import.');
+      setError('Please select at least 1 valid holding to import.');
       return;
     }
 
@@ -341,22 +320,30 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       setIsImporting(true);
       setError('');
 
+      const brokerTag = selectedBroker === 'Auto-Detect Broker' ? undefined : selectedBroker;
+      const fileName = rawGrid?.fileName || (activeTab === 'paste' ? 'Pasted Table' : 'Statement Import');
+
       await onBatchImport(
         selected.map((h) => ({
           name: h.name.trim(),
           assetType: h.assetType,
-          investedAmount: h.investedAmount,
-          currentValue: h.currentValue,
-          units: h.units,
-          buyPrice: h.buyPrice,
-          currentPrice: h.currentPrice,
+          subType: h.subType,
+          sector: h.sector,
+          broker: h.broker || brokerTag,
+          investedAmount: cleanCurrency(h.investedAmount),
+          currentValue: cleanCurrency(h.currentValue),
+          units: cleanUnits(h.units),
+          buyPrice: h.buyPrice ? cleanCurrency(h.buyPrice) : undefined,
+          currentPrice: h.currentPrice ? cleanCurrency(h.currentPrice) : undefined,
           notes: h.notes || 'Statement Import',
-        }))
+        })),
+        fileName,
+        brokerTag
       );
 
       try {
         confetti({
-          particleCount: 60,
+          particleCount: 70,
           spread: 80,
           origin: { y: 0.6 },
           colors: ['#05DF72', '#FFE600', '#121212'],
@@ -372,9 +359,6 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     }
   };
 
-  const activeSheetRows = rawGrid?.sheets[selectedSheetIdx]?.rows || [];
-  const currentHeaderRow = activeSheetRows[headerRowIdx] || [];
-
   return (
     <NeoModal
       isOpen={isOpen}
@@ -382,14 +366,83 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         resetState();
         onClose();
       }}
-      title="IMPORT INVESTMENTS (PDF / EXCEL / CSV / PASTE)"
+      title=""
       maxWidth="lg"
     >
       <div className="flex flex-col gap-4">
         
+        {/* Header matching Image 2 */}
+        <div className="pb-1 border-b-2 border-[#121212]">
+          <h2 className="text-2xl font-black uppercase text-[#121212] tracking-tight">
+            Import
+          </h2>
+          <p className="text-xs font-semibold text-neutral-600 mt-0.5">
+            Bulk import assets, income & expenses across any broker statement
+          </p>
+        </div>
+
+        {/* Green instructions notice matching Image 2 */}
+        <div className="p-3 bg-[#E8F8F0] border-2 border-[#05DF72] rounded-none text-xs font-bold text-[#0B6B38] flex items-center justify-between gap-2 shadow-neo-sm">
+          <span>
+            Review and edit any row before importing. Click a cell to edit, use the dropdown to change asset class, or remove rows with the X button.
+          </span>
+          {parsedHoldings.length > 0 && (
+            <button
+              onClick={handleAddNewRow}
+              className="px-2.5 py-1 bg-[#121212] text-white text-[10px] font-black uppercase hover:bg-neutral-800 transition-all cursor-pointer shrink-0 flex items-center gap-1"
+            >
+              <Plus size={12} /> Add Row
+            </button>
+          )}
+        </div>
+
         {/* Step 1: Upload or Paste Selector */}
-        {parsedHoldings.length === 0 && !showColumnMapper && !isPasswordPrompt && (
+        {parsedHoldings.length === 0 && !isPasswordPrompt && (
           <div className="flex flex-col gap-3">
+            {/* Broker & Type Selector */}
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-[#FFFDF5] p-2.5 border-2 border-[#121212]">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase text-neutral-600">Source:</span>
+                <select
+                  value={selectedBroker}
+                  onChange={(e) => setSelectedBroker(e.target.value)}
+                  className="px-2 py-1 text-xs font-bold bg-white border border-[#121212] cursor-pointer"
+                >
+                  {BROKER_OPTIONS.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setImportMode('investments')}
+                  className={`px-2.5 py-1 text-[11px] font-black uppercase border transition-all cursor-pointer ${
+                    importMode === 'investments'
+                      ? 'bg-[#FFE600] text-[#121212] border-[#121212]'
+                      : 'bg-white text-neutral-600 border-neutral-300'
+                  }`}
+                >
+                  Assets & Holdings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportMode('expenses')}
+                  className={`px-2.5 py-1 text-[11px] font-black uppercase border transition-all cursor-pointer ${
+                    importMode === 'expenses'
+                      ? 'bg-[#FFE600] text-[#121212] border-[#121212]'
+                      : 'bg-white text-neutral-600 border-neutral-300'
+                  }`}
+                >
+                  Expenses & Income
+                </button>
+              </div>
+            </div>
+
+            {/* Upload or Paste Tab Switcher */}
             <div className="flex items-center gap-2 border-b-2 border-[#121212] pb-2">
               <button
                 type="button"
@@ -400,7 +453,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     : 'bg-white text-neutral-600 border-neutral-300'
                 }`}
               >
-                Upload File (.xlsx, .csv, .pdf)
+                Upload File (.pdf, .xlsx, .docx, .csv)
               </button>
               <button
                 type="button"
@@ -427,19 +480,20 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                   <h4 className="text-sm font-black uppercase text-[#121212]">
                     Click or Drag & Drop your Statement File
                   </h4>
-                  <p className="text-xs font-semibold text-neutral-600 mt-1 max-w-sm">
-                    Supports CAMS / KFintech CAS (PDF), Zerodha / Groww Holdings (Excel / CSV), and all spreadsheet exports.
+                  <p className="text-xs font-semibold text-neutral-600 mt-1 max-w-md">
+                    Universal support: CAMS & KFintech CAS (PDF), Zerodha, Groww, Upstox, Angel One, INDmoney, Word (.docx), and all spreadsheets (.xlsx, .csv).
                   </p>
                 </div>
                 <div className="flex items-center gap-2 pt-1 text-[11px] font-mono font-bold text-neutral-500">
-                  <span className="px-2 py-0.5 bg-white border border-[#121212]">.PDF</span>
+                  <span className="px-2 py-0.5 bg-white border border-[#121212]">.PDF (CAS)</span>
                   <span className="px-2 py-0.5 bg-white border border-[#121212]">.XLSX</span>
+                  <span className="px-2 py-0.5 bg-white border border-[#121212]">.DOCX</span>
                   <span className="px-2 py-0.5 bg-white border border-[#121212]">.CSV</span>
                 </div>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.xlsx,.xls,.csv,.tsv"
+                  accept=".pdf,.xlsx,.xls,.csv,.tsv,.docx,.doc"
                   onChange={handleFileChange}
                   className="hidden"
                 />
@@ -447,13 +501,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             ) : (
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-bold text-neutral-700">
-                  Copy rows from Excel, Google Sheets, or your broker website and paste here:
+                  Copy rows from your broker table, Excel, or Google Sheets and paste here:
                 </p>
                 <textarea
                   rows={6}
                   value={pastedText}
                   onChange={(e) => setPastedText(e.target.value)}
-                  placeholder={`Parag Parikh Flexi Cap Fund\t50000\t65000\nHDFC Bank Ltd\t25000\t32000\nSovereign Gold Bond\t40000\t48000`}
+                  placeholder={`HDFC Mid Cap Fund Direct Growth\t14.402\t3362.69\nParag Parikh Flexi Cap Fund Direct Growth\t164.957\t15184.74\nRELIANCE\t10\t28905`}
                   className="w-full p-2.5 font-mono text-xs border-2 border-[#121212] shadow-neo-sm bg-white"
                 />
                 <NeoButton
@@ -471,7 +525,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             {isParsing && (
               <div className="p-3 bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm text-xs font-black uppercase flex items-center justify-center gap-2 animate-pulse">
                 <Sparkles size={16} />
-                <span>Reading and extracting statement data...</span>
+                <span>Reading and extracting statement entities...</span>
               </div>
             )}
           </div>
@@ -486,10 +540,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               </div>
               <div>
                 <h4 className="text-xs font-black uppercase text-[#121212]">
-                  Password Protected PDF: {pendingFile.name}
+                  Password Protected Statement: {pendingFile.name}
                 </h4>
                 <p className="text-[11px] font-semibold text-neutral-600">
-                  CAMS and KFintech CAS PDFs are encrypted with your PAN or Date of Birth.
+                  CAMS & KFintech CAS PDFs are encrypted with your PAN or Date of Birth.
                 </p>
               </div>
             </div>
@@ -544,388 +598,363 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 className="flex items-center gap-1.5"
               >
                 <KeyRound size={14} />
-                <span>{isParsing ? 'Decrypting...' : 'Unlock & Import Statement'}</span>
+                <span>{isParsing ? 'Decrypting...' : 'Unlock & Extract'}</span>
               </NeoButton>
             </div>
           </form>
         )}
 
-        {/* Step 2: Interactive Column Mapper (If auto-detector needs manual confirmation) */}
-        {showColumnMapper && rawGrid && (
-          <div className="flex flex-col gap-3 p-4 bg-white border-2 border-[#121212] shadow-neo-sm">
-            <div className="flex items-center gap-2 pb-1 border-b border-neutral-200">
-              <SlidersHorizontal size={18} className="text-[#121212]" />
-              <h4 className="text-xs font-black uppercase text-[#121212]">
-                Match Columns for: {rawGrid.fileName}
-              </h4>
-            </div>
-
-            <p className="text-[11px] font-semibold text-neutral-600">
-              Select which columns in your file represent the Asset Name, Invested Amount, Current Value, and optional details:
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
-              <div>
-                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
-                  1. Asset / Scheme Name
-                </label>
-                <select
-                  value={nameColIdx}
-                  onChange={(e) => setNameColIdx(Number(e.target.value))}
-                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
-                >
-                  {currentHeaderRow.map((col, idx) => (
-                    <option key={idx} value={idx}>
-                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
-                  2. Invested / Cost Amount
-                </label>
-                <select
-                  value={investedColIdx}
-                  onChange={(e) => setInvestedColIdx(Number(e.target.value))}
-                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
-                >
-                  {currentHeaderRow.map((col, idx) => (
-                    <option key={idx} value={idx}>
-                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
-                  3. Current Market Value
-                </label>
-                <select
-                  value={currentColIdx}
-                  onChange={(e) => setCurrentColIdx(Number(e.target.value))}
-                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
-                >
-                  {currentHeaderRow.map((col, idx) => (
-                    <option key={idx} value={idx}>
-                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
-                  4. Quantity / Units (Optional)
-                </label>
-                <select
-                  value={qtyColIdx}
-                  onChange={(e) => setQtyColIdx(Number(e.target.value))}
-                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
-                >
-                  <option value={-1}>— Not Mapped —</option>
-                  {currentHeaderRow.map((col, idx) => (
-                    <option key={idx} value={idx}>
-                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
-                  5. Buy Price / Unit (Optional)
-                </label>
-                <select
-                  value={buyPriceColIdx}
-                  onChange={(e) => setBuyPriceColIdx(Number(e.target.value))}
-                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
-                >
-                  <option value={-1}>— Not Mapped —</option>
-                  {currentHeaderRow.map((col, idx) => (
-                    <option key={idx} value={idx}>
-                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
-                  6. Current Price / NAV (Optional)
-                </label>
-                <select
-                  value={curPriceColIdx}
-                  onChange={(e) => setCurPriceColIdx(Number(e.target.value))}
-                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
-                >
-                  <option value={-1}>— Not Mapped —</option>
-                  {currentHeaderRow.map((col, idx) => (
-                    <option key={idx} value={idx}>
-                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-black uppercase text-neutral-600 block mb-1">
-                  7. Notes / Folio (Optional)
-                </label>
-                <select
-                  value={notesColIdx}
-                  onChange={(e) => setNotesColIdx(Number(e.target.value))}
-                  className="w-full p-1.5 border-2 border-[#121212] text-xs font-bold bg-[#FFFDF5] cursor-pointer"
-                >
-                  <option value={-1}>— Not Mapped —</option>
-                  {currentHeaderRow.map((col, idx) => (
-                    <option key={idx} value={idx}>
-                      Col {idx + 1}: {String(col || `Column ${idx + 1}`).substring(0, 25)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Preview of file sample */}
-            <div className="max-h-40 overflow-auto border border-neutral-300 bg-neutral-50 text-[11px] font-mono p-2 mt-1">
-              <span className="font-bold text-[10px] uppercase text-neutral-500 block mb-1">File Preview:</span>
-              <table className="w-full border-collapse">
-                <tbody>
-                  {activeSheetRows.slice(0, 5).map((r, i) => (
-                    <tr key={i} className="border-b border-neutral-200">
-                      {r.slice(0, 6).map((c, j) => (
-                        <td key={j} className="p-1 truncate max-w-[120px]">
-                          {String(c)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <NeoButton type="button" variant="outline" size="sm" onClick={() => resetState()}>
-                Cancel
-              </NeoButton>
-              <NeoButton type="button" variant="secondary" size="sm" onClick={handleApplyColumnMapping}>
-                Extract with Selected Columns →
-              </NeoButton>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Editable Extracted Table */}
+        {/* Step 2: Review Table Matching Image 2 */}
         {parsedHoldings.length > 0 && (
           <div className="flex flex-col gap-3">
             
-            {/* Header summary & actions */}
-            <div className="p-3 bg-[#05DF72] border-2 border-[#121212] shadow-neo-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet size={18} className="text-[#121212]" />
-                <span className="text-xs font-black uppercase text-[#121212]">
-                  {parsedHoldings.length} Holdings Ready to Import
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleAddNewRow}
-                  className="text-[11px] font-black uppercase underline text-[#121212] cursor-pointer flex items-center gap-1"
-                >
-                  <Plus size={13} /> Add Row
-                </button>
-                <button
-                  onClick={() => resetState()}
-                  className="text-[11px] font-black uppercase underline text-[#121212] cursor-pointer"
-                >
-                  Upload New File
-                </button>
-              </div>
+            {/* Status Pills matching Image 2 */}
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 bg-neutral-200 text-neutral-800 text-xs font-black rounded-full border border-neutral-300">
+                {parsedHoldings.length} rows
+              </span>
+              <span className="px-2.5 py-0.5 bg-[#05DF72] text-[#121212] text-xs font-black rounded-full border border-[#05DF72]">
+                {validCount} valid
+              </span>
             </div>
 
-            {/* Selection & Total Summary Bar */}
-            <div className="p-2.5 bg-white border-2 border-[#121212] shadow-neo-sm flex flex-wrap items-center justify-between gap-2 text-xs font-bold">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={parsedHoldings.length > 0 && parsedHoldings.every((h) => h.selected)}
-                  onChange={toggleSelectAll}
-                  className="w-4 h-4 accent-[#121212] cursor-pointer"
-                />
-                <span className="uppercase">Select All ({selectedCount}/{parsedHoldings.length})</span>
-              </div>
-              <div className="flex items-center gap-4 text-xs font-mono font-black">
-                <span>Invested: {currencySymbol}{totalSelectedInvested.toLocaleString()}</span>
-                <span className="text-[#05DF72]">Value: {currencySymbol}{totalSelectedCurrent.toLocaleString()}</span>
-              </div>
-            </div>
-
-            {/* Editable Holdings Table */}
-            <div className="max-h-[320px] overflow-y-auto border-2 border-[#121212] bg-white">
+            {/* Table Header & Rows */}
+            <div className="border-2 border-[#121212] bg-white overflow-x-auto max-h-[380px] overflow-y-auto">
               <table className="w-full text-left text-xs font-bold border-collapse">
-                <thead className="bg-[#FFE600] border-b-2 border-[#121212] sticky top-0 z-10 text-[11px] font-black uppercase">
+                <thead className="bg-[#121212] text-white sticky top-0 z-10 text-[11px] font-black uppercase tracking-wider">
                   <tr>
-                    <th className="p-2 w-8 text-center">✓</th>
-                    <th className="p-2">Asset / Scheme Name</th>
-                    <th className="p-2">Class</th>
-                    <th className="p-2 text-right">Invested ({currencySymbol})</th>
-                    <th className="p-2 text-right">Current Value ({currencySymbol})</th>
-                    <th className="p-2 text-right">Units</th>
-                    <th className="p-2 text-right">Buy Price ({currencySymbol})</th>
-                    <th className="p-2 text-right">Current Price ({currencySymbol})</th>
-                    <th className="p-2">Notes</th>
-                    <th className="p-2 text-center">✕</th>
+                    <th className="p-2.5 w-8 text-center">
+                      <input
+                        type="checkbox"
+                        checked={parsedHoldings.length > 0 && parsedHoldings.every((h) => h.selected)}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 accent-[#05DF72] cursor-pointer"
+                      />
+                    </th>
+                    <th className="p-2.5 w-8 text-center"></th>
+                    <th className="p-2.5 w-6 text-center">●</th>
+                    <th className="p-2.5 min-w-[220px]">NAME</th>
+                    <th className="p-2.5 min-w-[180px]">TYPE</th>
+                    <th className="p-2.5 text-right min-w-[110px]">CUR. VALUE</th>
+                    <th className="p-2.5 text-right min-w-[90px]">QTY</th>
+                    <th className="p-2.5 w-8 text-center">✕</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-200">
-                  {parsedHoldings.map((h) => (
-                    <tr key={h.id} className={h.selected ? 'bg-white' : 'bg-neutral-100 opacity-60'}>
-                      <td className="p-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={h.selected}
-                          onChange={() => toggleItem(h.id)}
-                          className="w-4 h-4 accent-[#121212] cursor-pointer"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="text"
-                          value={h.name}
-                          onChange={(e) => updateItemField(h.id, 'name', e.target.value)}
-                          className="w-full p-1 border border-neutral-300 font-bold text-xs"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <select
-                          value={h.assetType}
-                          onChange={(e) => updateItemField(h.id, 'assetType', e.target.value as AssetType)}
-                          className="p-1 border border-neutral-300 text-[11px] font-black uppercase bg-white cursor-pointer"
+                  {parsedHoldings.map((h) => {
+                    const isExpanded = Boolean(expandedRows[h.id]);
+                    return (
+                      <React.Fragment key={h.id}>
+                        <tr
+                          className={`hover:bg-[#FFFDF5] transition-colors ${
+                            h.selected ? 'bg-white' : 'bg-neutral-100 opacity-60'
+                          }`}
                         >
-                          {ASSET_TYPES.map((t) => (
-                            <option key={t.value} value={t.value}>
-                              {t.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="p-2 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={h.investedAmount}
-                          onChange={(e) => updateItemField(h.id, 'investedAmount', parseFloat(e.target.value) || 0)}
-                          className="w-24 p-1 border border-neutral-300 font-mono text-xs font-bold text-right"
-                        />
-                      </td>
-                      <td className="p-2 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={h.currentValue}
-                          onChange={(e) => updateItemField(h.id, 'currentValue', parseFloat(e.target.value) || 0)}
-                          className="w-24 p-1 border border-neutral-300 font-mono text-xs font-black text-[#05DF72] text-right"
-                        />
-                      </td>
-                      <td className="p-2 text-right">
-                        <input
-                          type="number"
-                          step="0.001"
-                          min="0"
-                          value={h.units || ''}
-                          onChange={(e) => updateItemField(h.id, 'units', e.target.value ? parseFloat(e.target.value) : undefined)}
-                          className="w-16 p-1 border border-neutral-300 font-mono text-xs font-bold text-right"
-                          placeholder="—"
-                        />
-                      </td>
-                      <td className="p-2 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={h.buyPrice || ''}
-                          onChange={(e) => updateItemField(h.id, 'buyPrice', e.target.value ? parseFloat(e.target.value) : undefined)}
-                          className="w-20 p-1 border border-neutral-300 font-mono text-xs font-bold text-right"
-                          placeholder="—"
-                        />
-                      </td>
-                      <td className="p-2 text-right">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={h.currentPrice || ''}
-                          onChange={(e) => updateItemField(h.id, 'currentPrice', e.target.value ? parseFloat(e.target.value) : undefined)}
-                          className="w-20 p-1 border border-neutral-300 font-mono text-xs font-bold text-[#05DF72] text-right"
-                          placeholder="—"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="text"
-                          value={h.notes || ''}
-                          onChange={(e) => updateItemField(h.id, 'notes', e.target.value || undefined)}
-                          className="w-28 p-1 border border-neutral-300 text-xs font-bold"
-                          placeholder="—"
-                        />
-                      </td>
-                      <td className="p-2 text-center">
-                        <button
-                          onClick={() => removeItem(h.id)}
-                          className="p-1 hover:text-[#FF4343] cursor-pointer"
-                          title="Remove row"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          {/* Checkbox */}
+                          <td className="p-2.5 text-center">
+                            <input
+                              type="checkbox"
+                              checked={h.selected}
+                              onChange={() => toggleItem(h.id)}
+                              className="w-4 h-4 accent-[#05DF72] cursor-pointer"
+                            />
+                          </td>
+
+                          {/* Expand chevron */}
+                          <td className="p-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => toggleRowExpansion(h.id)}
+                              className="text-neutral-500 hover:text-black cursor-pointer"
+                              title="Toggle details"
+                            >
+                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </button>
+                          </td>
+
+                          {/* Green valid status dot */}
+                          <td className="p-2.5 text-center">
+                            <span
+                              className={`w-2 h-2 rounded-full inline-block ${
+                                h.isValid ? 'bg-[#05DF72]' : 'bg-[#FF4343]'
+                              }`}
+                              title={h.isValid ? 'Valid entity' : 'Invalid entity'}
+                            />
+                          </td>
+
+                          {/* Name cell (editable) */}
+                          <td className="p-2.5">
+                            <input
+                              type="text"
+                              value={h.name}
+                              onChange={(e) => updateItemField(h.id, 'name', e.target.value)}
+                              className="w-full p-1 bg-transparent hover:bg-neutral-100 focus:bg-white border border-transparent hover:border-neutral-300 focus:border-[#121212] font-black text-xs text-[#121212]"
+                            />
+                          </td>
+
+                          {/* Type dropdown cell */}
+                          <td className="p-2.5">
+                            <select
+                              value={h.subType || h.assetType}
+                              onChange={(e) => handleTypeChange(h.id, e.target.value)}
+                              className="w-full p-1 bg-neutral-100 hover:bg-neutral-200 border border-neutral-300 text-xs font-bold cursor-pointer text-[#121212]"
+                            >
+                              {h.subType && !GRANULAR_ASSET_TYPES.some((t) => t.subType === h.subType) && (
+                                <option value={h.subType}>{h.subType} (from file)</option>
+                              )}
+                              {GRANULAR_ASSET_TYPES.map((t) => (
+                                <option key={t.subType} value={t.subType}>
+                                  {t.label}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          {/* Cur. Value cell (editable) */}
+                          <td className="p-2.5 text-right font-mono font-black text-xs text-[#121212]">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={h.currentValue}
+                              onChange={(e) =>
+                                updateItemField(h.id, 'currentValue', parseFloat(e.target.value) || 0)
+                              }
+                              className="w-24 p-1 text-right font-mono font-black text-xs border border-transparent hover:border-neutral-300 focus:border-[#121212] bg-transparent hover:bg-neutral-100 focus:bg-white"
+                            />
+                          </td>
+
+                          {/* Qty cell (editable) */}
+                          <td className="p-2.5 text-right font-mono text-xs font-bold text-neutral-700">
+                            <input
+                              type="number"
+                              step="0.001"
+                              value={h.units ?? ''}
+                              placeholder="—"
+                              onChange={(e) =>
+                                updateItemField(
+                                  h.id,
+                                  'units',
+                                  e.target.value ? parseFloat(e.target.value) : undefined
+                                )
+                              }
+                              className="w-20 p-1 text-right font-mono text-xs border border-transparent hover:border-neutral-300 focus:border-[#121212] bg-transparent hover:bg-neutral-100 focus:bg-white"
+                            />
+                          </td>
+
+                          {/* Remove button */}
+                          <td className="p-2.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => removeItem(h.id)}
+                              className="text-neutral-400 hover:text-[#FF4343] cursor-pointer"
+                              title="Remove row"
+                            >
+                              <X size={14} />
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Collapsible Row Details */}
+                        {isExpanded && (
+                          <tr className="bg-[#FFFDF5] border-b border-neutral-300 text-[11px]">
+                            <td colSpan={8} className="p-3 pl-12">
+                              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
+                                    Invested Cost ({currencySymbol})
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={h.investedAmount}
+                                    onChange={(e) =>
+                                      updateItemField(h.id, 'investedAmount', parseFloat(e.target.value) || 0)
+                                    }
+                                    className="w-full p-1 border border-neutral-300 font-mono text-xs bg-white"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
+                                    Price / NAV ({currencySymbol})
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={h.currentPrice ?? ''}
+                                    placeholder="—"
+                                    onChange={(e) =>
+                                      updateItemField(
+                                        h.id,
+                                        'currentPrice',
+                                        e.target.value ? parseFloat(e.target.value) : undefined
+                                      )
+                                    }
+                                    className="w-full p-1 border border-neutral-300 font-mono text-xs bg-white"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
+                                    Sector
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={h.sector || ''}
+                                    placeholder="e.g. IT, Banking"
+                                    onChange={(e) => updateItemField(h.id, 'sector', e.target.value || undefined)}
+                                    className="w-full p-1 border border-neutral-300 text-xs bg-white"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
+                                    Broker
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={h.broker || ''}
+                                    placeholder="e.g. Zerodha, Groww"
+                                    onChange={(e) => updateItemField(h.id, 'broker', e.target.value || undefined)}
+                                    className="w-full p-1 border border-neutral-300 text-xs bg-white"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
+                                    Folio / ISIN
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={h.folioNo || ''}
+                                    placeholder="e.g. Folio / Demat No."
+                                    onChange={(e) => updateItemField(h.id, 'folioNo', e.target.value || undefined)}
+                                    className="w-full p-1 border border-neutral-300 text-xs bg-white"
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
+            {/* Error Banner */}
+            {error && (
+              <div className="bg-[#FF4343] text-white text-xs font-bold p-2.5 border-2 border-[#121212] shadow-neo-sm flex items-center gap-2">
+                <AlertCircle size={16} strokeWidth={2.5} className="shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Action Buttons matching Image 2 */}
+            <div className="flex items-center justify-between pt-2">
+              <button
+                type="button"
+                onClick={() => resetState()}
+                className="text-xs font-bold text-neutral-600 hover:text-black cursor-pointer underline"
+              >
+                Upload different file
+              </button>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetState();
+                    onClose();
+                  }}
+                  className="px-4 py-2 text-xs font-black uppercase bg-transparent text-neutral-700 hover:text-black cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleImportCommit}
+                  disabled={isImporting || selectedCount === 0}
+                  className="px-5 py-2.5 bg-[#05DF72] hover:bg-[#04C966] text-[#121212] text-xs font-black uppercase border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Check size={16} strokeWidth={3} />
+                  <span>
+                    {isImporting ? 'Importing...' : `Update & Import ${selectedCount} assets`}
+                  </span>
+                </button>
+              </div>
+            </div>
+
           </div>
         )}
 
-        {error && (
-          <div className="bg-[#FF4343] text-white text-xs font-bold p-2.5 border-2 border-[#121212] shadow-neo-sm flex items-center gap-2">
-            <AlertCircle size={16} strokeWidth={2.5} className="shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Footer Actions */}
-        <div className="flex justify-end gap-2.5 pt-2 border-t border-neutral-200">
-          <NeoButton
+        {/* Step 3: Recent Imports Accordion matching Image 2 */}
+        <div className="border-t-2 border-[#121212] pt-3 mt-1">
+          <button
             type="button"
-            variant="outline"
-            onClick={() => {
-              resetState();
-              onClose();
-            }}
-            disabled={isImporting}
+            onClick={() => setIsRecentImportsOpen(!isRecentImportsOpen)}
+            className="w-full flex items-center justify-between text-xs font-black uppercase text-[#121212] cursor-pointer hover:bg-neutral-100 p-1.5 transition-colors"
           >
-            Cancel
-          </NeoButton>
+            <div className="flex items-center gap-1.5">
+              {isRecentImportsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+              <span>Recent imports</span>
+            </div>
+            <span className="text-[10px] font-bold text-neutral-500 lowercase">
+              {importBatches && importBatches.length > 0 ? `${importBatches.length} batch(es)` : 'none yet'}
+            </span>
+          </button>
 
-          {parsedHoldings.length > 0 && (
-            <NeoButton
-              type="button"
-              variant="secondary"
-              onClick={handleImportCommit}
-              disabled={isImporting || selectedCount === 0}
-              className="flex items-center gap-1.5"
-            >
-              <Check size={16} strokeWidth={3} />
-              <span>
-                {isImporting
-                  ? 'Importing...'
-                  : `Import ${selectedCount} Holdings to Portfolio`}
-              </span>
-            </NeoButton>
+          {isRecentImportsOpen && (
+            <div className="p-3 bg-[#FFFDF5] border border-neutral-300 mt-2 text-xs font-semibold text-neutral-600 flex flex-col gap-2">
+              {importBatches && importBatches.length > 0 ? (
+                <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
+                  {importBatches.map((b) => (
+                    <div
+                      key={b._id}
+                      className="p-2 bg-white border border-[#121212] flex items-center justify-between gap-2 shadow-neo-sm"
+                    >
+                      <div>
+                        <div className="font-black text-[#121212] flex items-center gap-1.5">
+                          <Building2 size={13} />
+                          <span>{b.fileName}</span>
+                          {b.broker && (
+                            <span className="text-[9px] px-1.5 py-0.2 bg-[#FFE600] text-[#121212] border border-[#121212]">
+                              {b.broker}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-neutral-500 font-mono mt-0.5">
+                          {new Date(b.createdAt).toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}{' '}
+                          · {b.itemCount} assets · {currencySymbol}
+                          {b.totalValue.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleUndoBatch(b._id)}
+                        className="px-2.5 py-1 text-[10px] font-black uppercase bg-[#FFF0F0] text-[#FF4343] border border-[#FF4343] hover:bg-[#FF4343] hover:text-white transition-all cursor-pointer flex items-center gap-1"
+                      >
+                        <RotateCcw size={11} /> Undo Import
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 text-[11px] text-neutral-600">
+                  <Clock size={15} className="text-neutral-400 shrink-0 mt-0.5" />
+                  <span>
+                    No imports yet. Once you import a CSV, bank statement, or asset file, recent batches will appear here so you can undo any of them in one click.
+                  </span>
+                </div>
+              )}
+            </div>
           )}
         </div>
 

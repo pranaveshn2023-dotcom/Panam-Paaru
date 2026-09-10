@@ -68,12 +68,30 @@ export default defineSchema({
     currentPrice: v.optional(v.number()), // Current market price per unit
     sipAmount: v.optional(v.number()), // Monthly SIP amount if active
     sipDay: v.optional(v.number()), // Day of month for SIP (1-28)
+    subType: v.optional(v.string()), // e.g. "Equity Mutual Fund", "Hybrid Mutual Fund", "Debt Mutual Fund"
+    sector: v.optional(v.string()), // e.g. "Banking & Finance", "Information Technology", "Energy"
+    broker: v.optional(v.string()), // e.g. "Zerodha", "Groww", "CAMS", "KFintech"
+    importBatchId: v.optional(v.string()), // Id for 1-click batch undo
     notes: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])
-    .index("by_user_asset_type", ["userId", "assetType"]),
+    .index("by_user_asset_type", ["userId", "assetType"])
+    .index("by_user_batch", ["userId", "importBatchId"]),
+
+  // Statement & Portfolio Import Batches for 1-Click Rollback / Undo
+  importBatches: defineTable({
+    userId: v.id("users"),
+    fileName: v.string(),
+    broker: v.optional(v.string()),
+    type: v.union(v.literal("investments"), v.literal("transactions")),
+    itemCount: v.number(),
+    totalValue: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_created", ["userId", "createdAt"]),
 
   // Custom and Default Categories
   categories: defineTable({
