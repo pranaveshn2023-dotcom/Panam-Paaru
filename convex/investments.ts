@@ -458,9 +458,11 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
       const data: any = await chartRes.json();
       const meta = data?.chart?.result?.[0]?.meta;
       if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+        const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
+        const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
         return {
           price: meta.regularMarketPrice,
-          prevClose: meta.previousClose || meta.chartPreviousClose,
+          prevClose,
         };
       }
     } catch {}
@@ -640,11 +642,30 @@ export const getMarketIndices = action({
         if (res.ok) {
           const d: any = await res.json();
           const meta = d?.chart?.result?.[0]?.meta;
-          if (meta) {
+          if (meta && typeof meta.regularMarketPrice === 'number') {
             const price = meta.regularMarketPrice;
-            const prev = meta.previousClose || meta.chartPreviousClose || price;
-            const change = price - prev;
-            const changePct = Number(((change / prev) * 100).toFixed(2));
+
+            // Use Yahoo Finance's exact live change & percent to prevent false divergence from stale chartPreviousClose
+            let change = 0;
+            if (typeof meta.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
+              change = meta.fulldayChange;
+            } else if (typeof meta.regularMarketChange === 'number' && !isNaN(meta.regularMarketChange)) {
+              change = meta.regularMarketChange;
+            } else {
+              const prev = meta.previousClose || meta.chartPreviousClose || price;
+              change = price - prev;
+            }
+
+            let changePct = 0;
+            if (typeof meta.regularMarketChangePercent === 'number' && !isNaN(meta.regularMarketChangePercent)) {
+              changePct = Number(meta.regularMarketChangePercent.toFixed(2));
+            } else if (typeof meta.fulldayChangePercent === 'number' && !isNaN(meta.fulldayChangePercent)) {
+              changePct = Number(meta.fulldayChangePercent.toFixed(2));
+            } else {
+              const prev = price - change;
+              changePct = prev > 0 ? Number(((change / prev) * 100).toFixed(2)) : 0;
+            }
+
             results.push({
               name: idx.name,
               symbol: idx.symbol,

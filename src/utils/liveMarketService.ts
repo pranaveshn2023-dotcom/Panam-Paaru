@@ -147,9 +147,11 @@ export async function fetchLiveStockPrice(
         const data: any = await res.json();
         const meta = data?.chart?.result?.[0]?.meta;
         if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+          const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
+          const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
           return {
             price: meta.regularMarketPrice,
-            prevClose: meta.previousClose || meta.chartPreviousClose,
+            prevClose,
             symbol: sym,
           };
         }
