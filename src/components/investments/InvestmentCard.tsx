@@ -74,52 +74,21 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
 
   return (
     <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 sm:p-5 flex flex-col justify-between gap-3 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all cursor-default">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-            <NeoBadge variant="yellow" className="text-[10px] uppercase font-black" style={{ backgroundColor: badgeInfo.color }}>
-              {inv.subType || badgeInfo.label}
-            </NeoBadge>
-            {inv.sector && (
-              <span className="text-[9px] font-black uppercase bg-neutral-100 text-neutral-800 px-1.5 py-0.5 border border-neutral-300">
-                {inv.sector}
-              </span>
-            )}
-            {inv.broker && (
-              <span className="text-[9px] font-black uppercase bg-[#FFE600] text-[#121212] px-1.5 py-0.5 border border-[#121212]">
-                {inv.broker}
-              </span>
-            )}
-            {inv.sipAmount && (
-              <span className="text-[9px] font-mono font-bold bg-[#121212] text-[#00F0FF] px-1.5 py-0.5">
-                SIP: {formatPrivateAmount(inv.sipAmount, currencySymbol)}/mo
-              </span>
-            )}
-            {inv.units && (
-              <span className="text-[9px] font-mono font-bold bg-white text-neutral-700 px-1.5 py-0.5 border border-[#121212]">
-                {inv.units} units
-              </span>
-            )}
-            {effectivePrice && (
-              <span className="text-[9px] font-mono font-bold bg-[#E8F8F0] text-[#0B6B38] px-1.5 py-0.5 border border-[#05DF72] flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#05DF72] inline-block animate-pulse" />
-                <span>
-                  {inv.assetType === 'mutual_fund' ? 'NAV' : 'CP'}: {isPrivacyMode ? '••••' : `${currencySymbol}${effectivePrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                </span>
-              </span>
-            )}
-            {inv.xirr && (
-              <span className="text-[9px] font-mono font-bold bg-[#FFFDF5] text-[#121212] px-1.5 py-0.5 border border-[#121212]">
-                XIRR: {inv.xirr}
-              </span>
-            )}
-          </div>
-          <h4 className="text-base font-black uppercase text-[#121212] tracking-tight truncate">
-            {inv.name}
-          </h4>
-          {inv.notes && (
-            <p className="text-[11px] font-medium text-neutral-500 mt-0.5 truncate">{inv.notes}</p>
+      {/* Header: Type & Broker Badges on Left, Actions on Right */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <NeoBadge variant="yellow" className="text-[10px] uppercase font-black" style={{ backgroundColor: badgeInfo.color }}>
+            {inv.subType || badgeInfo.label}
+          </NeoBadge>
+          {inv.broker && (
+            <span className="text-[9px] font-black uppercase bg-[#FFE600] text-[#121212] px-1.5 py-0.5 border border-[#121212]">
+              {inv.broker}
+            </span>
+          )}
+          {inv.sector && (
+            <span className="text-[9px] font-black uppercase bg-neutral-100 text-neutral-800 px-1.5 py-0.5 border border-neutral-300">
+              {inv.sector}
+            </span>
           )}
         </div>
 
@@ -147,6 +116,38 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
           >
             <Trash2 size={13} strokeWidth={2.5} />
           </button>
+        </div>
+      </div>
+
+      {/* Asset Name & Details */}
+      <div className="flex flex-col gap-1.5">
+        <h4 className="text-base font-black uppercase text-[#121212] tracking-tight leading-snug line-clamp-2" title={inv.name}>
+          {inv.name}
+        </h4>
+        {inv.notes && (
+          <p className="text-[11px] font-medium text-neutral-500 truncate">{inv.notes}</p>
+        )}
+
+        {/* Metrics Row: Units, CP / NAV, SIP */}
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          {inv.units && (
+            <span className="text-[10px] font-mono font-bold bg-white text-neutral-800 px-1.5 py-0.5 border border-[#121212] shadow-neo-sm">
+              {inv.units} units
+            </span>
+          )}
+          {effectivePrice && (
+            <span className="text-[10px] font-mono font-bold bg-[#E8F8F0] text-[#0B6B38] px-1.5 py-0.5 border border-[#05DF72] flex items-center gap-1 shadow-neo-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#05DF72] inline-block animate-pulse" />
+              <span>
+                {inv.assetType === 'mutual_fund' ? 'NAV' : 'CP'}: {isPrivacyMode ? '••••' : `${currencySymbol}${effectivePrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              </span>
+            </span>
+          )}
+          {inv.sipAmount && (
+            <span className="text-[10px] font-mono font-bold bg-[#121212] text-[#00F0FF] px-1.5 py-0.5 border border-[#121212]">
+              SIP: {formatPrivateAmount(inv.sipAmount, currencySymbol)}/mo
+            </span>
+          )}
         </div>
       </div>
 

@@ -445,95 +445,99 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       )}
 
       {/* Controls Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white border-[3px] border-[#121212] shadow-neo p-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Search */}
-          <div className="relative w-full sm:w-56">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500" />
-            <input
-              type="text"
-              placeholder="Search holdings..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs font-bold bg-white border border-[#121212] w-full"
-            />
+      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3 sm:p-4 flex flex-col gap-3">
+        {/* Top Tier: Search, Sort, Broker on Left; Holdings Count & Sync on Right */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+            {/* Search */}
+            <div className="relative w-full sm:w-60">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search holdings..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-1.5 text-xs font-bold bg-white border border-[#121212] w-full focus:outline-none focus:ring-1 focus:ring-[#121212]"
+              />
+            </div>
+
+            {/* Sort */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+              className="px-2.5 py-1.5 text-xs font-black bg-white border border-[#121212] cursor-pointer"
+            >
+              <option value="value">Sort by Value</option>
+              <option value="returns">Sort by Returns</option>
+              <option value="gainPercent">Sort by Gain %</option>
+              <option value="name">Sort by Name</option>
+            </select>
+
+            {/* Broker Filter */}
+            {availableBrokers.length > 0 && (
+              <div className="flex items-center gap-1">
+                <Building2 size={13} className="text-neutral-500 hidden sm:inline" />
+                <select
+                  value={selectedBrokerFilter}
+                  onChange={(e) => setSelectedBrokerFilter(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs font-black bg-[#FFE600] border border-[#121212] cursor-pointer text-[#121212]"
+                >
+                  <option value="all">All Brokers ({availableBrokers.length})</option>
+                  {availableBrokers.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
-          {/* Sort */}
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            className="px-2 py-1.5 text-xs font-black bg-white border border-[#121212] cursor-pointer"
-          >
-            <option value="value">Sort by Value</option>
-            <option value="returns">Sort by Returns</option>
-            <option value="gainPercent">Sort by Gain %</option>
-            <option value="name">Sort by Name</option>
-          </select>
-
-          {/* Broker Filter */}
-          {availableBrokers.length > 0 && (
-            <div className="flex items-center gap-1">
-              <Building2 size={13} className="text-neutral-500" />
-              <select
-                value={selectedBrokerFilter}
-                onChange={(e) => setSelectedBrokerFilter(e.target.value)}
-                className="px-2 py-1.5 text-xs font-black bg-[#FFE600] border border-[#121212] cursor-pointer text-[#121212]"
-              >
-                <option value="all">All Brokers ({availableBrokers.length})</option>
-                {availableBrokers.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Filter Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 w-full sm:w-auto">
-            {ASSET_TABS.map((tab) => {
-              const count = tab.value === 'all'
-                ? investments.length
-                : investments.filter((i) => i.assetType === tab.value).length;
-              return (
-                <button
-                  key={tab.value}
-                  onClick={() => setSelectedFilter(tab.value)}
-                  className={`px-3 py-1.5 text-[11px] font-black uppercase border transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                    selectedFilter === tab.value
-                      ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm'
-                      : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                      selectedFilter === tab.value
-                        ? 'bg-[#FFE600] text-[#121212]'
-                        : 'bg-neutral-100 text-neutral-600'
-                    }`}
-                  >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
+          {/* Right side: Holdings Count and Live Sync */}
+          <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-neutral-100">
+            <span className="text-[11px] font-mono font-black px-2 py-1 bg-neutral-100 border border-neutral-300 text-neutral-800 whitespace-nowrap shadow-neo-sm">
+              {filteredInvestments.length} {filteredInvestments.length === 1 ? 'holding' : 'holdings'}
+            </span>
+            <button
+              onClick={() => handleSyncLiveMarket(false)}
+              disabled={isSyncingNav}
+              className="p-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+              title="Sync Real Market NAVs & Prices"
+            >
+              <RefreshCw size={14} strokeWidth={2.5} className={isSyncingNav ? 'animate-spin' : ''} />
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[10px] font-mono font-bold text-neutral-500">
-            {filteredInvestments.length} holdings
-          </span>
-          <button
-            onClick={() => handleSyncLiveMarket(false)}
-            disabled={isSyncingNav}
-            className="p-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-            title="Sync Real Market NAVs & Prices"
-          >
-            <RefreshCw size={14} strokeWidth={2.5} className={isSyncingNav ? 'animate-spin' : ''} />
-          </button>
+        {/* Bottom Tier: Filter Tabs cleanly spanning full width */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-2 border-t border-neutral-200 w-full">
+          {ASSET_TABS.map((tab) => {
+            const count = tab.value === 'all'
+              ? investments.length
+              : investments.filter((i) => i.assetType === tab.value).length;
+            return (
+              <button
+                key={tab.value}
+                onClick={() => setSelectedFilter(tab.value)}
+                className={`px-3 py-1.5 text-[11px] font-black uppercase border transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${
+                  selectedFilter === tab.value
+                    ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm'
+                    : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                    selectedFilter === tab.value
+                      ? 'bg-[#FFE600] text-[#121212]'
+                      : 'bg-neutral-100 text-neutral-600'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
