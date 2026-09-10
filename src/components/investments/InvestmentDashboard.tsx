@@ -422,7 +422,11 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <AllocationChart assetBreakdown={portfolioSummary.assetBreakdown} />
           {investments.length > 0 && (
-            <PortfolioTrendChart investments={investments} />
+            <PortfolioTrendChart
+              investments={investments}
+              portfolioSummary={portfolioSummary}
+              currencySymbol={currencySymbol}
+            />
           )}
         </div>
       )}
