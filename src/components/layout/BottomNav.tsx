@@ -24,7 +24,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   ];
 
   return (
-    <div className="app-bottom-nav">
+    <div className="app-bottom-nav md:hidden" aria-label="Mobile Navigation">
       {items.map((item) => {
         const Icon = item.icon;
         const isActive = activeTab === item.id;

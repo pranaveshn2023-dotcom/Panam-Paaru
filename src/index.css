@@ -411,6 +411,12 @@ body {
   justify-content: space-around;
 }
 
+@media (min-width: 768px) {
+  .app-bottom-nav {
+    display: none !important;
+  }
+}
+
 .app-bottom-nav-item {
   display: flex;
   flex-direction: column;
