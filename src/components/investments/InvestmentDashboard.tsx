@@ -145,7 +145,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   const handleSyncLiveMarket = async (silent = false) => {
     try {
       setIsSyncingNav(true);
-      if (!silent) toast.info('Connecting to live market... Fetching NSE/BSE stock quotes & AMFI NAVs');
+      if (!silent) toast.info('Connecting to live market... Fetching real-time market prices');
 
       // 1. Fetch benchmark indices (NIFTY 50 & SENSEX)
       try {
@@ -261,7 +261,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
                   WEALTH & PORTFOLIO ENGINE
                 </span>
                 <span className="text-[10px] font-black bg-[#00F0FF] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
-                  <Activity size={11} className="text-[#121212]" /> AMFI LIVE NAVs
+                  <Activity size={11} className="text-[#121212]" /> REAL-TIME VALUATION
                 </span>
                 {totalReturnsPercent >= 12 && (
                   <span className="text-[10px] font-black bg-[#05DF72] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
@@ -329,7 +329,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
 
           {marketIndices.length === 0 && (
             <div className="text-neutral-400 text-xs font-mono">
-              Connecting to live NSE/BSE & AMFI indices...
+              Connecting to live market indices...
             </div>
           )}
         </div>
