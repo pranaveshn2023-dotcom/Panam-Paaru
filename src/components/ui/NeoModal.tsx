@@ -7,14 +7,16 @@ interface NeoModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl';
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
 }
 
 const maxWidthStyles = {
   sm: 'max-w-sm',
   md: 'max-w-md',
-  lg: 'max-w-lg',
-  xl: 'max-w-2xl',
+  lg: 'max-w-2xl',
+  xl: 'max-w-5xl',
+  '2xl': 'max-w-6xl',
+  full: 'max-w-[96vw]',
 };
 
 export const NeoModal: React.FC<NeoModalProps> = ({
@@ -38,18 +40,18 @@ export const NeoModal: React.FC<NeoModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
       <div
-        className="fixed inset-0 bg-black/30 md:bg-transparent"
+        className="fixed inset-0 bg-black/40 md:bg-transparent"
         onClick={onClose}
       />
       <div
         className={twMerge(
-          'relative w-full bg-white border-[3px] border-[#121212] shadow-neo-xl z-10 animate-scale-in md:rounded-2xl md:rounded-b-none',
+          'relative w-full bg-white border-[3px] border-[#121212] shadow-neo-xl z-10 animate-scale-in rounded-t-2xl md:rounded-2xl',
           maxWidthStyles[maxWidth]
         )}
       >
-        <div className="flex items-center justify-between bg-gradient-to-r from-[#FFE600] to-[#FF8800] px-5 py-3 border-b-[3px] border-[#121212] rounded-t-[16px] md:rounded-t-none">
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#FFE600] to-[#FF8800] px-4 sm:px-5 py-3 border-b-[3px] border-[#121212] rounded-t-2xl">
           <h3 className="text-sm font-black uppercase tracking-wider text-[#121212] flex items-center gap-2">
             {title}
           </h3>
@@ -60,7 +62,7 @@ export const NeoModal: React.FC<NeoModalProps> = ({
             <X size={18} strokeWidth={3} />
           </button>
         </div>
-        <div className="p-5 max-h-[80vh] overflow-y-auto">
+        <div className="p-3.5 sm:p-5 max-h-[85vh] sm:max-h-[80vh] overflow-y-auto">
           {children}
         </div>
       </div>

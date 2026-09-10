@@ -375,7 +375,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         onClose();
       }}
       title=""
-      maxWidth="lg"
+      maxWidth="xl"
     >
       <div className="flex flex-col gap-4">
         
@@ -936,24 +936,24 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               </div>
             )}
 
-            {/* Action Buttons matching Image 2 */}
-            <div className="flex items-center justify-between pt-2">
+            {/* Action Buttons */}
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => resetState()}
-                className="text-xs font-bold text-neutral-600 hover:text-black cursor-pointer underline"
+                className="text-xs font-bold text-neutral-600 hover:text-black cursor-pointer underline text-center sm:text-left py-1"
               >
                 Upload different file
               </button>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
                 <button
                   type="button"
                   onClick={() => {
                     resetState();
                     onClose();
                   }}
-                  className="px-4 py-2 text-xs font-black uppercase bg-transparent text-neutral-700 hover:text-black cursor-pointer"
+                  className="px-4 py-2 text-xs font-black uppercase bg-transparent hover:bg-neutral-100 text-neutral-700 hover:text-black cursor-pointer text-center"
                 >
                   Cancel
                 </button>
@@ -962,7 +962,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                   type="button"
                   onClick={handleImportCommit}
                   disabled={isImporting || selectedCount === 0}
-                  className="px-5 py-2.5 bg-[#05DF72] hover:bg-[#04C966] text-[#121212] text-xs font-black uppercase border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                  className="px-5 py-2.5 bg-[#05DF72] hover:bg-[#04C966] text-[#121212] text-xs font-black uppercase border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <Check size={16} strokeWidth={3} />
                   <span>

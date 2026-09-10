@@ -198,12 +198,15 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
       >
         <div className="flex items-center gap-1">
           {isGain ? <ArrowUpRight size={15} strokeWidth={3} /> : <ArrowDownLeft size={15} strokeWidth={3} />}
-          <span>REAL-TIME P&L</span>
+          <span>{isGain ? '+' : ''}{formatPrivateAmount(gain, currencySymbol)} ({isGain ? '+' : ''}{gainPercent}%)</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span>{isGain ? '+' : ''}{formatPrivateAmount(gain, currencySymbol)}</span>
-          <span>({isGain ? '+' : ''}{gainPercent}%)</span>
-        </div>
+        {inv.xirr ? (
+          <span className="bg-[#121212] text-[#05DF72] px-1.5 py-0.5 text-[10px] font-black tracking-wide border border-[#121212] shrink-0">
+            XIRR: {inv.xirr}
+          </span>
+        ) : (
+          <span className="text-[10px] uppercase font-black opacity-80">P&L</span>
+        )}
       </div>
     </div>
   );

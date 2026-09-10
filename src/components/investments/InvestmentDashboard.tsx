@@ -284,22 +284,22 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <NeoButton
                 variant="outline"
                 size="md"
                 onClick={() => handleSyncLiveMarket(false)}
                 disabled={isSyncingNav}
-                className="flex items-center gap-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212]"
+                className="flex items-center justify-center gap-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212] flex-1 sm:flex-initial"
               >
                 <RefreshCw size={15} strokeWidth={2.5} className={isSyncingNav ? 'animate-spin' : ''} />
-                <span className="hidden sm:inline">{isSyncingNav ? 'Syncing Market...' : 'Sync Live Market (MF & Stocks)'}</span>
+                <span>{isSyncingNav ? 'Syncing...' : 'Sync Market'}</span>
               </NeoButton>
-              <NeoButton variant="outline" size="md" onClick={onOpenImportModal} className="flex items-center gap-1.5 bg-white">
+              <NeoButton variant="outline" size="md" onClick={onOpenImportModal} className="flex items-center justify-center gap-1.5 bg-white flex-1 sm:flex-initial">
                 <UploadCloud size={16} strokeWidth={2.5} />
-                <span className="hidden sm:inline">Import</span>
+                <span>Import</span>
               </NeoButton>
-              <NeoButton variant="dark" size="md" onClick={() => onOpenAddModal()} className="flex items-center gap-1.5">
+              <NeoButton variant="dark" size="md" onClick={() => onOpenAddModal()} className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial">
                 <Plus size={16} strokeWidth={3} className="text-[#05DF72]" />
                 <span>+ Add</span>
               </NeoButton>
@@ -309,23 +309,25 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       </div>
 
       {/* Live Market Real-Time Movement Bar */}
-      <div className="bg-[#121212] text-white p-3 border-[3px] border-[#121212] shadow-neo flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#05DF72]/20 border border-[#05DF72] text-[#05DF72] text-[11px] font-mono font-black uppercase">
+      <div className="bg-[#121212] text-white p-3 border-[3px] border-[#121212] shadow-neo flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap w-full md:w-auto">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#05DF72]/20 border border-[#05DF72] text-[#05DF72] text-[11px] font-mono font-black uppercase shrink-0">
             <span className="w-2 h-2 rounded-full bg-[#05DF72] animate-ping inline-block" />
-            <span>LIVE MARKET CONNECTED</span>
+            <span>LIVE MARKET</span>
           </div>
 
           {/* Real-time indices: NIFTY 50 & SENSEX */}
-          {marketIndices.map((idx) => (
-            <div key={idx.symbol} className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-700 px-2.5 py-1 text-xs font-mono">
-              <span className="font-bold text-neutral-400">{idx.name}:</span>
-              <span className="font-black text-white">₹{idx.price.toLocaleString('en-IN')}</span>
-              <span className={`text-[10px] font-black flex items-center ${idx.isPositive ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
-                {idx.isPositive ? '+' : ''}{idx.change} ({idx.isPositive ? '+' : ''}{idx.changePercent}%)
-              </span>
-            </div>
-          ))}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full sm:w-auto py-0.5">
+            {marketIndices.map((idx) => (
+              <div key={idx.symbol} className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-700 px-2.5 py-1 text-xs font-mono shrink-0">
+                <span className="font-bold text-neutral-400">{idx.name}:</span>
+                <span className="font-black text-white">₹{idx.price.toLocaleString('en-IN')}</span>
+                <span className={`text-[10px] font-black flex items-center ${idx.isPositive ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
+                  {idx.isPositive ? '+' : ''}{idx.change} ({idx.isPositive ? '+' : ''}{idx.changePercent}%)
+                </span>
+              </div>
+            ))}
+          </div>
 
           {marketIndices.length === 0 && (
             <div className="text-neutral-400 text-xs font-mono">
@@ -334,7 +336,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-2.5 text-xs font-mono">
+        <div className="flex items-center justify-between sm:justify-end gap-2.5 text-xs font-mono w-full md:w-auto">
           {lastSyncedAt && (
             <span className="text-[10px] text-neutral-400">
               Synced: {lastSyncedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -349,16 +351,16 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             }`}
             title="Toggle real-time auto sync every 45 seconds"
           >
-            Auto-Sync: {isAutoSyncEnabled ? 'ON (45s)' : 'OFF'}
+            Auto: {isAutoSyncEnabled ? 'ON (45s)' : 'OFF'}
           </button>
           <button
             onClick={() => handleSyncLiveMarket(false)}
             disabled={isSyncingNav}
-            className="px-2.5 py-1 bg-[#FFE600] hover:bg-[#FFD700] text-[#121212] font-black text-[11px] uppercase border border-[#121212] flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            className="px-2.5 py-1 bg-[#FFE600] hover:bg-[#FFD700] text-[#121212] font-black text-[11px] uppercase border border-[#121212] flex items-center gap-1 cursor-pointer disabled:opacity-50 shrink-0"
             title="Fetch real-time quotes for all stocks and mutual funds"
           >
             <RefreshCw size={12} strokeWidth={3} className={isSyncingNav ? 'animate-spin' : ''} />
-            <span>{isSyncingNav ? 'Refreshing...' : 'Live Sync'}</span>
+            <span>{isSyncingNav ? 'Syncing...' : 'Live Sync'}</span>
           </button>
         </div>
       </div>
@@ -433,14 +435,14 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white border-[3px] border-[#121212] shadow-neo p-3">
         <div className="flex items-center gap-2 flex-wrap">
           {/* Search */}
-          <div className="relative">
-            <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-neutral-500" />
+          <div className="relative w-full sm:w-56">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500" />
             <input
               type="text"
               placeholder="Search holdings..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs font-bold bg-white border border-[#121212] w-48"
+              className="pl-8 pr-3 py-1.5 text-xs font-bold bg-white border border-[#121212] w-full"
             />
           </div>
 
@@ -476,20 +478,34 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
           )}
 
           {/* Filter Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto pb-1">
-            {ASSET_TABS.map((tab) => (
-              <button
-                key={tab.value}
-                onClick={() => setSelectedFilter(tab.value)}
-                className={`px-2.5 py-1 text-[10px] font-black uppercase border transition-all cursor-pointer whitespace-nowrap ${
-                  selectedFilter === tab.value
-                    ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm'
-                    : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 w-full sm:w-auto">
+            {ASSET_TABS.map((tab) => {
+              const count = tab.value === 'all'
+                ? investments.length
+                : investments.filter((i) => i.assetType === tab.value).length;
+              return (
+                <button
+                  key={tab.value}
+                  onClick={() => setSelectedFilter(tab.value)}
+                  className={`px-3 py-1.5 text-[11px] font-black uppercase border transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    selectedFilter === tab.value
+                      ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm'
+                      : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                      selectedFilter === tab.value
+                        ? 'bg-[#FFE600] text-[#121212]'
+                        : 'bg-neutral-100 text-neutral-600'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
