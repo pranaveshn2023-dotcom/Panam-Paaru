@@ -95,8 +95,11 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
               </span>
             )}
             {inv.currentPrice && (
-              <span className="text-[9px] font-mono font-bold bg-[#E8F8F0] text-[#0B6B38] px-1.5 py-0.5 border border-[#05DF72]">
-                NAV: {currencySymbol}{inv.currentPrice}
+              <span className="text-[9px] font-mono font-bold bg-[#E8F8F0] text-[#0B6B38] px-1.5 py-0.5 border border-[#05DF72] flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#05DF72] inline-block animate-pulse" />
+                <span>
+                  {inv.assetType === 'stocks' ? 'LTP' : inv.assetType === 'mutual_fund' ? 'NAV' : 'PRICE'}: {currencySymbol}{inv.currentPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                </span>
               </span>
             )}
           </div>
@@ -190,7 +193,7 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
       >
         <div className="flex items-center gap-1">
           {isGain ? <ArrowUpRight size={15} strokeWidth={3} /> : <ArrowDownLeft size={15} strokeWidth={3} />}
-          <span>RETURNS</span>
+          <span>REAL-TIME P&L</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span>{isGain ? '+' : ''}{formatPrivateAmount(gain, currencySymbol)}</span>

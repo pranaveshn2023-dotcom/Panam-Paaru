@@ -614,14 +614,23 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
     let curPriceCol = -1;
     let pnlCol = -1;
     let typeCol = -1;
+    let subCatCol = -1;
     let sectorCol = -1;
     let folioCol = -1;
     let brokerCol = -1;
+    let xirrCol = -1;
 
-    // Scan up to 35 rows for the true table header
-    for (let r = 0; r < Math.min(safeMatrix.length, 35); r++) {
+    // Scan up to 60 rows for the true table header (supports sheets with leading metadata)
+    for (let r = 0; r < Math.min(safeMatrix.length, 60); r++) {
       const rawRow = safeMatrix[r];
-      const row = rawRow.map((c) => String(c || '').replace(/\s+/g, ' ').trim().toLowerCase());
+      // Normalize cell text: remove symbols, punctuation, collapse spaces
+      const row = rawRow.map((c) =>
+        String(c || '')
+          .toLowerCase()
+          .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      );
 
       let tempInv = -1;
       let tempCur = -1;
@@ -630,9 +639,11 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
       let tempCurP = -1;
       let tempPnl = -1;
       let tempType = -1;
+      let tempSubCat = -1;
       let tempSector = -1;
       let tempFolio = -1;
       let tempBroker = -1;
+      let tempXirr = -1;
       let tempName = -1;
 
       row.forEach((colName, cIdx) => {
@@ -644,14 +655,12 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         }
 
         // 1. Quantity / Units
-        if (tempQty === -1 && /^(qty|quantity|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty)$/i.test(colName)) {
-          tempQty = cIdx;
-        } else if (tempQty === -1 && /\b(qty|quantity|units?|shares|volume)\b/i.test(colName) && !/price|val|cost|amount/i.test(colName)) {
+        if (tempQty === -1 && /\b(qty|quantity|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|avail\w*\s*qty)\b/i.test(colName) && !/price|val|cost|amount/i.test(colName)) {
           tempQty = cIdx;
         }
 
         // 2. Buy Price / Avg Price
-        else if (tempBuy === -1 && /\b(buy\s*price|avg\s*price|average\s*price|avg\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate)\b/i.test(colName)) {
+        else if (tempBuy === -1 && /\b(buy\s*price|avg\s*price|average\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate)\b/i.test(colName)) {
           tempBuy = cIdx;
         }
 
@@ -660,49 +669,63 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
           tempCurP = cIdx;
         }
 
-        // 4. Current Value / Market Value
-        else if (tempCur === -1 && (/(current|market|present|latest|today|portfolio|cur|mkt)\s*val(ue)?/i.test(colName) || /^(valuation|value|current|mkt\s*val)$/i.test(colName)) && !/price|nav|cost/i.test(colName)) {
+        // 4. Current Value / Market Value (supports 'Current Valu', 'Cur. Value', 'Mkt Value', etc.)
+        else if (
+          tempCur === -1 &&
+          /\b(current\s*val\w*|market\s*val\w*|present\s*val\w*|latest\s*val\w*|today\s*val\w*|portfolio\s*val\w*|total\s*val\w*|cur\s*val\w*|mkt\s*val\w*|valuation|current\s*amount|cur\s*amount|current|value)\b/i.test(colName) &&
+          !/price|nav|cost|invest|buy|purchase|face|book/i.test(colName)
+        ) {
           tempCur = cIdx;
         }
 
-        // 5. Invested Amount / Cost Basis
-        else if (tempInv === -1 && /(invested|investment|principal|purchase\s*val(ue)?|purchase\s*cost|cost\s*val(ue)?|book\s*val(ue)?|total\s*cost|amt\s*inv|amount\s*invested)/i.test(colName) && !/price|nav|avg/i.test(colName)) {
-          tempInv = cIdx;
-        } else if (tempInv === -1 && /^(cost|invested|investment|principal|cost\s*basis)$/i.test(colName)) {
+        // 5. Invested Amount / Cost Basis (supports 'Invested Valu', 'Cost (Rs.)', 'Buy Value', 'Inv Amt', etc.)
+        else if (
+          tempInv === -1 &&
+          /\b(invested\s*val\w*|invested\s*amount|invest\w*\s*val\w*|cost\s*val\w*|cost|invested|investment|purchase\s*val\w*|purchase\s*cost|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost)\b/i.test(colName) &&
+          !/price|nav|avg|per\s*unit/i.test(colName)
+        ) {
           tempInv = cIdx;
         }
 
         // 6. P&L / Returns
-        else if (tempPnl === -1 && /\b(p\&l|profit|loss|gain|returns?|unrealized|unrealised)\b/i.test(colName)) {
+        else if (tempPnl === -1 && /\b(p\s*l|profit|loss|gain|returns?|unrealized|unrealised)\b/i.test(colName)) {
           tempPnl = cIdx;
         }
 
-        // 7. Asset Class / Type / Category
-        else if (tempType === -1 && /\b(asset\s*class|asset\s*type|asset\s*category|instrument\s*type|security\s*type|holding\s*type|investment\s*type)\b/i.test(colName)) {
-          tempType = cIdx;
-        } else if (tempType === -1 && /^(type|category|sub\s*category|class|segment)$/i.test(colName)) {
+        // 7. Sub-category (e.g. Mid Cap, Large Cap, Liquid, Dynamic Asset Allocation)
+        else if (tempSubCat === -1 && /\b(sub\s*category|sub\s*cat|subcategory)\b/i.test(colName)) {
+          tempSubCat = cIdx;
+        }
+
+        // 8. Asset Class / Category / Type
+        else if (tempType === -1 && /\b(asset\s*class|asset\s*type|asset\s*category|instrument\s*type|security\s*type|holding\s*type|investment\s*type|category|type|class|segment)\b/i.test(colName)) {
           tempType = cIdx;
         }
 
-        // 8. Sector / Industry
+        // 9. Sector / Industry
         else if (tempSector === -1 && /\b(sector|industry|theme)\b/i.test(colName) && !/fund|scheme/i.test(colName)) {
           tempSector = cIdx;
         }
 
-        // 9. Folio / ISIN
+        // 10. Folio / ISIN
         else if (tempFolio === -1 && /\b(folio|isin|dp\s*id|demat|scrip\s*code)\b/i.test(colName)) {
           tempFolio = cIdx;
         }
 
-        // 10. Broker / Platform
+        // 11. Broker / Platform / Source
         else if (tempBroker === -1 && /\b(broker|platform|depository|source)\b/i.test(colName)) {
           tempBroker = cIdx;
         }
+
+        // 12. XIRR / IRR / CAGR
+        else if (tempXirr === -1 && /\b(xirr|irr|cagr)\b/i.test(colName)) {
+          tempXirr = cIdx;
+        }
       });
 
-      // Find the holding / stock / scheme name column, explicitly excluding value/type/metadata columns
+      // Find the holding / stock / scheme / AMC name column
       const specificNameIdx = row.findIndex((c) =>
-        /^(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|instrument|symbol|security\s*name|holding\s*name|scrip|particulars?|instrument\s*name|asset\s*name)$/i.test(c)
+        /^(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|instrument|symbol|security\s*name|holding\s*name|scrip|particulars?|instrument\s*name|asset\s*name|amc|amc\s*name)$/i.test(c)
       );
 
       if (specificNameIdx !== -1) {
@@ -717,16 +740,18 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             idx === tempCurP ||
             idx === tempPnl ||
             idx === tempType ||
+            idx === tempSubCat ||
             idx === tempSector ||
             idx === tempFolio ||
-            idx === tempBroker
+            idx === tempBroker ||
+            idx === tempXirr
           ) {
             return false;
           }
-          if (/client|investor|nominee|account|user|pan|aadhaar|mobile|phone|email|address|date|status|sl\s*no|s\.no|sr\s*no/i.test(c)) {
+          if (/client|investor|nominee|account|user|pan|aadhaar|mobile|phone|email|address|date|status|sl\s*no|s\s*no|sr\s*no|returns|xirr/i.test(c)) {
             return false;
           }
-          return /scheme|fund|stock|scrip|company|symbol|security|holding|particular|instrument|description|name/i.test(c);
+          return /scheme|fund|stock|scrip|company|symbol|security|holding|particular|instrument|description|name|amc/i.test(c);
         });
       }
 
@@ -741,9 +766,11 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         curPriceCol = tempCurP;
         pnlCol = tempPnl;
         typeCol = tempType;
+        subCatCol = tempSubCat;
         sectorCol = tempSector;
         folioCol = tempFolio;
         brokerCol = tempBroker;
+        xirrCol = tempXirr;
         break;
       }
     }
@@ -764,6 +791,19 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         if (/total|sub\s*total|grand\s*total|summary|footer|page\s+\d/i.test(rawName)) continue;
         if (!isValidHoldingName(rawName)) continue;
 
+        const rawSubCat = subCatCol !== -1 ? String(row[subCatCol] || '').trim() : undefined;
+        const rawType = typeCol !== -1 ? String(row[typeCol] || '').trim() : undefined;
+        const rawSector = sectorCol !== -1 ? String(row[sectorCol] || '').trim() : undefined;
+        const rawFolio = folioCol !== -1 ? String(row[folioCol] || '').trim() : undefined;
+        const rawBroker = brokerCol !== -1 ? String(row[brokerCol] || '').trim() : undefined;
+        const rawXirr = xirrCol !== -1 ? String(row[xirrCol] || '').trim() : undefined;
+
+        // Build composite holding name if AMC + Sub-category exist (e.g. "HDFC Mutual Fund - Mid Cap")
+        let fullName = rawName;
+        if (rawSubCat && !fullName.toLowerCase().includes(rawSubCat.toLowerCase())) {
+          fullName = `${rawName} - ${rawSubCat}`;
+        }
+
         let units = qtyCol !== -1 ? parseCleanNumber(row[qtyCol]) : undefined;
         let buyPrice = buyPriceCol !== -1 ? parseCleanNumber(row[buyPriceCol]) : undefined;
         let currentPrice = curPriceCol !== -1 ? parseCleanNumber(row[curPriceCol]) : undefined;
@@ -771,30 +811,31 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         let current = curCol !== -1 ? parseCleanNumber(row[curCol]) : 0;
         let pnl = pnlCol !== -1 ? parseCleanNumber(row[pnlCol]) : undefined;
 
-        // Read real, original type, sector, broker and folio directly from file columns!
-        const rawType = typeCol !== -1 ? String(row[typeCol] || '').trim() : undefined;
-        const rawSector = sectorCol !== -1 ? String(row[sectorCol] || '').trim() : undefined;
-        const rawFolio = folioCol !== -1 ? String(row[folioCol] || '').trim() : undefined;
-        const rawBroker = brokerCol !== -1 ? String(row[brokerCol] || '').trim() : undefined;
-
         // Derive missing financial numbers from existing row data if needed
         if (invested === 0 && units && buyPrice) invested = units * buyPrice;
         if (current === 0 && units && currentPrice) current = units * currentPrice;
         if (current === 0 && invested > 0 && pnl !== undefined) current = invested + pnl;
         if (invested === 0 && current > 0 && pnl !== undefined) invested = current - pnl;
-        if (invested === 0 && current > 0) invested = current;
-        if (current === 0 && invested > 0) current = invested;
+
+        // Only fallback to current if NO invested amount column and NO buy price column existed in the file
+        if (invested === 0 && current > 0 && invCol === -1 && buyPriceCol === -1) invested = current;
+        if (current === 0 && invested > 0 && curCol === -1 && curPriceCol === -1) current = invested;
 
         if (invested > 500000000 || current > 500000000) continue;
 
         if (invested > 0 || current > 0) {
-          const detailed = detectDetailedAssetType(rawName, rawType, rawSector);
+          const detailed = detectDetailedAssetType(fullName, rawType || rawSubCat, rawSector);
+          const notesParts = [
+            rawFolio ? `Folio: ${rawFolio}` : '',
+            rawXirr ? `XIRR: ${rawXirr}` : '',
+          ].filter(Boolean);
+
           holdings.push({
             id: `auto_${sheet.sheetName}_${r}_${Date.now()}`,
-            name: rawName,
+            name: fullName,
             assetType: detailed.assetType,
-            subType: rawType || detailed.subType,
-            sector: rawSector || undefined,
+            subType: rawSubCat || rawType || detailed.subType,
+            sector: rawSector || detailed.sector || undefined,
             broker: rawBroker || undefined,
             folioNo: rawFolio || undefined,
             investedAmount: cleanCurrency(Math.abs(invested)),
@@ -802,6 +843,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             units: cleanUnits(units),
             buyPrice: buyPrice && buyPrice > 0 ? cleanCurrency(buyPrice) : undefined,
             currentPrice: currentPrice && currentPrice > 0 ? cleanCurrency(currentPrice) : undefined,
+            notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
             selected: true,
             isValid: true,
           });
@@ -841,10 +883,10 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
     }
   }
 
-  // Deduplicate
+  // Deduplicate by composite key so different schemes under the same AMC are both preserved
   const seen = new Set<string>();
   return holdings.filter((h) => {
-    const key = h.name.toLowerCase().substring(0, 30);
+    const key = `${h.name.toLowerCase()}_${h.subType || ''}_${h.folioNo || ''}`.substring(0, 60);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

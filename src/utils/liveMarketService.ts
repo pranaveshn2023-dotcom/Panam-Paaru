@@ -32,6 +32,9 @@ export function cleanSearchQuery(raw: string): string {
   return raw
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
     .replace(/\b(direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
+    .replace(/\bppfas\b/gi, 'Parag Parikh')
+    .replace(/\bdynamic\s*asset\s*allocation\b/gi, 'Balanced Advantage')
+    .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -115,6 +118,49 @@ export async function fetchAmfiNav(
 }
 
 /**
+ * Fetch live stock quote for Indian Equities (NSE/BSE)
+ */
+export async function fetchLiveStockPrice(
+  nameOrSymbol: string
+): Promise<{ price: number; prevClose?: number; symbol?: string } | null> {
+  const clean = nameOrSymbol.trim().toUpperCase();
+  const candidates: string[] = [];
+
+  if (clean.endsWith('.NS') || clean.endsWith('.BO')) {
+    candidates.push(clean);
+  } else if (/^[A-Z0-9]{2,12}$/.test(clean)) {
+    candidates.push(`${clean}.NS`, `${clean}.BO`);
+  } else {
+    const stripped = clean
+      .replace(/\b(LIMITED|LTD|INDUSTRIES|CORP|CORPORATION|HOLDINGS|INDIA|ENTERPRISES|TECHNOLOGIES|SERVICES)\b/gi, '')
+      .trim();
+    if (/^[A-Z0-9]{2,12}$/.test(stripped)) {
+      candidates.push(`${stripped}.NS`, `${stripped}.BO`);
+    }
+  }
+
+  for (const sym of candidates) {
+    const url = `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}`)}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (res.ok) {
+        const data: any = await res.json();
+        const meta = data?.chart?.result?.[0]?.meta;
+        if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+          return {
+            price: meta.regularMarketPrice,
+            prevClose: meta.previousClose || meta.chartPreviousClose,
+            symbol: sym,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+/**
  * Dynamic sector detector without hardcoded company or sector dictionaries.
  * Reads actual sector strictly if present in the document. If absent, returns empty.
  */
@@ -143,12 +189,29 @@ export function detectDetailedAssetType(
   const lowerType = normType.toLowerCase();
   const lowerName = name.toLowerCase();
 
+  // Check if name clearly represents a Mutual Fund (AMC, Fund, Scheme, Direct, Regular, Growth, etc.)
+  const isFundName =
+    /\bfund\b|\bamc\b|\bmutual\b|\bgrowth\b|\bindex\b|\bdirect\b|\bregular\b|\belss\b|\barbitrage\b|\bliquid\b|\bovernight\b|\bbalanced\b|\bbluechip\b|\bflexi\b|\bsmall\s*cap\b|\bmid\s*cap\b|\blarge\s*cap\b|\bmulti\s*cap\b|\bcontra\b|\bthematic\b|\bsectoral\b|\bopportunities\b|\bemerging\b|\binternational\b|\boverseas\b/i.test(
+      lowerName
+    );
+
   // 1. If document provided an explicit type column, honor the document's real value!
   if (normType) {
+    // If the holding is a mutual fund / AMC, classify under mutual_fund with appropriate subType
+    if (isFundName) {
+      if (/hybrid|dynamic|balanced/i.test(lowerType)) {
+        return { assetType: 'mutual_fund', subType: normType || 'Hybrid Mutual Fund', sector: explicitSector };
+      }
+      if (/debt|liquid|gilt|money\s*market|bond/i.test(lowerType)) {
+        return { assetType: 'mutual_fund', subType: normType || 'Debt Mutual Fund', sector: explicitSector };
+      }
+      return { assetType: 'mutual_fund', subType: normType || 'Equity Mutual Fund', sector: explicitSector };
+    }
+
     if (/equity\s*mutual|equity.*fund|mf.*equity/i.test(lowerType)) {
       return { assetType: 'mutual_fund', subType: normType, sector: explicitSector };
     }
-    if (/hybrid\s*mutual|hybrid.*fund|balanced.*fund/i.test(lowerType)) {
+    if (/hybrid\s*mutual|hybrid.*fund|balanced.*fund|dynamic\s*asset/i.test(lowerType)) {
       return { assetType: 'mutual_fund', subType: normType, sector: explicitSector };
     }
     if (/debt\s*mutual|debt.*fund|liquid.*fund/i.test(lowerType)) {
@@ -157,16 +220,29 @@ export function detectDetailedAssetType(
     if (/mutual\s*fund|\bmf\b/i.test(lowerType)) {
       return { assetType: 'mutual_fund', subType: normType, sector: explicitSector };
     }
+    if (/hybrid/i.test(lowerType)) {
+      return { assetType: 'mutual_fund', subType: normType, sector: explicitSector };
+    }
+    if (/liquid/i.test(lowerType)) {
+      return { assetType: 'mutual_fund', subType: normType, sector: explicitSector };
+    }
     if (/stock|equity|share/i.test(lowerType)) {
-      return { assetType: 'stocks', subType: normType, sector: explicitSector };
+      return {
+        assetType: 'stocks',
+        subType: normType,
+        sector: explicitSector || detectStockSector(name) || undefined,
+      };
+    }
+    if (/debt|bond|debenture|gilt/i.test(lowerType)) {
+      return { assetType: 'fd_rd', subType: normType, sector: explicitSector };
     }
     if (/gold|silver|sgb|precious/i.test(lowerType)) {
       return { assetType: 'gold', subType: normType, sector: explicitSector };
     }
-    if (/crypto|bitcoin/i.test(lowerType)) {
+    if (/crypto|bitcoin|ethereum/i.test(lowerType)) {
       return { assetType: 'crypto', subType: normType, sector: explicitSector };
     }
-    if (/fd|fixed\s*deposit|rd|bond|debenture/i.test(lowerType)) {
+    if (/fd|fixed\s*deposit|rd/i.test(lowerType)) {
       return { assetType: 'fd_rd', subType: normType, sector: explicitSector };
     }
     if (/ppf|epf|nps|provident|pension|retire/i.test(lowerType)) {

@@ -1,4 +1,5 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, action } from "./_generated/server";
+import { api } from "./_generated/api";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
@@ -396,5 +397,260 @@ export const remove = mutation({
 
     await ctx.db.delete(args.id);
     return { success: true };
+  },
+});
+
+// ──────────────────────────────────────────
+// Real-Time Market Feed Helpers (NSE/BSE & AMFI)
+// ──────────────────────────────────────────
+
+async function fetchStockQuote(name: string): Promise<{ price: number; prevClose?: number } | null> {
+  const clean = name.trim().toUpperCase();
+  const candidates: string[] = [];
+
+  if (clean.endsWith('.NS') || clean.endsWith('.BO')) {
+    candidates.push(clean);
+  } else {
+    // Check if clean is a direct ticker e.g. RELIANCE, TCS, INFY, ITC, SBIN, HDFCBANK
+    if (/^[A-Z0-9]{2,12}$/.test(clean)) {
+      candidates.push(`${clean}.NS`, `${clean}.BO`);
+    } else {
+      const stripped = clean
+        .replace(/\b(LIMITED|LTD|INDUSTRIES|CORP|CORPORATION|HOLDINGS|INDIA|ENTERPRISES|TECHNOLOGIES|SERVICES)\b/gi, '')
+        .trim();
+      if (/^[A-Z0-9]{2,12}$/.test(stripped)) {
+        candidates.push(`${stripped}.NS`, `${stripped}.BO`);
+      }
+    }
+  }
+
+  // If candidate is empty or search needed, query Yahoo Finance search
+  if (candidates.length === 0) {
+    try {
+      const searchRes = await fetch(
+        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(name)}&quotesCount=3&newsCount=0`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (searchRes.ok) {
+        const data: any = await searchRes.json();
+        const quotes = data?.quotes || [];
+        const nsQuote = quotes.find((q: any) => q.symbol?.endsWith('.NS') || q.symbol?.endsWith('.BO')) || quotes[0];
+        if (nsQuote?.symbol) {
+          candidates.push(nsQuote.symbol);
+        }
+      }
+    } catch {}
+  }
+
+  for (const sym of candidates) {
+    try {
+      const chartRes = await fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (!chartRes.ok) continue;
+      const data: any = await chartRes.json();
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+        return {
+          price: meta.regularMarketPrice,
+          prevClose: meta.previousClose || meta.chartPreviousClose,
+        };
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; prevNav?: number } | null> {
+  const query = name
+    .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
+    .replace(/\b(direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
+    .replace(/\bppfas\b/gi, 'Parag Parikh')
+    .replace(/\bdynamic\s*asset\s*allocation\b/gi, 'Balanced Advantage')
+    .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  if (query.length < 3) return null;
+
+  try {
+    const searchRes = await fetch(
+      `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!searchRes.ok) return null;
+    const list: any[] = await searchRes.json();
+    if (!list || list.length === 0) return null;
+
+    const isDirect = /direct/i.test(name);
+    const isGrowth = /growth/i.test(name);
+
+    let best = list[0];
+    for (const item of list) {
+      const itemLower = String(item.schemeName || '').toLowerCase();
+      const itemDirect = itemLower.includes('direct');
+      const itemGrowth = itemLower.includes('growth');
+
+      if (isDirect === itemDirect && isGrowth === itemGrowth) {
+        best = item;
+        break;
+      } else if (isDirect && itemDirect) {
+        best = item;
+      }
+    }
+
+    const detailRes = await fetch(
+      `https://api.mfapi.in/mf/${best.schemeCode}`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!detailRes.ok) return null;
+    const details: any = await detailRes.json();
+    const latest = details?.data?.[0];
+    const prev = details?.data?.[1];
+
+    if (latest && latest.nav) {
+      const navNum = parseFloat(latest.nav);
+      if (!isNaN(navNum) && navNum > 0) {
+        return {
+          nav: navNum,
+          date: latest.date,
+          prevNav: prev ? parseFloat(prev.nav) : undefined,
+        };
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+async function fetchCryptoOrGoldPrice(name: string, assetType: string): Promise<{ price: number } | null> {
+  const lower = name.toLowerCase();
+  let ticker = '';
+  if (assetType === 'crypto' || /crypto|bitcoin|btc/i.test(lower)) {
+    if (/btc|bitcoin/i.test(lower)) ticker = 'BTC-INR';
+    else if (/eth|ethereum/i.test(lower)) ticker = 'ETH-INR';
+    else if (/sol|solana/i.test(lower)) ticker = 'SOL-INR';
+  } else if (assetType === 'gold' || /gold|sgb/i.test(lower)) {
+    ticker = 'GOLDBEES.NS';
+  }
+
+  if (ticker) {
+    try {
+      const r = await fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (r.ok) {
+        const d: any = await r.json();
+        const price = d?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        if (typeof price === 'number' && price > 0) return { price };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+export const syncLiveMarketPrices = action({
+  args: {
+    investmentIds: v.optional(v.array(v.id("investments"))),
+  },
+  handler: async (ctx, args) => {
+    const allInvestments: any[] = await ctx.runQuery(api.investments.list, {});
+    if (!allInvestments || allInvestments.length === 0) {
+      return { success: true, count: 0, updates: [] };
+    }
+
+    const targetList = args.investmentIds && args.investmentIds.length > 0
+      ? allInvestments.filter((inv) => args.investmentIds!.includes(inv._id))
+      : allInvestments;
+
+    const updates: { id: any; currentValue: number; currentPrice?: number }[] = [];
+
+    for (const inv of targetList) {
+      try {
+        let livePrice: number | null = null;
+
+        if (inv.assetType === "mutual_fund") {
+          const mf = await fetchMfNav(inv.name);
+          if (mf && mf.nav > 0) livePrice = mf.nav;
+        } else if (inv.assetType === "stocks") {
+          const stk = await fetchStockQuote(inv.name);
+          if (stk && stk.price > 0) livePrice = stk.price;
+        } else if (inv.assetType === "crypto" || inv.assetType === "gold") {
+          const cg = await fetchCryptoOrGoldPrice(inv.name, inv.assetType);
+          if (cg && cg.price > 0) livePrice = cg.price;
+        }
+
+        if (livePrice !== null && livePrice > 0) {
+          let updatedVal = inv.currentValue;
+
+          if (inv.units && inv.units > 0) {
+            updatedVal = Math.round(inv.units * livePrice * 100) / 100;
+          } else if (inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0) {
+            const derivedUnits = inv.investedAmount / inv.buyPrice;
+            updatedVal = Math.round(derivedUnits * livePrice * 100) / 100;
+          } else if (inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0) {
+            const ratio = livePrice / inv.currentPrice;
+            updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
+          } else {
+            updatedVal = livePrice;
+          }
+
+          updates.push({
+            id: inv._id,
+            currentValue: updatedVal,
+            currentPrice: livePrice,
+          });
+        }
+      } catch (err) {
+        console.warn(`[SyncLiveMarket] Error fetching price for ${inv.name}:`, err);
+      }
+    }
+
+    if (updates.length > 0) {
+      await ctx.runMutation(api.investments.batchUpdateLivePrices, { updates });
+    }
+
+    return { success: true, count: updates.length, updates };
+  },
+});
+
+export const getMarketIndices = action({
+  args: {},
+  handler: async () => {
+    const indices = [
+      { key: "nifty50", symbol: "^NSEI", name: "NIFTY 50" },
+      { key: "sensex", symbol: "^BSESN", name: "SENSEX" },
+    ];
+    const results: any[] = [];
+    for (const idx of indices) {
+      try {
+        const res = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
+          { signal: AbortSignal.timeout(4000) }
+        );
+        if (res.ok) {
+          const d: any = await res.json();
+          const meta = d?.chart?.result?.[0]?.meta;
+          if (meta) {
+            const price = meta.regularMarketPrice;
+            const prev = meta.previousClose || meta.chartPreviousClose || price;
+            const change = price - prev;
+            const changePct = Number(((change / prev) * 100).toFixed(2));
+            results.push({
+              name: idx.name,
+              symbol: idx.symbol,
+              price: Math.round(price * 100) / 100,
+              change: Math.round(change * 100) / 100,
+              changePercent: changePct,
+              isPositive: change >= 0,
+            });
+          }
+        }
+      } catch {}
+    }
+    return results;
   },
 });

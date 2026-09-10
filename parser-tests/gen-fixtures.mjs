@@ -205,6 +205,28 @@ fs.writeFileSync(
   ].join('\n')
 );
 
+// ────────────────────────────────────────────────
+// Fixture 8: User AMC Template with leading rows and 'Invested Valu' / 'Current Valu'
+// ────────────────────────────────────────────────
+const amcRows = [];
+for (let i = 0; i < 20; i++) {
+  amcRows.push(['', '', '', '', '', '', '', '', '', '']);
+}
+amcRows.push(['AMC', 'Category', 'Sub-category', 'Folio No.', 'Source', 'Units', 'Invested Valu', 'Current Valu', 'Returns', 'XIRR']);
+amcRows.push(['HDFC Mutual Fund', 'Equity', 'Mid Cap', '39031078', 'Groww', 14.827, 3349.93, 3443.85, 93.923342, '17.3%']);
+amcRows.push(['Axis Mutual Fund', 'Hybrid', 'Dynamic Asset Allocation', '910231017414', 'Groww', 61.826, 1502.99, 1485.06, -17.92954, '-6.15%']);
+amcRows.push(['Axis Mutual Fund', 'Debt', 'Liquid', '910231017414', 'Groww', 0.001, 3.11, 3.16, 0.0481728, '9.1%']);
+amcRows.push(['Nippon India Mutual Fund', 'Equity', 'Large Cap', '488455735887', 'Groww', 246.21, 10999.46, 10659.49, -339.9695269, '-6.77%']);
+amcRows.push(['Edelweiss Mutual Fund', 'Equity', 'International', '91046739273', 'Groww', 56.62, 1599.93, 1788, 188.0722034, '32.69%']);
+amcRows.push(['ICICI Prudential Mutual Fund', 'Equity', 'Large Cap', '43192064', 'Groww', 83.7, 5399.71, 5676.4, 276.6852849, '15.8%']);
+amcRows.push(['PPFAS Mutual Fund', 'Equity', 'Flexi Cap', '19284417', 'Groww', 175.777, 15999.18, 15713.51, -285.6654316, '-4.05%']);
+amcRows.push(['Bandhan Mutual Fund', 'Equity', 'Small Cap', '8956729', 'Groww', 5.614, 300, 324.79, 24.78581, '26.81%']);
+
+const amcWs = XLSX.utils.aoa_to_sheet(amcRows);
+const amcWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(amcWb, amcWs, 'Holdings');
+XLSX.writeFile(amcWb, path.join(outDir, 'user-amc-template.xlsx'));
+
 console.log('Fixtures written to', outDir);
 
 fs.writeFileSync(path.join(outDir, 'kfin-cas.pdf'), makePdf([kfinPage1]));

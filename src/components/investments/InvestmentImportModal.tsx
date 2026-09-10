@@ -308,6 +308,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const totalSelectedCurrent = parsedHoldings
     .filter((h) => h.selected && h.isValid)
     .reduce((sum, h) => sum + h.currentValue, 0);
+  const totalSelectedInvested = parsedHoldings
+    .filter((h) => h.selected && h.isValid)
+    .reduce((sum, h) => sum + h.investedAmount, 0);
 
   const handleImportCommit = async () => {
     const selected = parsedHoldings.filter((h) => h.selected && h.isValid && h.name.trim());
@@ -608,14 +611,44 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         {parsedHoldings.length > 0 && (
           <div className="flex flex-col gap-3">
             
-            {/* Status Pills matching Image 2 */}
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 bg-neutral-200 text-neutral-800 text-xs font-black rounded-full border border-neutral-300">
-                {parsedHoldings.length} rows
-              </span>
-              <span className="px-2.5 py-0.5 bg-[#05DF72] text-[#121212] text-xs font-black rounded-full border border-[#05DF72]">
-                {validCount} valid
-              </span>
+            {/* Status & Totals Bar matching Image 2 */}
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-[#FFFDF5] p-2.5 border-2 border-[#121212] shadow-neo-sm">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 bg-neutral-200 text-neutral-800 text-xs font-black rounded-full border border-neutral-300">
+                  {parsedHoldings.length} rows
+                </span>
+                <span className="px-2.5 py-0.5 bg-[#05DF72] text-[#121212] text-xs font-black rounded-full border border-[#05DF72]">
+                  {validCount} valid
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-xs font-mono">
+                <div>
+                  <span className="text-neutral-500 font-bold uppercase text-[10px]">Invested: </span>
+                  <span className="font-black text-[#121212]">
+                    ₹{totalSelectedInvested.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-neutral-500 font-bold uppercase text-[10px]">Current: </span>
+                  <span className="font-black text-[#121212]">
+                    ₹{totalSelectedCurrent.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-neutral-500 font-bold uppercase text-[10px]">P&L: </span>
+                  <span
+                    className={`font-black ${
+                      totalSelectedCurrent >= totalSelectedInvested ? 'text-[#0B6B38]' : 'text-[#DC2626]'
+                    }`}
+                  >
+                    {totalSelectedCurrent >= totalSelectedInvested ? '+' : ''}
+                    ₹{(totalSelectedCurrent - totalSelectedInvested).toLocaleString('en-IN', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Table Header & Rows */}
@@ -633,10 +666,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     </th>
                     <th className="p-2.5 w-8 text-center"></th>
                     <th className="p-2.5 w-6 text-center">●</th>
-                    <th className="p-2.5 min-w-[220px]">NAME</th>
-                    <th className="p-2.5 min-w-[180px]">TYPE</th>
-                    <th className="p-2.5 text-right min-w-[110px]">CUR. VALUE</th>
-                    <th className="p-2.5 text-right min-w-[90px]">QTY</th>
+                    <th className="p-2.5 min-w-[200px]">NAME</th>
+                    <th className="p-2.5 min-w-[150px]">TYPE</th>
+                    <th className="p-2.5 text-right min-w-[105px]">INVESTED</th>
+                    <th className="p-2.5 text-right min-w-[105px]">CUR. VALUE</th>
+                    <th className="p-2.5 text-right min-w-[80px]">QTY</th>
                     <th className="p-2.5 w-8 text-center">✕</th>
                   </tr>
                 </thead>
@@ -710,6 +744,19 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                             </select>
                           </td>
 
+                          {/* Invested cell (editable) */}
+                          <td className="p-2.5 text-right font-mono font-bold text-xs text-[#121212]">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={h.investedAmount}
+                              onChange={(e) =>
+                                updateItemField(h.id, 'investedAmount', parseFloat(e.target.value) || 0)
+                              }
+                              className="w-24 p-1 text-right font-mono font-bold text-xs border border-transparent hover:border-neutral-300 focus:border-[#121212] bg-transparent hover:bg-neutral-100 focus:bg-white"
+                            />
+                          </td>
+
                           {/* Cur. Value cell (editable) */}
                           <td className="p-2.5 text-right font-mono font-black text-xs text-[#121212]">
                             <input
@@ -757,7 +804,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                         {/* Collapsible Row Details */}
                         {isExpanded && (
                           <tr className="bg-[#FFFDF5] border-b border-neutral-300 text-[11px]">
-                            <td colSpan={8} className="p-3 pl-12">
+                            <td colSpan={9} className="p-3 pl-12">
                               <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                                 <div>
                                   <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">

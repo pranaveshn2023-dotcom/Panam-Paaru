@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Investment, PortfolioSummary, AssetType } from '../../types';
 import { usePrivacy } from '../../context/PrivacyContext';
 import { NeoButton } from '../ui/NeoButton';
@@ -7,9 +7,9 @@ import { AllocationChart } from './InvestmentChart';
 import { ReturnsChart } from './InvestmentChart';
 import { PortfolioTrendChart } from './InvestmentChart';
 import { InvestmentCard } from './InvestmentCard';
-import { useMutation } from 'convex/react';
+import { useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import { fetchAmfiNav } from '../../utils/liveMarketService';
+import { fetchAmfiNav, fetchLiveStockPrice } from '../../utils/liveMarketService';
 import {
   TrendingUp,
   TrendingDown,
@@ -75,8 +75,15 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'value' | 'returns' | 'gainPercent'>('value');
   const [isSyncingNav, setIsSyncingNav] = useState(false);
+  const [isAutoSyncEnabled, setIsAutoSyncEnabled] = useState(true);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [marketIndices, setMarketIndices] = useState<
+    { name: string; symbol: string; price: number; change: number; changePercent: number; isPositive: boolean }[]
+  >([]);
 
   const batchUpdateLivePricesMutation = useMutation(api.investments.batchUpdateLivePrices);
+  const syncLiveMarketPricesAction = useAction(api.investments.syncLiveMarketPrices);
+  const getMarketIndicesAction = useAction(api.investments.getMarketIndices);
 
   const totalInvested = portfolioSummary?.totalInvested ?? 0;
   const totalCurrentValue = portfolioSummary?.totalCurrentValue ?? 0;
@@ -134,49 +141,97 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     toast.success('Value updated!');
   };
 
-  const handleSyncLiveNav = async () => {
+  // Real-time market valuation sync for both Mutual Funds & Stocks
+  const handleSyncLiveMarket = async (silent = false) => {
     try {
       setIsSyncingNav(true);
-      toast.info('Fetching live AMFI daily NAVs & market prices...');
+      if (!silent) toast.info('Connecting to live market... Fetching NSE/BSE stock quotes & AMFI NAVs');
 
-      const updates: { id: any; currentValue: number; currentPrice?: number }[] = [];
+      // 1. Fetch benchmark indices (NIFTY 50 & SENSEX)
+      try {
+        const indices = await getMarketIndicesAction({});
+        if (indices && indices.length > 0) {
+          setMarketIndices(indices);
+        }
+      } catch {}
 
-      for (const inv of investments) {
-        if (inv.assetType === 'mutual_fund') {
-          const live = await fetchAmfiNav(inv.name);
-          if (live && live.nav > 0) {
-            const units = inv.units ?? (inv.investedAmount > 0 && inv.buyPrice ? inv.investedAmount / inv.buyPrice : 0);
-            if (units > 0) {
-              const updatedVal = Math.round(units * live.nav * 100) / 100;
-              updates.push({
-                id: inv._id as any,
-                currentValue: updatedVal,
-                currentPrice: live.nav,
-              });
-            }
+      // 2. Call Convex backend action to sync holdings with live market
+      let updatedCount = 0;
+      try {
+        const res = await syncLiveMarketPricesAction({});
+        updatedCount = res.count || 0;
+      } catch (actionErr) {
+        console.warn('Backend sync action failed, falling back to client-side sync:', actionErr);
+        // Client-side fallback sync
+        const updates: { id: any; currentValue: number; currentPrice?: number }[] = [];
+        for (const inv of investments) {
+          let livePrice: number | null = null;
+          if (inv.assetType === 'mutual_fund') {
+            const live = await fetchAmfiNav(inv.name);
+            if (live && live.nav > 0) livePrice = live.nav;
+          } else if (inv.assetType === 'stocks') {
+            const live = await fetchLiveStockPrice(inv.name);
+            if (live && live.price > 0) livePrice = live.price;
           }
-        } else if (inv.assetType === 'stocks' && inv.units && inv.currentPrice) {
-          const updatedVal = Math.round(inv.units * inv.currentPrice * 100) / 100;
-          updates.push({
-            id: inv._id as any,
-            currentValue: updatedVal,
-            currentPrice: inv.currentPrice,
-          });
+
+          if (livePrice !== null && livePrice > 0) {
+            let updatedVal = inv.currentValue;
+            if (inv.units && inv.units > 0) {
+              updatedVal = Math.round(inv.units * livePrice * 100) / 100;
+            } else if (inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0) {
+              const derived = inv.investedAmount / inv.buyPrice;
+              updatedVal = Math.round(derived * livePrice * 100) / 100;
+            } else if (inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0) {
+              const ratio = livePrice / inv.currentPrice;
+              updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
+            }
+            updates.push({ id: inv._id as any, currentValue: updatedVal, currentPrice: livePrice });
+          }
+        }
+        if (updates.length > 0) {
+          await batchUpdateLivePricesMutation({ updates });
+          updatedCount = updates.length;
         }
       }
 
-      if (updates.length > 0) {
-        await batchUpdateLivePricesMutation({ updates });
-        toast.success(`Updated ${updates.length} holdings to real market value!`);
-      } else {
-        toast.info('All holdings are up to date with real market valuation.');
-      }
+      setLastSyncedAt(new Date());
       setIsSyncingNav(false);
+
+      if (!silent) {
+        if (updatedCount > 0) {
+          toast.success(`Updated ${updatedCount} holdings in real time with market valuation!`);
+        } else {
+          toast.info('All holdings are up to date with live market value.');
+        }
+      }
     } catch (err: any) {
       setIsSyncingNav(false);
-      toast.error('Sync failed: ' + (err?.message || 'Network error'));
+      if (!silent) toast.error('Sync failed: ' + (err?.message || 'Network error'));
     }
   };
+
+  // Auto-sync real-time market movement on mount and every 45 seconds
+  useEffect(() => {
+    getMarketIndicesAction({})
+      .then((res) => {
+        if (res && res.length > 0) setMarketIndices(res);
+      })
+      .catch(() => {});
+
+    if (investments.length > 0) {
+      handleSyncLiveMarket(true);
+    }
+
+    if (!isAutoSyncEnabled) return;
+
+    const timer = setInterval(() => {
+      if (investments.length > 0) {
+        handleSyncLiveMarket(true);
+      }
+    }, 45000);
+
+    return () => clearInterval(timer);
+  }, [isAutoSyncEnabled, investments.length]);
 
   const ASSET_TABS: { label: string; value: 'all' | AssetType }[] = [
     { label: 'All', value: 'all' },
@@ -233,12 +288,12 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
               <NeoButton
                 variant="outline"
                 size="md"
-                onClick={handleSyncLiveNav}
+                onClick={() => handleSyncLiveMarket(false)}
                 disabled={isSyncingNav}
                 className="flex items-center gap-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212]"
               >
                 <RefreshCw size={15} strokeWidth={2.5} className={isSyncingNav ? 'animate-spin' : ''} />
-                <span className="hidden sm:inline">{isSyncingNav ? 'Syncing...' : 'Sync Market NAVs'}</span>
+                <span className="hidden sm:inline">{isSyncingNav ? 'Syncing Market...' : 'Sync Live Market (MF & Stocks)'}</span>
               </NeoButton>
               <NeoButton variant="outline" size="md" onClick={onOpenImportModal} className="flex items-center gap-1.5 bg-white">
                 <UploadCloud size={16} strokeWidth={2.5} />
@@ -250,6 +305,61 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
               </NeoButton>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Live Market Real-Time Movement Bar */}
+      <div className="bg-[#121212] text-white p-3 border-[3px] border-[#121212] shadow-neo flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#05DF72]/20 border border-[#05DF72] text-[#05DF72] text-[11px] font-mono font-black uppercase">
+            <span className="w-2 h-2 rounded-full bg-[#05DF72] animate-ping inline-block" />
+            <span>LIVE MARKET CONNECTED</span>
+          </div>
+
+          {/* Real-time indices: NIFTY 50 & SENSEX */}
+          {marketIndices.map((idx) => (
+            <div key={idx.symbol} className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-700 px-2.5 py-1 text-xs font-mono">
+              <span className="font-bold text-neutral-400">{idx.name}:</span>
+              <span className="font-black text-white">₹{idx.price.toLocaleString('en-IN')}</span>
+              <span className={`text-[10px] font-black flex items-center ${idx.isPositive ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
+                {idx.isPositive ? '+' : ''}{idx.change} ({idx.isPositive ? '+' : ''}{idx.changePercent}%)
+              </span>
+            </div>
+          ))}
+
+          {marketIndices.length === 0 && (
+            <div className="text-neutral-400 text-xs font-mono">
+              Connecting to live NSE/BSE & AMFI indices...
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2.5 text-xs font-mono">
+          {lastSyncedAt && (
+            <span className="text-[10px] text-neutral-400">
+              Synced: {lastSyncedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          )}
+          <button
+            onClick={() => setIsAutoSyncEnabled(!isAutoSyncEnabled)}
+            className={`px-2 py-0.5 text-[10px] font-black uppercase border transition-all cursor-pointer ${
+              isAutoSyncEnabled
+                ? 'bg-[#05DF72] text-[#121212] border-[#05DF72]'
+                : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+            }`}
+            title="Toggle real-time auto sync every 45 seconds"
+          >
+            Auto-Sync: {isAutoSyncEnabled ? 'ON (45s)' : 'OFF'}
+          </button>
+          <button
+            onClick={() => handleSyncLiveMarket(false)}
+            disabled={isSyncingNav}
+            className="px-2.5 py-1 bg-[#FFE600] hover:bg-[#FFD700] text-[#121212] font-black text-[11px] uppercase border border-[#121212] flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            title="Fetch real-time quotes for all stocks and mutual funds"
+          >
+            <RefreshCw size={12} strokeWidth={3} className={isSyncingNav ? 'animate-spin' : ''} />
+            <span>{isSyncingNav ? 'Refreshing...' : 'Live Sync'}</span>
+          </button>
         </div>
       </div>
 
@@ -388,7 +498,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             {filteredInvestments.length} holdings
           </span>
           <button
-            onClick={handleSyncLiveNav}
+            onClick={() => handleSyncLiveMarket(false)}
             disabled={isSyncingNav}
             className="p-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
             title="Sync Real Market NAVs & Prices"

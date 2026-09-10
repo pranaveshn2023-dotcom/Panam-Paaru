@@ -58,6 +58,35 @@ const expectations = {
   'title-row-report.csv': (h) =>
     h.length === 2 &&
     Math.abs(h.find((x) => x.name.includes('ITC'))?.currentValue - 25000) < 1,
+  'user-amc-template.xlsx': (h) => {
+    const hdfc = h.find((x) => x.name.includes('HDFC') && x.name.includes('Mid Cap'));
+    const axisDyn = h.find((x) => x.name.includes('Axis') && x.subType.includes('Dynamic'));
+    const axisLiq = h.find((x) => x.name.includes('Axis') && x.subType.includes('Liquid'));
+    const bandhan = h.find((x) => x.name.includes('Bandhan'));
+    const totalInv = h.reduce((s, x) => s + x.investedAmount, 0);
+    const totalCur = h.reduce((s, x) => s + x.currentValue, 0);
+
+    return (
+      h.length === 8 &&
+      Boolean(hdfc) &&
+      Math.abs(hdfc.investedAmount - 3349.93) < 0.01 &&
+      Math.abs(hdfc.currentValue - 3443.85) < 0.01 &&
+      Math.abs(hdfc.units - 14.827) < 0.001 &&
+      hdfc.assetType === 'mutual_fund' &&
+      Boolean(axisDyn) &&
+      Math.abs(axisDyn.investedAmount - 1502.99) < 0.01 &&
+      axisDyn.assetType === 'mutual_fund' &&
+      Boolean(axisLiq) &&
+      Math.abs(axisLiq.investedAmount - 3.11) < 0.01 &&
+      Math.abs(axisLiq.units - 0.001) < 0.0001 &&
+      axisLiq.assetType === 'mutual_fund' &&
+      Boolean(bandhan) &&
+      Math.abs(bandhan.investedAmount - 300) < 0.01 &&
+      Math.abs(bandhan.currentValue - 324.79) < 0.01 &&
+      Math.abs(totalInv - 39154.31) < 0.1 &&
+      Math.abs(totalCur - 39094.26) < 0.1
+    );
+  },
 };
 
 for (const f of files.sort()) {
