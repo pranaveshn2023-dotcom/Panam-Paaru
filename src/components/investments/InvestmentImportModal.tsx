@@ -135,12 +135,31 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         setParsedHoldings(result.holdings);
         setShowColumnMapper(false);
       } else {
-        // Fallback to Visual Column Mapper if automatic heuristics need user alignment
+        // Fallback to Visual Column Mapper — detect headers from the file header row
         setShowColumnMapper(true);
         if (result.rawGrid.sheets[0]?.rows?.[0]) {
-          setNameColIdx(0);
-          setInvestedColIdx(Math.min(1, result.rawGrid.sheets[0].rows[0].length - 1));
-          setCurrentColIdx(Math.min(2, result.rawGrid.sheets[0].rows[0].length - 1));
+          const headerRow = result.rawGrid.sheets[0].rows[0];
+          // Detect column indices using the same logic as autoExtractHoldings
+          let nameCol = -1, invCol = -1, curCol = -1;
+          headerRow.forEach((colName, cIdx) => {
+            const lower = String(colName || '').trim().toLowerCase();
+            // Scheme/instrument name column
+            if (nameCol === -1 && !/client|investor|nominee|account|user|broker|depository|dp/i.test(lower) && (/scheme|instrument|symbol|stock|holding|particular|security|company|scrip|asset|description|name/i.test(lower))) {
+              nameCol = cIdx;
+            }
+            // Invested/cost amount
+            if (invCol === -1 && /invested|cost.*val|purchase.*val|inv.*val|total.*cost|buy.*val|principal/i.test(lower)) {
+              invCol = cIdx;
+            }
+            // Current/market value
+            if (curCol === -1 && /current|market.*val|cur.*val|present.*val|latest.*val|val.*today|valuation/i.test(lower)) {
+              curCol = cIdx;
+            }
+          });
+          // Set defaults: use detected columns, fallback to positional if needed
+          setNameColIdx(nameCol !== -1 ? nameCol : 0);
+          setInvestedColIdx(invCol !== -1 ? invCol : Math.min(1, headerRow.length - 1));
+          setCurrentColIdx(curCol !== -1 ? curCol : Math.min(2, headerRow.length - 1));
         }
       }
       setIsParsing(false);
