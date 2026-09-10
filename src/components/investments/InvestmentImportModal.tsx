@@ -118,7 +118,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
 
   // Convex Queries & Mutations for Batch History & 1-Click Rollback
-  const importBatches = useQuery(api.investments.listImportBatches) as ImportBatch[] | undefined;
+  const importBatches = useQuery(api.investments.listImportBatches, isOpen ? {} : 'skip') as ImportBatch[] | undefined;
   const undoBatchMutation = useMutation(api.investments.undoImportBatch);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);

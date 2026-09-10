@@ -4,13 +4,16 @@ import App from './App';
 import './index.css';
 import { ConvexClientProvider } from './context/ConvexClientProvider';
 import { PinLockProvider } from './context/PinLockContext';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ConvexClientProvider>
-      <PinLockProvider>
-        <App />
-      </PinLockProvider>
-    </ConvexClientProvider>
+    <ErrorBoundary>
+      <ConvexClientProvider>
+        <PinLockProvider>
+          <App />
+        </PinLockProvider>
+      </ConvexClientProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );

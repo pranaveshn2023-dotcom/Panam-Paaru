@@ -385,12 +385,14 @@ export function AppContent() {
         currencySymbol={currencySymbol}
       />
 
-      <InvestmentImportModal
-        isOpen={isInvestmentImportModalOpen}
-        onClose={() => setIsInvestmentImportModalOpen(false)}
-        onBatchImport={handleBatchImportInvestments}
-        currencySymbol={currencySymbol}
-      />
+      {isInvestmentImportModalOpen && (
+        <InvestmentImportModal
+          isOpen={isInvestmentImportModalOpen}
+          onClose={() => setIsInvestmentImportModalOpen(false)}
+          onBatchImport={handleBatchImportInvestments}
+          currencySymbol={currencySymbol}
+        />
+      )}
 
       <PinSetupModal
         isOpen={isPinSetupModalOpen}
@@ -403,23 +405,21 @@ export function AppContent() {
 export default function App() {
   return (
     <PrivacyProvider>
-      <PinLockProvider>
-        <ToastProvider />
-        <Suspense
-          fallback={
-            <div className="min-h-screen bg-[#FFFDF5] flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-16 h-16 bg-[#FFE600] border-[3px] border-[#121212] shadow-neo flex items-center justify-center font-black text-2xl mx-auto mb-4 animate-pulse">
-                  PA
-                </div>
-                <p className="text-sm font-bold text-neutral-600">Loading Panam Paaru...</p>
+      <ToastProvider />
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-[#FFFDF5] flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-[#FFE600] border-[3px] border-[#121212] shadow-neo flex items-center justify-center font-black text-2xl mx-auto mb-4 animate-pulse">
+                PA
               </div>
+              <p className="text-sm font-bold text-neutral-600">Loading Panam Paaru...</p>
             </div>
-          }
-        >
-          <AppContent />
-        </Suspense>
-      </PinLockProvider>
+          </div>
+        }
+      >
+        <AppContent />
+      </Suspense>
     </PrivacyProvider>
   );
 }
