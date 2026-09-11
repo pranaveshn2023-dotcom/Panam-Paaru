@@ -215,22 +215,6 @@ export const initializeUserData = mutation({
         createdAt: now,
         updatedAt: now,
       });
-    } else {
-      // If user has previous seeded placeholder balances (25000, 3500, 5000), reset them to 0
-      for (const w of userWallets) {
-        if (
-          (w.balance === 25000 && w.initialBalance === 25000) ||
-          (w.balance === 3500 && w.initialBalance === 3500) ||
-          (w.balance === 5000 && w.initialBalance === 5000)
-        ) {
-          await ctx.db.patch(w._id, {
-            balance: 0,
-            initialBalance: 0,
-            accountNumberLast4: undefined,
-            updatedAt: Date.now(),
-          });
-        }
-      }
     }
 
     return { success: true };
