@@ -16,11 +16,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 }) => {
   const items = [
     { id: 'overview' as NavTab, label: 'Home', icon: LayoutDashboard },
-    { id: 'transactions' as NavTab, label: 'Trans.', icon: ArrowLeftRight },
-    { id: 'wallets' as NavTab, label: 'Wallets', icon: Wallet },
-    { id: 'budgets' as NavTab, label: 'Budgets', icon: CalendarSync },
+    { id: 'expenses' as NavTab, label: 'Expenses', icon: ArrowLeftRight },
     { id: 'investments' as NavTab, label: 'Invest', icon: TrendingUp },
-    { id: 'insights' as NavTab, label: 'Flow', icon: PieChart },
     { id: 'settings' as NavTab, label: 'Settings', icon: Settings },
   ];
 
@@ -40,7 +37,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             title={item.label}
           >
             <span className="nav-icon">
-              <Icon size={18} strokeWidth={isActive ? 3 : 2} />
+              <Icon size={20} strokeWidth={isActive ? 3 : 2} />
             </span>
             <span className="nav-label">{item.label}</span>
           </button>

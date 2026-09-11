@@ -398,18 +398,18 @@ body {
 .app-bottom-nav {
   background: #FFFFFF;
   border-top: 3px solid #121212;
-  padding: 4px 6px;
-  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  padding: 6px 10px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   z-index: 40;
-  box-shadow: 0px -3px 0px 0px #121212;
+  box-shadow: 0px -4px 0px 0px #121212;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 2px;
+  justify-content: space-around;
+  gap: 8px;
 }
 
 @media (min-width: 768px) {
@@ -431,42 +431,53 @@ body {
   justify-content: center;
   flex: 1 1 0;
   min-width: 0;
-  min-height: 48px;
-  padding: 3px 2px;
+  min-height: 52px;
+  padding: 6px 4px;
   border: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: 12px;
   cursor: pointer;
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   background: transparent;
-  color: #525252;
+  color: #737373;
   font-family: inherit;
   -webkit-tap-highlight-color: transparent;
+  gap: 3px;
+}
+
+.app-bottom-nav-item:hover {
+  color: #121212;
+  background: #F4F4F5;
 }
 
 .app-bottom-nav-item:active {
-  transform: scale(0.95);
+  transform: translate(1px, 1px) scale(0.96);
 }
 
 .app-bottom-nav-item.active {
   background: #FFE600;
   border-color: #121212;
-  box-shadow: 2px 2px 0px 0px #121212;
+  box-shadow: 3px 3px 0px 0px #121212;
   color: #121212;
 }
 
 .app-bottom-nav-item .nav-icon {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.app-bottom-nav-item.active .nav-icon {
+  transform: scale(1.08);
 }
 
 .app-bottom-nav-item .nav-label {
-  font-size: 8.5px;
+  font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

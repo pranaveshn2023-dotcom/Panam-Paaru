@@ -41,10 +41,7 @@ import { InvestmentDashboard } from './components/investments/InvestmentDashboar
 
 // Pages
 import { OverviewPage } from './pages/OverviewPage';
-import { TransactionsPage } from './pages/TransactionsPage';
-import { WalletsPage } from './pages/WalletsPage';
-import { BudgetsPage } from './pages/BudgetsPage';
-import { InsightsPage } from './pages/InsightsPage';
+import { ExpensesHubPage, ExpenseSubTab } from './pages/ExpensesHubPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 // Default categories
@@ -66,6 +63,16 @@ export function AppContent() {
   const { isPinEnabled, lockNow, isLocked } = usePinLock();
 
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
+  const [expenseSubTab, setExpenseSubTab] = useState<ExpenseSubTab>('transactions');
+
+  const handleNavigate = useCallback((tab: string) => {
+    if (tab === 'transactions' || tab === 'wallets' || tab === 'budgets' || tab === 'insights') {
+      setExpenseSubTab(tab as ExpenseSubTab);
+      setActiveTab('expenses');
+    } else if (tab === 'overview' || tab === 'expenses' || tab === 'investments' || tab === 'settings') {
+      setActiveTab(tab as NavTab);
+    }
+  }, []);
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
@@ -429,23 +436,21 @@ export function AppContent() {
                 setDefaultTransferSourceWalletId(undefined);
                 setIsTransferModalOpen(true);
               }}
-              onNavigateToTab={setActiveTab}
+              onNavigateToTab={handleNavigate}
               currencySymbol={currencySymbol} userName={user?.name}
             />
           )}
 
-          {activeTab === 'transactions' && (
-            <TransactionsPage
-              transactions={transactions} categories={categories} user={user}
-              onOpenAddModal={() => { setEditingTransaction(null); setIsTransactionModalOpen(true); }}
-              onEdit={(tx) => { setEditingTransaction(tx); setIsTransactionModalOpen(true); }}
-              onDelete={handleDeleteTransaction}
-              currencySymbol={currencySymbol}
-            />
-          )}
-
-          {activeTab === 'wallets' && (
-            <WalletsPage
+          {activeTab === 'expenses' && (
+            <ExpensesHubPage
+              activeSubTab={expenseSubTab}
+              onSelectSubTab={setExpenseSubTab}
+              transactions={transactions}
+              categories={categories}
+              user={user}
+              onOpenAddTransactionModal={() => { setEditingTransaction(null); setIsTransactionModalOpen(true); }}
+              onEditTransaction={(tx) => { setEditingTransaction(tx); setIsTransactionModalOpen(true); }}
+              onDeleteTransaction={handleDeleteTransaction}
               wallets={wallets}
               walletSummary={walletSummary}
               onOpenWalletModal={() => {
@@ -461,25 +466,17 @@ export function AppContent() {
                 setIsWalletModalOpen(true);
               }}
               onDeleteWallet={handleDeleteWallet}
-              currencySymbol={currencySymbol}
-            />
-          )}
-
-          {activeTab === 'budgets' && (
-            <BudgetsPage
-              budgets={budgets} categories={categories} wallets={wallets}
+              budgets={budgets}
               onOpenBudgetModal={() => { setEditingBudget(null); setIsBudgetModalOpen(true); }}
-              onEdit={(b) => { setEditingBudget(b); setIsBudgetModalOpen(true); }}
-              onDelete={handleDeleteBudget} onTopUp={handleTopUpBudget}
+              onEditBudget={(b) => { setEditingBudget(b); setIsBudgetModalOpen(true); }}
+              onDeleteBudget={handleDeleteBudget}
+              onTopUpBudget={handleTopUpBudget}
+              analytics={analytics}
               currencySymbol={currencySymbol}
             />
           )}
 
           {activeTab === 'investments' && renderInvestmentsPage()}
-
-          {activeTab === 'insights' && (
-            <InsightsPage analytics={analytics} transactions={transactions} currencySymbol={currencySymbol} />
-          )}
 
           {activeTab === 'settings' && (
             <SettingsPage
