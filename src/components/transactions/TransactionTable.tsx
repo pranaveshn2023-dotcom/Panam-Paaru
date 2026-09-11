@@ -188,108 +188,191 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-[#FFE600] border-b-[3px] border-[#121212] text-xs font-black uppercase tracking-wider text-[#121212]">
-                  <th className="py-3 px-4">Date</th>
-                  <th className="py-3 px-4">Description</th>
-                  <th className="py-3 px-4">Category</th>
-                  <th className="py-3 px-4 text-right">Amount</th>
-                  <th className="py-3 px-4 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y-2 divide-neutral-200 text-xs font-bold">
-                {sorted.map((tx) => {
-                  const isExpense = tx.type === 'expense';
-                  const catColor = categoryColorMap.get(tx.category) || '#FFE600';
-                  return (
-                    <tr
-                      key={tx._id}
-                      className="hover:bg-[#FFFDF5] transition-colors"
-                    >
-                      {/* Date */}
-                      <td className="py-3 px-4 font-mono font-bold whitespace-nowrap text-neutral-700">
-                        {tx.date}
-                      </td>
-
-                      {/* Description / Notes */}
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className={`w-6 h-6 border border-[#121212] flex items-center justify-center shrink-0 ${
-                              isExpense ? 'bg-[#FF4343] text-white' : 'bg-[#05DF72] text-[#121212]'
-                            }`}
-                          >
-                            {isExpense ? (
-                              <ArrowUpRight size={14} strokeWidth={3} />
-                            ) : (
-                              <ArrowDownLeft size={14} strokeWidth={3} />
-                            )}
-                          </div>
-                          <div>
-                            <span className="font-black text-[#121212] block">
-                              {tx.title}
-                            </span>
-                            {tx.notes && (
-                              <span className="text-[11px] font-medium text-neutral-500 line-clamp-1">
-                                {tx.notes}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Category Badge */}
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        <span
-                          className="neo-badge text-[10px]"
-                          style={{ backgroundColor: catColor }}
+          <>
+            {/* Mobile Card List (sm:hidden) */}
+            <div className="sm:hidden divide-y-2 divide-neutral-200">
+              {sorted.map((tx) => {
+                const isExpense = tx.type === 'expense';
+                const isTransfer = tx.type === 'transfer';
+                const catColor = categoryColorMap.get(tx.category) || '#FFE600';
+                return (
+                  <div key={tx._id} className="p-3.5 flex flex-col gap-2 hover:bg-[#FFFDF5] transition-colors">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`w-7 h-7 border-2 border-[#121212] flex items-center justify-center shrink-0 shadow-neo-sm ${
+                            isExpense
+                              ? 'bg-[#FF4343] text-white'
+                              : isTransfer
+                              ? 'bg-[#00F0FF] text-[#121212]'
+                              : 'bg-[#05DF72] text-[#121212]'
+                          }`}
                         >
-                          {tx.category}
-                        </span>
-                      </td>
+                          {isExpense ? (
+                            <ArrowUpRight size={14} strokeWidth={3} />
+                          ) : (
+                            <ArrowDownLeft size={14} strokeWidth={3} />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <span className="font-black text-xs text-[#121212] block truncate">
+                            {tx.title}
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-neutral-500">
+                            {tx.date}
+                          </span>
+                        </div>
+                      </div>
 
-                      {/* Amount */}
-                      <td
-                        className={`py-3 px-4 text-right font-mono font-black text-sm whitespace-nowrap ${
-                          isExpense ? 'text-[#FF4343]' : 'text-[#05DF72]'
+                      <span
+                        className={`font-mono font-black text-sm shrink-0 ${
+                          isExpense ? 'text-[#FF4343]' : isTransfer ? 'text-[#00F0FF]' : 'text-[#05DF72]'
                         }`}
                       >
                         {isPrivacyMode
                           ? '••••••'
-                          : `${isExpense ? '-' : '+'} ${currencySymbol}${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                      </td>
+                          : `${isExpense ? '-' : isTransfer ? '⇄ ' : '+'} ${currencySymbol}${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      </span>
+                    </div>
 
-                      {/* Actions */}
-                      <td className="py-3 px-4 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => onEdit(tx)}
-                            className="p-1.5 bg-white hover:bg-[#FFE600] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-                            title="Edit transaction"
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-neutral-100">
+                      <span
+                        className="neo-badge text-[9px] py-0.5 px-2"
+                        style={{ backgroundColor: catColor }}
+                      >
+                        {tx.category}
+                      </span>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => onEdit(tx)}
+                          className="px-2.5 py-1 bg-white hover:bg-[#FFE600] border border-[#121212] shadow-neo-sm text-[10px] font-black uppercase flex items-center gap-1 cursor-pointer"
+                          title="Edit transaction"
+                        >
+                          <Edit size={11} strokeWidth={2.5} /> Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete "${tx.title}"?`)) {
+                              onDelete(tx._id);
+                            }
+                          }}
+                          className="px-2.5 py-1 bg-white hover:bg-[#FF4343] hover:text-white border border-[#121212] shadow-neo-sm text-[10px] font-black uppercase flex items-center gap-1 cursor-pointer"
+                          title="Delete transaction"
+                        >
+                          <Trash2 size={11} strokeWidth={2.5} /> Del
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table View (hidden sm:block) */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#FFE600] border-b-[3px] border-[#121212] text-xs font-black uppercase tracking-wider text-[#121212]">
+                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4">Description</th>
+                    <th className="py-3 px-4">Category</th>
+                    <th className="py-3 px-4 text-right">Amount</th>
+                    <th className="py-3 px-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y-2 divide-neutral-200 text-xs font-bold">
+                  {sorted.map((tx) => {
+                    const isExpense = tx.type === 'expense';
+                    const catColor = categoryColorMap.get(tx.category) || '#FFE600';
+                    return (
+                      <tr
+                        key={tx._id}
+                        className="hover:bg-[#FFFDF5] transition-colors"
+                      >
+                        {/* Date */}
+                        <td className="py-3 px-4 font-mono font-bold whitespace-nowrap text-neutral-700">
+                          {tx.date}
+                        </td>
+
+                        {/* Description / Notes */}
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-6 h-6 border border-[#121212] flex items-center justify-center shrink-0 ${
+                                isExpense ? 'bg-[#FF4343] text-white' : 'bg-[#05DF72] text-[#121212]'
+                              }`}
+                            >
+                              {isExpense ? (
+                                <ArrowUpRight size={14} strokeWidth={3} />
+                              ) : (
+                                <ArrowDownLeft size={14} strokeWidth={3} />
+                              )}
+                            </div>
+                            <div>
+                              <span className="font-black text-[#121212] block">
+                                {tx.title}
+                              </span>
+                              {tx.notes && (
+                                <span className="text-[11px] font-medium text-neutral-500 line-clamp-1">
+                                  {tx.notes}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Category Badge */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span
+                            className="neo-badge text-[10px]"
+                            style={{ backgroundColor: catColor }}
                           >
-                            <Edit size={13} strokeWidth={2.5} />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Delete "${tx.title}"?`)) {
-                                onDelete(tx._id);
-                              }
-                            }}
-                            className="p-1.5 bg-white hover:bg-[#FF4343] hover:text-white border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-                            title="Delete transaction"
-                          >
-                            <Trash2 size={13} strokeWidth={2.5} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                            {tx.category}
+                          </span>
+                        </td>
+
+                        {/* Amount */}
+                        <td
+                          className={`py-3 px-4 text-right font-mono font-black text-sm whitespace-nowrap ${
+                            isExpense ? 'text-[#FF4343]' : 'text-[#05DF72]'
+                          }`}
+                        >
+                          {isPrivacyMode
+                            ? '••••••'
+                            : `${isExpense ? '-' : '+'} ${currencySymbol}${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="py-3 px-4 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => onEdit(tx)}
+                              className="p-1.5 bg-white hover:bg-[#FFE600] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                              title="Edit transaction"
+                            >
+                              <Edit size={13} strokeWidth={2.5} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Delete "${tx.title}"?`)) {
+                                  onDelete(tx._id);
+                                }
+                              }}
+                              className="p-1.5 bg-white hover:bg-[#FF4343] hover:text-white border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                              title="Delete transaction"
+                            >
+                              <Trash2 size={13} strokeWidth={2.5} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>

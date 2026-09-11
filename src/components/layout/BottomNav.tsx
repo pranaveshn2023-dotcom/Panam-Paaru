@@ -37,9 +37,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               'app-bottom-nav-item',
               isActive && 'active'
             )}
+            title={item.label}
           >
             <span className="nav-icon">
-              <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+              <Icon size={18} strokeWidth={isActive ? 3 : 2} />
             </span>
             <span className="nav-label">{item.label}</span>
           </button>

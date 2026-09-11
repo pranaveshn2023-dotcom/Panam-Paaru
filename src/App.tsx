@@ -407,7 +407,7 @@ export function AppContent() {
         onOpenPinSetup={() => setIsPinSetupModalOpen(true)}
       />
 
-      <div className="flex-1 flex w-full max-w-7xl mx-auto pb-20 md:pb-8">
+      <div className="flex-1 flex w-full max-w-7xl mx-auto pb-20 md:pb-8 min-w-0">
         <Sidebar
           activeTab={activeTab}
           onSelectTab={setActiveTab}
@@ -415,7 +415,7 @@ export function AppContent() {
           currencySymbol={currencySymbol}
         />
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto min-w-0">
           {activeTab === 'overview' && (
             <OverviewPage
               stats={stats} transactions={transactions} budgets={budgets}

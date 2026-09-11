@@ -530,72 +530,77 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
               </span>
             </div>
 
-            {/* Weekday headers: Sun, Mon, Tue, Wed, Thu, Fri, Sat */}
-            <div className="grid grid-cols-7 gap-1 text-center">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
-                <div
-                  key={d}
-                  className={`py-1 text-[11px] font-black uppercase border border-[#121212] ${
-                    i === 0 || i === 6 ? 'bg-neutral-100 text-neutral-600' : 'bg-[#121212] text-white'
-                  }`}
-                >
-                  {d}
+            {/* Responsive Calendar Matrix Wrapper */}
+            <div className="overflow-x-auto no-scrollbar">
+              <div className="min-w-[280px] flex flex-col gap-1">
+                {/* Weekday headers: Sun, Mon, Tue, Wed, Thu, Fri, Sat */}
+                <div className="grid grid-cols-7 gap-1 text-center">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
+                    <div
+                      key={d}
+                      className={`py-1 text-[10px] sm:text-[11px] font-black uppercase border border-[#121212] ${
+                        i === 0 || i === 6 ? 'bg-neutral-100 text-neutral-600' : 'bg-[#121212] text-white'
+                      }`}
+                    >
+                      {d}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
 
-            {/* Matrix Cells */}
-            <div className="flex flex-col gap-1">
-              {calendarWeeks.map((week, wIdx) => (
-                <div key={wIdx} className="grid grid-cols-7 gap-1">
-                  {week.map((cell, cIdx) => {
-                    if (cell.day === null) {
-                      return (
-                        <div
-                          key={`empty-${cIdx}`}
-                          className="min-h-[52px] bg-neutral-50/50 border border-neutral-200"
-                        />
-                      );
-                    }
+                {/* Matrix Cells */}
+                <div className="flex flex-col gap-1">
+                  {calendarWeeks.map((week, wIdx) => (
+                    <div key={wIdx} className="grid grid-cols-7 gap-1">
+                      {week.map((cell, cIdx) => {
+                        if (cell.day === null) {
+                          return (
+                            <div
+                              key={`empty-${cIdx}`}
+                              className="min-h-[46px] sm:min-h-[52px] bg-neutral-50/50 border border-neutral-200"
+                            />
+                          );
+                        }
 
-                    const isToday = isCurrentMonth && cell.day === todayDate;
-                    const isSelected = selectedDay === cell.day;
-                    const hasSpend = cell.amount > 0;
+                        const isToday = isCurrentMonth && cell.day === todayDate;
+                        const isSelected = selectedDay === cell.day;
+                        const hasSpend = cell.amount > 0;
 
-                    return (
-                      <button
-                        key={`day-${cell.day}`}
-                        onClick={() => setSelectedDay(selectedDay === cell.day ? null : cell.day)}
-                        className={`min-h-[52px] p-1 border text-left flex flex-col justify-between transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm scale-[1.03] z-10'
-                            : isToday
-                            ? 'bg-[#00F0FF]/15 border-2 border-[#00F0FF]'
-                            : hasSpend
-                            ? 'bg-white border-[#121212] hover:bg-neutral-50'
-                            : 'bg-white border-neutral-200 hover:border-[#121212]'
-                        }`}
-                      >
-                        <span
-                          className={`text-[10px] font-mono font-black ${
-                            isToday ? 'bg-[#121212] text-white px-1 py-0.2 rounded-none' : 'text-neutral-800'
-                          }`}
-                        >
-                          {cell.day}
-                        </span>
+                        return (
+                          <button
+                            key={`day-${cell.day}`}
+                            onClick={() => setSelectedDay(selectedDay === cell.day ? null : cell.day)}
+                            className={`min-h-[46px] sm:min-h-[52px] p-1 border text-left flex flex-col justify-between transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm scale-[1.03] z-10'
+                                : isToday
+                                ? 'bg-[#00F0FF]/15 border-2 border-[#00F0FF]'
+                                : hasSpend
+                                ? 'bg-white border-[#121212] hover:bg-neutral-50'
+                                : 'bg-white border-neutral-200 hover:border-[#121212]'
+                            }`}
+                          >
+                            <span
+                              className={`text-[9px] sm:text-[10px] font-mono font-black ${
+                                isToday ? 'bg-[#121212] text-white px-1 py-0.2 rounded-none' : 'text-neutral-800'
+                              }`}
+                            >
+                              {cell.day}
+                            </span>
 
-                        {hasSpend ? (
-                          <span className="text-[9px] sm:text-[10px] font-mono font-black text-[#FF4343] leading-none truncate">
-                            -{formatPrivateAmount(cell.amount, currencySymbol)}
-                          </span>
-                        ) : (
-                          <span className="text-[9px] text-neutral-300 font-mono">-</span>
-                        )}
-                      </button>
-                    );
-                  })}
+                            {hasSpend ? (
+                              <span className="text-[8.5px] sm:text-[10px] font-mono font-black text-[#FF4343] leading-none truncate">
+                                -{formatPrivateAmount(cell.amount, currencySymbol)}
+                              </span>
+                            ) : (
+                              <span className="text-[9px] text-neutral-300 font-mono">-</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
 
             {/* Day Inspection Drawer */}
