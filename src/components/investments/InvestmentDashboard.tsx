@@ -83,6 +83,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
 
   const batchUpdateLivePricesMutation = useMutation(api.investments.batchUpdateLivePrices);
   const autoClassifyCommoditiesMutation = useMutation(api.investments.autoClassifyCommodities);
+  const autoDeduplicateHoldingsMutation = useMutation(api.investments.autoDeduplicateExistingHoldings);
   const syncLiveMarketPricesAction = useAction(api.investments.syncLiveMarketPrices);
   const getMarketIndicesAction = useAction(api.investments.getMarketIndices);
 
@@ -169,8 +170,13 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
           let livePrice: number | null = null;
           if (inv.assetType === 'mutual_fund') {
             const live = await fetchAmfiNav(inv.name);
-            if (live && live.nav > 0) livePrice = live.nav;
-          } else if (inv.assetType === 'stocks') {
+            if (live && live.nav > 0) {
+              livePrice = live.nav;
+            } else {
+              const liveStock = await fetchLiveStockPrice(inv.name);
+              if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
+            }
+          } else {
             const live = await fetchLiveStockPrice(inv.name);
             if (live && live.price > 0) livePrice = live.price;
           }
@@ -221,6 +227,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
 
     // Automatically ensure commodity assets in database are properly categorized
     autoClassifyCommoditiesMutation().catch(() => {});
+    autoDeduplicateHoldingsMutation().catch(() => {});
 
     if (investments.length > 0) {
       handleSyncLiveMarket(true);
@@ -235,7 +242,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     }, 45000);
 
     return () => clearInterval(timer);
-  }, [isAutoSyncEnabled, investments.length, autoClassifyCommoditiesMutation]);
+  }, [isAutoSyncEnabled, investments.length, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation]);
 
   const ASSET_TABS: { label: string; value: 'all' | AssetType }[] = [
     { label: 'All', value: 'all' },

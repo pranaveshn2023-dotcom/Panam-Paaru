@@ -32,8 +32,6 @@ export function cleanSearchQuery(raw: string): string {
   return raw
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
     .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
-    .replace(/\bppfas\b/gi, 'Parag Parikh')
-    .replace(/\bdynamic\s*asset\s*allocation\b/gi, 'Balanced Advantage')
     .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -118,7 +116,7 @@ export async function fetchAmfiNav(
 }
 
 /**
- * Fetch live stock quote for Indian Equities (NSE/BSE)
+ * Fetch live stock/ETF/commodity quote dynamically with ZERO hardcoding
  */
 export async function fetchLiveStockPrice(
   nameOrSymbol: string
@@ -126,17 +124,36 @@ export async function fetchLiveStockPrice(
   const clean = nameOrSymbol.trim().toUpperCase();
   const candidates: string[] = [];
 
-  if (clean.endsWith('.NS') || clean.endsWith('.BO')) {
+  if (clean.endsWith('.NS') || clean.endsWith('.BO') || clean.endsWith('-INR') || clean.endsWith('-USD')) {
     candidates.push(clean);
-  } else if (/^[A-Z0-9]{2,12}$/.test(clean)) {
-    candidates.push(`${clean}.NS`, `${clean}.BO`);
-  } else {
-    const stripped = clean
-      .replace(/\b(LIMITED|LTD|INDUSTRIES|CORP|CORPORATION|HOLDINGS|INDIA|ENTERPRISES|TECHNOLOGIES|SERVICES)\b/gi, '')
-      .trim();
-    if (/^[A-Z0-9]{2,12}$/.test(stripped)) {
-      candidates.push(`${stripped}.NS`, `${stripped}.BO`);
-    }
+  }
+
+  // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
+  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
+  for (const t of tokens) {
+    if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
+    if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
+  }
+
+  // Dynamic Yahoo search for unhandled symbols
+  const searchQueries = [clean];
+  if (tokens.length > 1) {
+    searchQueries.push(tokens.join(' '));
+  }
+
+  for (const sq of searchQueries) {
+    try {
+      const searchUrl = `https://corsproxy.io/?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=5`)}`;
+      const sRes = await fetch(searchUrl, { signal: AbortSignal.timeout(3000) });
+      if (sRes.ok) {
+        const sData: any = await sRes.json();
+        for (const q of sData?.quotes || []) {
+          if (q.symbol && !candidates.includes(q.symbol)) {
+            candidates.push(q.symbol);
+          }
+        }
+      }
+    } catch {}
   }
 
   for (const sym of candidates) {
@@ -198,24 +215,18 @@ export function detectDetailedAssetType(
     );
 
   // Dynamic Universal Commodity (Gold, Silver, DigiGold, SGB, Bullion) detector from name or ticker symbols
-  // Universally supports:
-  // - Gold / Silver ETFs & exchange tickers (e.g. GOLDAXIS, ICICISILVE, GOLD BEES, SILVERBEES)
-  // - Gold / Silver Mutual Funds & FoFs (e.g. Gold Fund, Silver FoF)
-  // - DigiGold platforms & apps (Jar, SafeGold, Augmont, MMTC-PAMP, Gullak, Digital Gold/Silver)
-  // - Sovereign Gold Bonds (SGB, Sovereign Gold)
-  // - Physical Bullion & Precious Metals (swarna, kundan, chandi)
-  // Avoids false positives like Goldman Sachs unless specifically a gold/silver fund.
+  // Uses generic commodity matching without hardcoded commercial brand names
   const isGoldSymbolOrName =
-    /(?:gold(?!man)|silver|silve|sgb|sovereign.*gold|bullion|digi\s*gold|digital\s*(?:gold|silver)|safegold|augmont|mmtc|pamp|gullak|swarna|kundan|chandi|precious\s*metal)/i.test(
+    /(?:gold(?!man)|silver|silve|sgb|sovereign.*gold|bullion|digi(?:tal)?\s*(?:gold|silver|metal)|precious\s*metal)/i.test(
       lowerName
     ) ||
     /gold|silver|sgb|precious|commodity|commodities|bullion|digi.*gold|digital.*gold/i.test(lowerType);
 
   if (isGoldSymbolOrName) {
-    const isSilver = /silver|silve|chandi/i.test(lowerName) || /silver/i.test(lowerType);
+    const isSilver = /silver|silve/i.test(lowerName) || /silver/i.test(lowerType);
     const isSgb = /sgb|sovereign/i.test(lowerName) || /sgb|sovereign/i.test(lowerType);
     const isDigiGold =
-      /digi|digital|safegold|augmont|mmtc|pamp|jar|gullak/i.test(lowerName) ||
+      /digi(?:tal)?\s*(?:gold|silver|metal)/i.test(lowerName) ||
       /digi|digital/i.test(lowerType);
     const isFund = /fund|fof|mutual\s*fund|\bamc\b/i.test(lowerName);
 

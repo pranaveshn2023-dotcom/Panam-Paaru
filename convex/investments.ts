@@ -5,13 +5,13 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 
 // Universal dynamic commodity and precious metal matcher from name or ticker symbols (Gold, Silver, DigiGold, SGB, Bullion)
 const COMMODITY_TICKER_NAME_REGEX =
-  /(?:gold(?!man)|silver|silve|sgb|sovereign.*gold|bullion|digi\s*gold|digital\s*(?:gold|silver)|safegold|augmont|mmtc|pamp|gullak|swarna|kundan|chandi|precious\s*metal)/i;
+  /(?:gold(?!man)|silver|silve|sgb|sovereign.*gold|bullion|digi(?:tal)?\s*(?:gold|silver|metal)|precious\s*metal)/i;
 
 function resolveCommoditySubtype(name: string): string {
   const lower = name.toLowerCase();
-  const isSilver = /silver|silve|chandi/i.test(lower);
+  const isSilver = /silver|silve/i.test(lower);
   const isSgb = /sgb|sovereign/i.test(lower);
-  const isDigiGold = /digi|digital|safegold|augmont|mmtc|pamp|jar|gullak/i.test(lower);
+  const isDigiGold = /digi(?:tal)?\s*(?:gold|silver|metal)/i.test(lower);
   const isFund = /fund|fof|mutual\s*fund|\bamc\b/i.test(lower);
 
   if (isSgb) return "Sovereign Gold Bond (SGB)";
@@ -35,8 +35,46 @@ export const list = query({
       .order("desc")
       .collect();
 
+    // Query-level deduplication to ensure multiple duplicate uploads never show duplicate cards
+    const dedupedMap = new Map<string, (typeof investments)[0]>();
+    for (const inv of investments) {
+      const folio = extractFolio(inv.notes) || extractFolio(inv.name);
+      const nameKey = normalizeAssetKey(inv.name);
+      const key = folio ? `f_${folio}` : `n_${nameKey || inv.name.trim().toLowerCase()}`;
+
+      let matchKey: string | null = null;
+      if (dedupedMap.has(key)) {
+        matchKey = key;
+      } else {
+        for (const [k, v] of dedupedMap.entries()) {
+          if (
+            v.name.trim().toLowerCase() === inv.name.trim().toLowerCase() ||
+            (nameKey && normalizeAssetKey(v.name) === nameKey)
+          ) {
+            matchKey = k;
+            break;
+          }
+        }
+      }
+
+      if (matchKey) {
+        const existing = dedupedMap.get(matchKey)!;
+        const keepExisting =
+          (existing.updatedAt || existing.createdAt || 0) >=
+          (inv.updatedAt || inv.createdAt || 0);
+        if (!keepExisting) {
+          dedupedMap.delete(matchKey);
+          dedupedMap.set(key, inv);
+        }
+      } else {
+        dedupedMap.set(key, inv);
+      }
+    }
+
+    const uniqueInvestments = Array.from(dedupedMap.values());
+
     // Dynamically classify commodity holdings (gold / silver) by name/ticker patterns
-    const normalized = investments.map((inv) => {
+    const normalized = uniqueInvestments.map((inv) => {
       let assetType = inv.assetType;
       let subType = inv.subType;
 
@@ -107,13 +145,51 @@ export const getPortfolioSummary = query({
       .order("desc")
       .collect();
 
+    // Query-level deduplication for portfolio summary
+    const dedupedMap = new Map<string, (typeof investments)[0]>();
+    for (const inv of investments) {
+      const folio = extractFolio(inv.notes) || extractFolio(inv.name);
+      const nameKey = normalizeAssetKey(inv.name);
+      const key = folio ? `f_${folio}` : `n_${nameKey || inv.name.trim().toLowerCase()}`;
+
+      let matchKey: string | null = null;
+      if (dedupedMap.has(key)) {
+        matchKey = key;
+      } else {
+        for (const [k, v] of dedupedMap.entries()) {
+          if (
+            v.name.trim().toLowerCase() === inv.name.trim().toLowerCase() ||
+            (nameKey && normalizeAssetKey(v.name) === nameKey)
+          ) {
+            matchKey = k;
+            break;
+          }
+        }
+      }
+
+      if (matchKey) {
+        const existing = dedupedMap.get(matchKey)!;
+        const keepExisting =
+          (existing.updatedAt || existing.createdAt || 0) >=
+          (inv.updatedAt || inv.createdAt || 0);
+        if (!keepExisting) {
+          dedupedMap.delete(matchKey);
+          dedupedMap.set(key, inv);
+        }
+      } else {
+        dedupedMap.set(key, inv);
+      }
+    }
+
+    const uniqueInvestments = Array.from(dedupedMap.values());
+
     let totalInvested = 0;
     let totalCurrentValue = 0;
     let totalMonthlySip = 0;
 
     const assetAllocationMap: Record<string, { invested: number; current: number; count: number }> = {};
 
-    for (const rawInv of investments) {
+    for (const rawInv of uniqueInvestments) {
       let assetType = rawInv.assetType;
       if (
         (assetType === "other" || assetType === "mutual_fund") &&
@@ -642,40 +718,47 @@ export const remove = mutation({
 // ──────────────────────────────────────────
 // Real-Time Market Feed Helpers (NSE/BSE & AMFI)
 // ──────────────────────────────────────────
+// Real-Time Market Feed Helpers (NSE/BSE, Crypto & AMFI) — ZERO HARDCODING
+// ──────────────────────────────────────────
 
-async function fetchStockQuote(name: string): Promise<{ price: number; prevClose?: number } | null> {
+async function fetchStockQuote(name: string): Promise<{ price: number; prevClose?: number; symbol?: string } | null> {
   const clean = name.trim().toUpperCase();
   const candidates: string[] = [];
 
-  if (clean.endsWith('.NS') || clean.endsWith('.BO')) {
+  if (clean.endsWith('.NS') || clean.endsWith('.BO') || clean.endsWith('-INR') || clean.endsWith('-USD')) {
     candidates.push(clean);
-  } else {
-    // Check if clean is a direct ticker e.g. RELIANCE, TCS, INFY, ITC, SBIN, HDFCBANK
-    if (/^[A-Z0-9]{2,12}$/.test(clean)) {
-      candidates.push(`${clean}.NS`, `${clean}.BO`);
-    } else {
-      const stripped = clean
-        .replace(/\b(LIMITED|LTD|INDUSTRIES|CORP|CORPORATION|HOLDINGS|INDIA|ENTERPRISES|TECHNOLOGIES|SERVICES)\b/gi, '')
-        .trim();
-      if (/^[A-Z0-9]{2,12}$/.test(stripped)) {
-        candidates.push(`${stripped}.NS`, `${stripped}.BO`);
+  }
+
+  // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
+  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
+  for (const t of tokens) {
+    if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
+    if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
+  }
+
+  // Dynamic Yahoo Finance search queries with zero hardcoding
+  const searchQueries = [clean];
+  if (tokens.length > 1) {
+    searchQueries.push(tokens.join(' '));
+    for (const t of tokens) {
+      if (t.length >= 4 && !searchQueries.includes(t)) {
+        searchQueries.push(t);
       }
     }
   }
 
-  // If candidate is empty or search needed, query Yahoo Finance search
-  if (candidates.length === 0) {
+  for (const sq of searchQueries) {
     try {
       const searchRes = await fetch(
-        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(name)}&quotesCount=3&newsCount=0`,
-        { signal: AbortSignal.timeout(4000) }
+        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=5`,
+        { signal: AbortSignal.timeout(3500) }
       );
       if (searchRes.ok) {
         const data: any = await searchRes.json();
-        const quotes = data?.quotes || [];
-        const nsQuote = quotes.find((q: any) => q.symbol?.endsWith('.NS') || q.symbol?.endsWith('.BO')) || quotes[0];
-        if (nsQuote?.symbol) {
-          candidates.push(nsQuote.symbol);
+        for (const q of data?.quotes || []) {
+          if (q.symbol && !candidates.includes(q.symbol)) {
+            candidates.push(q.symbol);
+          }
         }
       }
     } catch {}
@@ -696,6 +779,7 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
         return {
           price: meta.regularMarketPrice,
           prevClose,
+          symbol: sym,
         };
       }
     } catch {}
@@ -708,8 +792,6 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
   const cleanQuery = name
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
     .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
-    .replace(/\bppfas\b/gi, 'Parag Parikh')
-    .replace(/\bdynamic\s*asset\s*allocation\b/gi, 'Balanced Advantage')
     .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -774,33 +856,6 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
   return null;
 }
 
-async function fetchCryptoOrGoldPrice(name: string, assetType: string): Promise<{ price: number } | null> {
-  const lower = name.toLowerCase();
-  let ticker = '';
-  if (assetType === 'crypto' || /crypto|bitcoin|btc/i.test(lower)) {
-    if (/btc|bitcoin/i.test(lower)) ticker = 'BTC-INR';
-    else if (/eth|ethereum/i.test(lower)) ticker = 'ETH-INR';
-    else if (/sol|solana/i.test(lower)) ticker = 'SOL-INR';
-  } else if (assetType === 'gold' || /gold|sgb/i.test(lower)) {
-    ticker = 'GOLDBEES.NS';
-  }
-
-  if (ticker) {
-    try {
-      const r = await fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`,
-        { signal: AbortSignal.timeout(4000) }
-      );
-      if (r.ok) {
-        const d: any = await r.json();
-        const price = d?.chart?.result?.[0]?.meta?.regularMarketPrice;
-        if (typeof price === 'number' && price > 0) return { price };
-      }
-    } catch {}
-  }
-  return null;
-}
-
 export const syncLiveMarketPrices = action({
   args: {
     investmentIds: v.optional(v.array(v.id("investments"))),
@@ -823,13 +878,25 @@ export const syncLiveMarketPrices = action({
 
         if (inv.assetType === "mutual_fund") {
           const mf = await fetchMfNav(inv.name);
-          if (mf && mf.nav > 0) livePrice = mf.nav;
-        } else if (inv.assetType === "stocks") {
+          if (mf && mf.nav > 0) {
+            livePrice = mf.nav;
+          } else {
+            // Check if exchange-traded ETF or listed product
+            const stk = await fetchStockQuote(inv.name);
+            if (stk && stk.price > 0) livePrice = stk.price;
+          }
+        } else if (inv.assetType === "crypto") {
+          const cry = await fetchStockQuote(inv.name.includes("INR") ? inv.name : `${inv.name} INR`);
+          if (cry && cry.price > 0) {
+            livePrice = cry.price;
+          } else {
+            const fallback = await fetchStockQuote(inv.name);
+            if (fallback && fallback.price > 0) livePrice = fallback.price;
+          }
+        } else {
+          // Stocks, Gold ETFs, Silver ETFs, SGBs, Commodities, REITs
           const stk = await fetchStockQuote(inv.name);
           if (stk && stk.price > 0) livePrice = stk.price;
-        } else if (inv.assetType === "crypto" || inv.assetType === "gold") {
-          const cg = await fetchCryptoOrGoldPrice(inv.name, inv.assetType);
-          if (cg && cg.price > 0) livePrice = cg.price;
         }
 
         if (livePrice !== null && livePrice > 0) {
@@ -982,18 +1049,35 @@ export const autoDeduplicateExistingHoldings = mutation({
 
     for (const holding of holdings) {
       const folio = extractFolio(holding.notes) || extractFolio(holding.name);
-      const key = folio ? `folio_${folio}` : `name_${normalizeAssetKey(holding.name)}`;
+      const nameKey = normalizeAssetKey(holding.name);
+      const key = folio ? `f_${folio}` : `n_${nameKey || holding.name.trim().toLowerCase()}`;
 
+      let matchKey: string | null = null;
       if (seenMap.has(key)) {
-        const existing = seenMap.get(key)!;
-        // Keep the one with newer updatedAt or larger values
+        matchKey = key;
+      } else {
+        for (const [k, v] of seenMap.entries()) {
+          if (
+            v.name.trim().toLowerCase() === holding.name.trim().toLowerCase() ||
+            (nameKey && normalizeAssetKey(v.name) === nameKey)
+          ) {
+            matchKey = k;
+            break;
+          }
+        }
+      }
+
+      if (matchKey) {
+        const existing = seenMap.get(matchKey)!;
         const keepExisting =
-          (existing.updatedAt || existing.createdAt) >= (holding.updatedAt || holding.createdAt);
+          (existing.updatedAt || existing.createdAt || 0) >=
+          (holding.updatedAt || holding.createdAt || 0);
 
         if (keepExisting) {
           await ctx.db.delete(holding._id);
         } else {
           await ctx.db.delete(existing._id);
+          seenMap.delete(matchKey);
           seenMap.set(key, holding);
         }
         removedCount++;
