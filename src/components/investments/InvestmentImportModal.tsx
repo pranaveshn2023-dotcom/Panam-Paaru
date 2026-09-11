@@ -380,7 +380,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           buyPrice: h.buyPrice ? cleanCurrency(h.buyPrice) : undefined,
           currentPrice: h.currentPrice ? cleanCurrency(h.currentPrice) : undefined,
           xirr: h.xirr,
-          notes: h.notes || 'Statement Import',
+          notes: h.notes
+            ? (h.folioNo && !h.notes.includes(h.folioNo) ? `${h.notes} | Folio: ${h.folioNo}` : h.notes)
+            : (h.folioNo ? `Folio: ${h.folioNo}` : 'Statement Import'),
         })),
         fileName,
         brokerTag

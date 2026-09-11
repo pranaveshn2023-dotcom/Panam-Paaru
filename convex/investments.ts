@@ -227,6 +227,21 @@ export const add = mutation({
   },
 });
 
+function extractFolio(text?: string): string | null {
+  if (!text) return null;
+  const m = text.match(/(?:folio|foliono|folio\s*no|acct|account)\s*[:#\-]?\s*([a-z0-9/_-]+)/i);
+  return m ? m[1].toLowerCase().replace(/[^a-z0-9]/g, "") : null;
+}
+
+function normalizeAssetKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[-_/\\]/g, " ")
+    .replace(/\s*(direct|regular|growth|idcw|dividend|plan|option)\b/gi, "")
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
+
 export const batchAdd = mutation({
   args: {
     fileName: v.optional(v.string()),
@@ -285,22 +300,113 @@ export const batchAdd = mutation({
       batchId = bDoc;
     }
 
+    // Retrieve existing user holdings for intelligent deduplication & overwrite
+    const existingHoldings = await ctx.db
+      .query("investments")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    let insertedCount = 0;
+    let updatedCount = 0;
+    let unchangedCount = 0;
+
     for (const item of args.items) {
       if (!item.name.trim()) continue;
-        const derivedCurrentPrice =
-          item.currentPrice && item.currentPrice > 0
-            ? item.currentPrice
-            : item.units && item.units > 0 && item.currentValue > 0
-            ? Math.round((item.currentValue / item.units) * 100) / 100
-            : undefined;
 
-        const derivedBuyPrice =
-          item.buyPrice && item.buyPrice > 0
-            ? item.buyPrice
-            : item.units && item.units > 0 && item.investedAmount > 0
-            ? Math.round((item.investedAmount / item.units) * 100) / 100
-            : undefined;
+      const itemFolio = extractFolio(item.notes) || extractFolio(item.name);
+      const itemKey = normalizeAssetKey(item.name);
 
+      // Find matching existing holding
+      const matchIndex = existingHoldings.findIndex((ex) => {
+        // 1. Exact folio number match
+        if (itemFolio) {
+          const exFolio = extractFolio(ex.notes) || extractFolio(ex.name);
+          if (exFolio && exFolio === itemFolio) return true;
+        }
+
+        // 2. Exact name match (case-insensitive)
+        if (ex.name.trim().toLowerCase() === item.name.trim().toLowerCase()) {
+          return true;
+        }
+
+        // 3. Normalized key match (stripping direct/growth/punctuation)
+        if (itemKey.length >= 4) {
+          const exKey = normalizeAssetKey(ex.name);
+          if (exKey === itemKey) return true;
+        }
+
+        return false;
+      });
+
+      const derivedCurrentPrice =
+        item.currentPrice && item.currentPrice > 0
+          ? item.currentPrice
+          : item.units && item.units > 0 && item.currentValue > 0
+          ? Math.round((item.currentValue / item.units) * 100) / 100
+          : undefined;
+
+      const derivedBuyPrice =
+        item.buyPrice && item.buyPrice > 0
+          ? item.buyPrice
+          : item.units && item.units > 0 && item.investedAmount > 0
+          ? Math.round((item.investedAmount / item.units) * 100) / 100
+          : undefined;
+
+      if (matchIndex >= 0) {
+        const existing = existingHoldings[matchIndex];
+
+        // Check whether values changed or if it's identical old data
+        const valDiff = Math.abs(existing.currentValue - Math.max(0, item.currentValue));
+        const invDiff = Math.abs(existing.investedAmount - Math.max(0, item.investedAmount));
+        const unitsDiff =
+          item.units !== undefined && existing.units !== undefined
+            ? Math.abs(existing.units - item.units)
+            : 0;
+
+        const hasChanges =
+          valDiff > 0.01 ||
+          invDiff > 0.01 ||
+          unitsDiff > 0.0001 ||
+          (derivedCurrentPrice && existing.currentPrice !== derivedCurrentPrice) ||
+          (item.xirr && existing.xirr !== item.xirr);
+
+        if (hasChanges) {
+          // Overwrite existing holding with new values from updated statement
+          await ctx.db.patch(existing._id, {
+            currentValue: Math.max(0, item.currentValue),
+            investedAmount: item.investedAmount > 0 ? item.investedAmount : existing.investedAmount,
+            units: item.units !== undefined ? item.units : existing.units,
+            currentPrice: derivedCurrentPrice !== undefined ? derivedCurrentPrice : existing.currentPrice,
+            buyPrice: derivedBuyPrice !== undefined ? derivedBuyPrice : existing.buyPrice,
+            xirr: item.xirr || existing.xirr,
+            assetType: item.assetType || existing.assetType,
+            subType: item.subType || existing.subType,
+            sector: item.sector || existing.sector,
+            broker: item.broker || args.broker || existing.broker,
+            notes: item.notes || existing.notes,
+            importBatchId: batchId || existing.importBatchId,
+            updatedAt: now,
+          });
+
+          // Update memory copy to prevent duplicate updates within the same batch
+          existingHoldings[matchIndex] = {
+            ...existing,
+            currentValue: Math.max(0, item.currentValue),
+            investedAmount: item.investedAmount > 0 ? item.investedAmount : existing.investedAmount,
+            units: item.units !== undefined ? item.units : existing.units,
+            currentPrice: derivedCurrentPrice !== undefined ? derivedCurrentPrice : existing.currentPrice,
+            buyPrice: derivedBuyPrice !== undefined ? derivedBuyPrice : existing.buyPrice,
+            xirr: item.xirr || existing.xirr,
+            updatedAt: now,
+          };
+
+          updatedCount++;
+        } else {
+          // Identical / old file data: no changes needed, keep existing asset
+          unchangedCount++;
+        }
+      } else {
+        // Genuine new asset: insert
         const id = await ctx.db.insert("investments", {
           userId,
           name: item.name.trim(),
@@ -321,10 +427,44 @@ export const batchAdd = mutation({
           createdAt: now,
           updatedAt: now,
         });
-      insertedIds.push(id);
+
+        insertedIds.push(id);
+        insertedCount++;
+
+        // Add to memory copy so subsequent rows in same batch also deduplicate
+        existingHoldings.push({
+          _id: id,
+          _creationTime: now,
+          userId,
+          name: item.name.trim(),
+          assetType: item.assetType,
+          subType: item.subType,
+          sector: item.sector,
+          broker: item.broker || args.broker,
+          importBatchId: batchId,
+          investedAmount: Math.max(0, item.investedAmount),
+          currentValue: Math.max(0, item.currentValue),
+          units: item.units,
+          buyPrice: derivedBuyPrice,
+          currentPrice: derivedCurrentPrice,
+          sipAmount: item.sipAmount,
+          sipDay: item.sipDay,
+          xirr: item.xirr,
+          notes: item.notes,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
     }
 
-    return { success: true, count: insertedIds.length, batchId };
+    return {
+      success: true,
+      count: insertedIds.length,
+      inserted: insertedCount,
+      updated: updatedCount,
+      unchanged: unchangedCount,
+      batchId,
+    };
   },
 });
 
@@ -819,5 +959,49 @@ export const autoClassifyCommodities = mutation({
       }
     }
     return { count: updatedCount };
+  },
+});
+
+/**
+ * Deduplicates any existing duplicate holdings in the user's database portfolio
+ * that were created by previous duplicate file uploads, keeping the latest/most accurate record.
+ */
+export const autoDeduplicateExistingHoldings = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return { removedCount: 0 };
+
+    const holdings = await ctx.db
+      .query("investments")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    const seenMap = new Map<string, (typeof holdings)[0]>();
+    let removedCount = 0;
+
+    for (const holding of holdings) {
+      const folio = extractFolio(holding.notes) || extractFolio(holding.name);
+      const key = folio ? `folio_${folio}` : `name_${normalizeAssetKey(holding.name)}`;
+
+      if (seenMap.has(key)) {
+        const existing = seenMap.get(key)!;
+        // Keep the one with newer updatedAt or larger values
+        const keepExisting =
+          (existing.updatedAt || existing.createdAt) >= (holding.updatedAt || holding.createdAt);
+
+        if (keepExisting) {
+          await ctx.db.delete(holding._id);
+        } else {
+          await ctx.db.delete(existing._id);
+          seenMap.set(key, holding);
+        }
+        removedCount++;
+      } else {
+        seenMap.set(key, holding);
+      }
+    }
+
+    return { removedCount };
   },
 });

@@ -23,6 +23,7 @@ import {
 import { PinLockProvider, usePinLock } from './context/PinLockContext';
 import { PrivacyProvider, usePrivacy } from './context/PrivacyContext';
 import { ToastProvider } from './components/ui/ToastProvider';
+import { toast } from 'sonner';
 
 // Layout & Components
 import { Header } from './components/layout/Header';
@@ -133,6 +134,7 @@ export function AppContent() {
   const updateSettingsMutation = useMutation(api.users.updateSettings);
   const initializeUserDataMutation = useMutation(api.users.initializeUserData);
   const autoClassifyCommoditiesMutation = useMutation(api.investments.autoClassifyCommodities);
+  const autoDeduplicateHoldingsMutation = useMutation(api.investments.autoDeduplicateExistingHoldings);
 
   const isLoading = isAuthLoading || cloudInvestments === undefined || cloudPortfolioSummary === undefined;
   const isPortfolioLoading = cloudPortfolioSummary === undefined && isAuthenticated;
@@ -151,8 +153,9 @@ export function AppContent() {
       initializeUserDataMutation().catch(() => {});
       checkAndRenewRecurringBudgetsMutation().catch(() => {});
       autoClassifyCommoditiesMutation().catch(() => {});
+      autoDeduplicateHoldingsMutation().catch(() => {});
     }
-  }, [isAuthenticated, initializeUserDataMutation, checkAndRenewRecurringBudgetsMutation, autoClassifyCommoditiesMutation]);
+  }, [isAuthenticated, initializeUserDataMutation, checkAndRenewRecurringBudgetsMutation, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation]);
 
   useEffect(() => {
     if (!isAuthenticated || isLocked) return;
@@ -347,7 +350,19 @@ export function AppContent() {
     broker?: string
   ) => {
     if (navigator.vibrate) navigator.vibrate(30);
-    await batchAddInvestmentMutation({ items, fileName, broker });
+    const res = await batchAddInvestmentMutation({ items, fileName, broker });
+    if (res) {
+      const summaryParts: string[] = [];
+      if (res.inserted > 0) summaryParts.push(`${res.inserted} new`);
+      if (res.updated > 0) summaryParts.push(`${res.updated} updated`);
+      if (res.unchanged > 0) summaryParts.push(`${res.unchanged} unchanged`);
+
+      if (summaryParts.length > 0) {
+        toast.success(`Processed holdings: ${summaryParts.join(', ')}`);
+      } else {
+        toast.info('All holdings are up to date.');
+      }
+    }
   };
 
   const handleQuickUpdateInvestmentValue = async (id: string, currentValue: number) => {
