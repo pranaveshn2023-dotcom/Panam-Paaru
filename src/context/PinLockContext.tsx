@@ -30,11 +30,10 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
   const autoLockTimeoutMs = pinStatus?.autoLockTimeoutMs ?? 300000;
   const isLockout = Boolean(pinStatus?.isLockedOut);
 
-  // Initialize lock state synchronously from session cache or default to locked until verified
+  // Initialize lock state synchronously from localStorage so on reload it starts locked immediately
   const [isLocked, setIsLocked] = useState<boolean>(() => {
     try {
-      // If user previously had PIN enabled in this browser, start locked immediately
-      return sessionStorage.getItem('panam_pin_configured') === 'true';
+      return localStorage.getItem('panam_pin_configured') === 'true';
     } catch {
       return false;
     }
@@ -47,12 +46,12 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
       if (pinStatus?.pinEnabled) {
         setIsLocked(true);
         try {
-          sessionStorage.setItem('panam_pin_configured', 'true');
+          localStorage.setItem('panam_pin_configured', 'true');
         } catch {}
       } else {
         setIsLocked(false);
         try {
-          sessionStorage.removeItem('panam_pin_configured');
+          localStorage.removeItem('panam_pin_configured');
         } catch {}
       }
       setHasInitialized(true);
@@ -65,45 +64,72 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [isPinEnabled]);
 
-  // Handle visibility change (tab switch or mobile app backgrounding)
+  // Handle background inactivity:
+  // If user is inside the app, NEVER lock even if inactive.
+  // ONLY lock if the user leaves the app in the background for more than 40 seconds!
   useEffect(() => {
     if (!isPinEnabled) return;
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        if (autoLockTimeoutMs === 0) {
-          // Immediate lock on minimize/tab-switch
-          setIsLocked(true);
+    const BACKGROUND_TIMEOUT_MS = 40000; // 40 seconds
+    let backgroundTimer: NodeJS.Timeout | null = null;
+
+    const onAppBackgrounded = () => {
+      try {
+        sessionStorage.setItem('panam_backgrounded_at', String(Date.now()));
+      } catch {}
+
+      if (backgroundTimer) clearTimeout(backgroundTimer);
+      backgroundTimer = setTimeout(() => {
+        setIsLocked(true);
+      }, BACKGROUND_TIMEOUT_MS);
+    };
+
+    const onAppForegrounded = () => {
+      if (backgroundTimer) {
+        clearTimeout(backgroundTimer);
+        backgroundTimer = null;
+      }
+
+      try {
+        const bgAtStr = sessionStorage.getItem('panam_backgrounded_at');
+        if (bgAtStr) {
+          const bgAt = parseInt(bgAtStr, 10);
+          const elapsed = Date.now() - bgAt;
+          if (elapsed >= BACKGROUND_TIMEOUT_MS) {
+            setIsLocked(true);
+          }
+          sessionStorage.removeItem('panam_backgrounded_at');
         }
+      } catch {}
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        onAppBackgrounded();
+      } else if (document.visibilityState === 'visible') {
+        onAppForegrounded();
       }
     };
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [isPinEnabled, autoLockTimeoutMs]);
-
-  // Handle idle activity timeout
-  useEffect(() => {
-    if (!isPinEnabled || isLocked || autoLockTimeoutMs <= 0) return;
-
-    let timeoutId: NodeJS.Timeout;
-
-    const resetTimer = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        setIsLocked(true);
-      }, autoLockTimeoutMs);
+    const handleBlur = () => {
+      onAppBackgrounded();
     };
 
-    const events = ["mousedown", "mousemove", "keydown", "touchstart", "scroll"];
-    events.forEach((event) => window.addEventListener(event, resetTimer, { passive: true }));
-    resetTimer();
+    const handleFocus = () => {
+      onAppForegrounded();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
 
     return () => {
-      clearTimeout(timeoutId);
-      events.forEach((event) => window.removeEventListener(event, resetTimer));
+      if (backgroundTimer) clearTimeout(backgroundTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
     };
-  }, [isPinEnabled, isLocked, autoLockTimeoutMs]);
+  }, [isPinEnabled]);
 
   const unlockWithPin = async (pin: string): Promise<{ success: boolean; message?: string }> => {
     try {
@@ -131,6 +157,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
         await setPinMutation({ pin, autoLockTimeoutMs: timeoutMs });
       }
       try {
+        localStorage.setItem('panam_pin_configured', 'true');
         sessionStorage.setItem('panam_pin_configured', 'true');
       } catch {}
       return true;
@@ -146,6 +173,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
         await disablePinMutation({ currentPin });
       }
       try {
+        localStorage.removeItem('panam_pin_configured');
         sessionStorage.removeItem('panam_pin_configured');
       } catch {}
       setIsLocked(false);

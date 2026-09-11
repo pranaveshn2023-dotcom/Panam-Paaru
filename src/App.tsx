@@ -30,6 +30,7 @@ import { Sidebar, NavTab } from './components/layout/Sidebar';
 import { BottomNav } from './components/layout/BottomNav';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { PinLockScreen } from './components/pin/PinLockScreen';
+import { SecuringSessionScreen } from './components/pin/SecuringSessionScreen';
 import { PinSetupModal } from './components/pin/PinSetupModal';
 import { TransactionFormModal } from './components/transactions/TransactionFormModal';
 import { BudgetModal } from './components/budgets/BudgetModal';
@@ -60,7 +61,7 @@ const DEFAULT_CATEGORIES: Category[] = [
 
 export function AppContent() {
   const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
-  const { isPinEnabled, lockNow, isLocked } = usePinLock();
+  const { isPinEnabled, isPinLoading, lockNow, isLocked } = usePinLock();
 
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [expenseSubTab, setExpenseSubTab] = useState<ExpenseSubTab>('transactions');
@@ -393,14 +394,24 @@ export function AppContent() {
     )
   );
 
-  // 1. Unauthenticated screen
+  // 1. Loading authentication state
+  if (isAuthLoading) {
+    return <SecuringSessionScreen message="Securing Session..." subMessage="Verifying credentials & auth state" />;
+  }
+
+  // 2. Unauthenticated screen
   if (!isAuthenticated) {
     return <AuthScreen />;
   }
 
-  // 2. Strict PIN Lock Guard
+  // 3. Strict PIN Lock Guard (if locked, immediately show PIN keypad)
   if (isLocked) {
     return <PinLockScreen />;
+  }
+
+  // 4. Verifying security lock state (prevents homepage from ever flashing before PIN check completes)
+  if (isPinLoading) {
+    return <SecuringSessionScreen message="Securing Session..." subMessage="Verifying security lock & credentials" />;
   }
 
   return (
@@ -569,18 +580,7 @@ export default function App() {
   return (
     <PrivacyProvider>
       <ToastProvider />
-      <Suspense
-        fallback={
-          <div className="min-h-screen bg-[#FFFDF5] flex items-center justify-center">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-[#FFE600] border-[3px] border-[#121212] shadow-neo flex items-center justify-center font-black text-2xl mx-auto mb-4 animate-pulse">
-                PA
-              </div>
-              <p className="text-sm font-bold text-neutral-600">Loading Panam Paaru...</p>
-            </div>
-          </div>
-        }
-      >
+      <Suspense fallback={<SecuringSessionScreen message="Securing Session..." subMessage="Verifying security lock & credentials" />}>
         <AppContent />
       </Suspense>
     </PrivacyProvider>

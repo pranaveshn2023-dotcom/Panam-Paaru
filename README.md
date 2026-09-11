@@ -89,4 +89,4 @@ An unapologetic, high-contrast visual identity designed for maximum legibility, 
 
 ---
 
-*Built with ❤️ for financial sovereignty. See your money. Master your wealth.*
+*Built with ❤️ for financial sovereignty. See your money. Manage  your wealth.*
