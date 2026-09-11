@@ -197,6 +197,51 @@ export function detectDetailedAssetType(
       lowerName
     );
 
+  // Dynamic Universal Commodity (Gold, Silver, DigiGold, SGB, Bullion) detector from name or ticker symbols
+  // Universally supports:
+  // - Gold / Silver ETFs & exchange tickers (e.g. GOLDAXIS, ICICISILVE, GOLD BEES, SILVERBEES)
+  // - Gold / Silver Mutual Funds & FoFs (e.g. Gold Fund, Silver FoF)
+  // - DigiGold platforms & apps (Jar, SafeGold, Augmont, MMTC-PAMP, Gullak, Digital Gold/Silver)
+  // - Sovereign Gold Bonds (SGB, Sovereign Gold)
+  // - Physical Bullion & Precious Metals (swarna, kundan, chandi)
+  // Avoids false positives like Goldman Sachs unless specifically a gold/silver fund.
+  const isGoldSymbolOrName =
+    /(?:gold(?!man)|silver|silve|sgb|sovereign.*gold|bullion|digi\s*gold|digital\s*(?:gold|silver)|safegold|augmont|mmtc|pamp|gullak|swarna|kundan|chandi|precious\s*metal)/i.test(
+      lowerName
+    ) ||
+    /gold|silver|sgb|precious|commodity|commodities|bullion|digi.*gold|digital.*gold/i.test(lowerType);
+
+  if (isGoldSymbolOrName) {
+    const isSilver = /silver|silve|chandi/i.test(lowerName) || /silver/i.test(lowerType);
+    const isSgb = /sgb|sovereign/i.test(lowerName) || /sgb|sovereign/i.test(lowerType);
+    const isDigiGold =
+      /digi|digital|safegold|augmont|mmtc|pamp|jar|gullak/i.test(lowerName) ||
+      /digi|digital/i.test(lowerType);
+    const isFund = /fund|fof|mutual\s*fund|\bamc\b/i.test(lowerName);
+
+    let detectedSubType = 'Gold ETF';
+    if (isSgb) {
+      detectedSubType = 'Sovereign Gold Bond (SGB)';
+    } else if (isDigiGold) {
+      detectedSubType = isSilver ? 'Digital Silver' : 'Digital Gold';
+    } else if (isSilver) {
+      detectedSubType = isFund ? 'Silver Fund' : 'Silver ETF';
+    } else if (isFund) {
+      detectedSubType = 'Gold Fund';
+    }
+
+    const finalSubType =
+      normType && !/^(other|others|asset|equity|mutual\s*fund)$/i.test(normType)
+        ? normType
+        : detectedSubType;
+
+    return {
+      assetType: 'gold',
+      subType: finalSubType,
+      sector: explicitSector || 'Commodities',
+    };
+  }
+
   // 1. If document provided an explicit type column, honor the document's real value!
   if (normType) {
     // If the holding is a mutual fund / AMC, classify under mutual_fund with appropriate subType

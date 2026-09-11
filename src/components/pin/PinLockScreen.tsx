@@ -1,13 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Lock, Delete, ShieldAlert, LogOut, HelpCircle, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Lock, Delete, ShieldAlert, LogOut, HelpCircle, RefreshCw, RotateCcw } from 'lucide-react';
 import { usePinLock } from '../../context/PinLockContext';
 import { BrandLogo } from '../layout/BrandLogo';
 import { NeoButton } from '../ui/NeoButton';
 import { useAuthActions } from '@convex-dev/auth/react';
+import { useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 
 export const PinLockScreen: React.FC = () => {
   const { isLocked, unlockWithPin } = usePinLock();
   const { signOut } = useAuthActions();
+  const resetFailedAttemptsMutation = useMutation(api.pin.resetFailedAttempts);
   
   const [pin, setPin] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -15,26 +18,52 @@ export const PinLockScreen: React.FC = () => {
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [isShaking, setIsShaking] = useState<boolean>(false);
 
+  // Guards to prevent duplicate verification runs on re-render
+  const verifyingRef = useRef<boolean>(false);
+  const lastAttemptedPinRef = useRef<string>('');
+
+  // Reset attempt counters every time the lock screen activates
+  useEffect(() => {
+    if (isLocked) {
+      setPin('');
+      setErrorMsg('');
+      setFailedCount(0);
+      verifyingRef.current = false;
+      lastAttemptedPinRef.current = '';
+      resetFailedAttemptsMutation().catch(() => {});
+    }
+  }, [isLocked]);
+
   const handleDigit = useCallback((digit: string) => {
-    if (pin.length < 6 && !isVerifying) {
+    if (pin.length < 6 && !verifyingRef.current) {
       setErrorMsg('');
       setPin((prev) => prev + digit);
     }
-  }, [pin, isVerifying]);
+  }, [pin]);
 
   const handleDelete = useCallback(() => {
-    if (pin.length > 0 && !isVerifying) {
+    if (pin.length > 0 && !verifyingRef.current) {
       setErrorMsg('');
       setPin((prev) => prev.slice(0, -1));
     }
-  }, [pin, isVerifying]);
+  }, [pin]);
 
   const handleClear = useCallback(() => {
-    if (!isVerifying) {
+    if (!verifyingRef.current) {
       setErrorMsg('');
       setPin('');
+      lastAttemptedPinRef.current = '';
     }
-  }, [isVerifying]);
+  }, []);
+
+  const handleResetAttempts = useCallback(() => {
+    setPin('');
+    setErrorMsg('');
+    setFailedCount(0);
+    verifyingRef.current = false;
+    lastAttemptedPinRef.current = '';
+    resetFailedAttemptsMutation().catch(() => {});
+  }, [resetFailedAttemptsMutation]);
 
   // Physical keyboard listener for desktop users
   useEffect(() => {
@@ -54,33 +83,48 @@ export const PinLockScreen: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLocked, handleDigit, handleDelete, handleClear]);
 
-  // Auto-verify as soon as 6 digits are typed
+  // Auto-verify as soon as 6 digits are typed, strictly once per 6-digit input
   useEffect(() => {
-    if (pin.length === 6 && !isVerifying) {
-      const verify = async () => {
-        setIsVerifying(true);
-        const result = await unlockWithPin(pin);
-        setIsVerifying(false);
+    if (pin.length === 6 && !verifyingRef.current && lastAttemptedPinRef.current !== pin) {
+      const pinToVerify = pin;
+      lastAttemptedPinRef.current = pinToVerify;
+      verifyingRef.current = true;
+      setIsVerifying(true);
 
-        if (!result.success) {
-          const newCount = failedCount + 1;
-          setFailedCount(newCount);
-          setErrorMsg(result.message || `Incorrect PIN (Attempt ${newCount})`);
-          setIsShaking(true);
-          setTimeout(() => {
-            setIsShaking(false);
+      unlockWithPin(pinToVerify)
+        .then((result) => {
+          verifyingRef.current = false;
+          setIsVerifying(false);
+
+          if (!result.success) {
+            setFailedCount((prev) => {
+              const newCount = prev + 1;
+              setErrorMsg(`Incorrect PIN (Attempt ${newCount})`);
+              return newCount;
+            });
+            setIsShaking(true);
+            setTimeout(() => {
+              setIsShaking(false);
+              setPin('');
+              lastAttemptedPinRef.current = '';
+            }, 400);
+          } else {
             setPin('');
-          }, 400);
-        } else {
+            setErrorMsg('');
+            setFailedCount(0);
+            lastAttemptedPinRef.current = '';
+          }
+        })
+        .catch((err) => {
+          verifyingRef.current = false;
+          setIsVerifying(false);
+          setFailedCount((prev) => prev + 1);
+          setErrorMsg(err.message || 'Failed to verify PIN');
           setPin('');
-          setErrorMsg('');
-          setFailedCount(0);
-        }
-      };
-
-      verify();
+          lastAttemptedPinRef.current = '';
+        });
     }
-  }, [pin, isVerifying, unlockWithPin, failedCount]);
+  }, [pin, unlockWithPin]);
 
   if (!isLocked) return null;
 
@@ -139,30 +183,60 @@ export const PinLockScreen: React.FC = () => {
         )}
 
         {/* Prominent Forgot PIN / Reset Button after 3 wrong attempts */}
-        {failedCount >= 3 && (
+        {failedCount >= 3 ? (
           <div className="w-full mb-4 p-3 bg-[#FFFDF5] border-2 border-[#FF4343] shadow-neo-sm flex flex-col gap-2 animate-in fade-in">
-            <div className="flex items-center gap-1.5 text-xs font-black text-[#FF4343] uppercase">
-              <HelpCircle size={15} />
-              <span>Forgot your PIN?</span>
+            <div className="flex items-center justify-between gap-1.5 text-xs font-black text-[#FF4343] uppercase">
+              <span className="flex items-center gap-1.5">
+                <HelpCircle size={15} />
+                <span>Forgot your PIN?</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleResetAttempts}
+                className="text-[10px] uppercase font-black px-2 py-0.5 bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm cursor-pointer"
+              >
+                Reset
+              </button>
             </div>
             <p className="text-[11px] font-bold text-neutral-700">
-              Entered wrong PIN {failedCount} times. Sign out to reset your session.
+              Entered wrong PIN 3 times. You can reset attempts or sign out.
             </p>
-            <NeoButton
-              variant="danger"
-              size="sm"
-              onClick={() => {
-                sessionStorage.removeItem('panam_pin_configured');
-                sessionStorage.removeItem('panam_welcome_celebrated');
-                void signOut();
-              }}
-              className="flex items-center justify-center gap-1.5 w-full text-xs font-black"
-            >
-              <LogOut size={14} />
-              <span>Sign Out to Reset PIN</span>
-            </NeoButton>
+            <div className="flex gap-2">
+              <NeoButton
+                variant="outline"
+                size="sm"
+                onClick={handleResetAttempts}
+                className="flex items-center justify-center gap-1.5 flex-1 text-xs font-black bg-white"
+              >
+                <RotateCcw size={13} />
+                <span>Try Again</span>
+              </NeoButton>
+              <NeoButton
+                variant="danger"
+                size="sm"
+                onClick={() => {
+                  sessionStorage.removeItem('panam_pin_configured');
+                  sessionStorage.removeItem('panam_welcome_celebrated');
+                  void signOut();
+                }}
+                className="flex items-center justify-center gap-1.5 flex-1 text-xs font-black"
+              >
+                <LogOut size={13} />
+                <span>Sign Out</span>
+              </NeoButton>
+            </div>
           </div>
-        )}
+        ) : failedCount > 0 ? (
+          <div className="w-full flex justify-end mb-2">
+            <button
+              type="button"
+              onClick={handleResetAttempts}
+              className="text-[10px] font-black uppercase text-neutral-600 hover:text-[#121212] underline flex items-center gap-1 cursor-pointer"
+            >
+              <RotateCcw size={10} /> Reset Attempts
+            </button>
+          </div>
+        ) : null}
 
         {/* Neo-Brutalist 3x4 Keypad */}
         <div className="grid grid-cols-3 gap-2.5 w-full mb-5">
@@ -180,7 +254,7 @@ export const PinLockScreen: React.FC = () => {
           {/* Clear Button */}
           <button
             onClick={handleClear}
-            disabled={isVerifying || pin.length === 0}
+            disabled={isVerifying}
             className="neo-btn bg-neutral-100 hover:bg-neutral-200 text-[#121212] text-xs font-black py-3 border-2 border-[#121212] shadow-neo-sm cursor-pointer"
           >
             C

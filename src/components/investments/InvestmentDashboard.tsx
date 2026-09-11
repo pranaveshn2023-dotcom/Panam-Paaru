@@ -82,6 +82,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   >([]);
 
   const batchUpdateLivePricesMutation = useMutation(api.investments.batchUpdateLivePrices);
+  const autoClassifyCommoditiesMutation = useMutation(api.investments.autoClassifyCommodities);
   const syncLiveMarketPricesAction = useAction(api.investments.syncLiveMarketPrices);
   const getMarketIndicesAction = useAction(api.investments.getMarketIndices);
 
@@ -218,6 +219,9 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       })
       .catch(() => {});
 
+    // Automatically ensure commodity assets in database are properly categorized
+    autoClassifyCommoditiesMutation().catch(() => {});
+
     if (investments.length > 0) {
       handleSyncLiveMarket(true);
     }
@@ -231,14 +235,14 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     }, 45000);
 
     return () => clearInterval(timer);
-  }, [isAutoSyncEnabled, investments.length]);
+  }, [isAutoSyncEnabled, investments.length, autoClassifyCommoditiesMutation]);
 
   const ASSET_TABS: { label: string; value: 'all' | AssetType }[] = [
     { label: 'All', value: 'all' },
     { label: 'Mutual Funds', value: 'mutual_fund' },
     { label: 'Stocks', value: 'stocks' },
     { label: 'FD & RD', value: 'fd_rd' },
-    { label: 'Gold', value: 'gold' },
+    { label: 'Gold & Silver', value: 'gold' },
     { label: 'Crypto', value: 'crypto' },
     { label: 'PPF & EPF', value: 'ppf_epf' },
     { label: 'Real Estate', value: 'real_estate' },

@@ -132,6 +132,7 @@ export function AppContent() {
   const removeInvestmentMutation = useMutation(api.investments.remove);
   const updateSettingsMutation = useMutation(api.users.updateSettings);
   const initializeUserDataMutation = useMutation(api.users.initializeUserData);
+  const autoClassifyCommoditiesMutation = useMutation(api.investments.autoClassifyCommodities);
 
   const isLoading = isAuthLoading || cloudInvestments === undefined || cloudPortfolioSummary === undefined;
   const isPortfolioLoading = cloudPortfolioSummary === undefined && isAuthenticated;
@@ -149,8 +150,9 @@ export function AppContent() {
     if (isAuthenticated) {
       initializeUserDataMutation().catch(() => {});
       checkAndRenewRecurringBudgetsMutation().catch(() => {});
+      autoClassifyCommoditiesMutation().catch(() => {});
     }
-  }, [isAuthenticated, initializeUserDataMutation, checkAndRenewRecurringBudgetsMutation]);
+  }, [isAuthenticated, initializeUserDataMutation, checkAndRenewRecurringBudgetsMutation, autoClassifyCommoditiesMutation]);
 
   useEffect(() => {
     if (!isAuthenticated || isLocked) return;

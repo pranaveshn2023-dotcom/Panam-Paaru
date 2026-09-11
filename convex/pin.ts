@@ -122,7 +122,10 @@ export const verifyPin = mutation({
       });
       return { success: true };
     } else {
-      const newFailed = (security.failedAttempts || 0) + 1;
+      // If last failed attempt was more than 60 seconds ago, reset to start fresh
+      const isStale = security.lastFailedAttemptAt && (Date.now() - security.lastFailedAttemptAt > 60000);
+      const currentFailed = isStale ? 0 : (security.failedAttempts || 0);
+      const newFailed = currentFailed + 1;
       await ctx.db.patch(security._id, {
         failedAttempts: newFailed,
         lastFailedAttemptAt: Date.now(),
@@ -134,6 +137,30 @@ export const verifyPin = mutation({
         message: `Incorrect PIN (Attempt ${newFailed})`,
       };
     }
+  },
+});
+
+/**
+ * Resets failed attempts counter when lock screen opens or user requests fresh attempt cycle
+ */
+export const resetFailedAttempts = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return { success: false };
+
+    const security = await ctx.db
+      .query("userSecurity")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .unique();
+
+    if (security && security.failedAttempts > 0) {
+      await ctx.db.patch(security._id, {
+        failedAttempts: 0,
+        updatedAt: Date.now(),
+      });
+    }
+    return { success: true };
   },
 });
 

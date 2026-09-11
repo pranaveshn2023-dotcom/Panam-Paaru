@@ -3,6 +3,24 @@ import { api } from "./_generated/api";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
+// Universal dynamic commodity and precious metal matcher from name or ticker symbols (Gold, Silver, DigiGold, SGB, Bullion)
+const COMMODITY_TICKER_NAME_REGEX =
+  /(?:gold(?!man)|silver|silve|sgb|sovereign.*gold|bullion|digi\s*gold|digital\s*(?:gold|silver)|safegold|augmont|mmtc|pamp|gullak|swarna|kundan|chandi|precious\s*metal)/i;
+
+function resolveCommoditySubtype(name: string): string {
+  const lower = name.toLowerCase();
+  const isSilver = /silver|silve|chandi/i.test(lower);
+  const isSgb = /sgb|sovereign/i.test(lower);
+  const isDigiGold = /digi|digital|safegold|augmont|mmtc|pamp|jar|gullak/i.test(lower);
+  const isFund = /fund|fof|mutual\s*fund|\bamc\b/i.test(lower);
+
+  if (isSgb) return "Sovereign Gold Bond (SGB)";
+  if (isDigiGold) return isSilver ? "Digital Silver" : "Digital Gold";
+  if (isSilver) return isFund ? "Silver Fund" : "Silver ETF";
+  if (isFund) return "Gold Fund";
+  return "Gold ETF";
+}
+
 export const list = query({
   args: {
     assetType: v.optional(v.string()),
@@ -17,11 +35,34 @@ export const list = query({
       .order("desc")
       .collect();
 
+    // Dynamically classify commodity holdings (gold / silver) by name/ticker patterns
+    const normalized = investments.map((inv) => {
+      let assetType = inv.assetType;
+      let subType = inv.subType;
+
+      if (
+        (assetType === "other" || assetType === "mutual_fund") &&
+        (COMMODITY_TICKER_NAME_REGEX.test(inv.name || "") || COMMODITY_TICKER_NAME_REGEX.test(inv.subType || ""))
+      ) {
+        assetType = "gold";
+        if (!subType || /^(other|other asset|equity mutual fund)$/i.test(subType.trim())) {
+          subType = resolveCommoditySubtype(inv.name);
+        }
+      }
+
+      return {
+        ...inv,
+        assetType,
+        subType,
+      };
+    });
+
+    let filtered = normalized;
     if (args.assetType && args.assetType !== "all") {
-      investments = investments.filter((inv) => inv.assetType === args.assetType);
+      filtered = normalized.filter((inv) => inv.assetType === args.assetType);
     }
 
-    return investments.map((inv) => {
+    return filtered.map((inv) => {
       const returnsAmount = inv.currentValue - inv.investedAmount;
       const returnsPercent =
         inv.investedAmount > 0
@@ -72,19 +113,27 @@ export const getPortfolioSummary = query({
 
     const assetAllocationMap: Record<string, { invested: number; current: number; count: number }> = {};
 
-    for (const inv of investments) {
-      totalInvested += inv.investedAmount;
-      totalCurrentValue += inv.currentValue;
-      if (inv.sipAmount) {
-        totalMonthlySip += inv.sipAmount;
+    for (const rawInv of investments) {
+      let assetType = rawInv.assetType;
+      if (
+        (assetType === "other" || assetType === "mutual_fund") &&
+        (COMMODITY_TICKER_NAME_REGEX.test(rawInv.name || "") || COMMODITY_TICKER_NAME_REGEX.test(rawInv.subType || ""))
+      ) {
+        assetType = "gold";
       }
 
-      if (!assetAllocationMap[inv.assetType]) {
-        assetAllocationMap[inv.assetType] = { invested: 0, current: 0, count: 0 };
+      totalInvested += rawInv.investedAmount;
+      totalCurrentValue += rawInv.currentValue;
+      if (rawInv.sipAmount) {
+        totalMonthlySip += rawInv.sipAmount;
       }
-      assetAllocationMap[inv.assetType].invested += inv.investedAmount;
-      assetAllocationMap[inv.assetType].current += inv.currentValue;
-      assetAllocationMap[inv.assetType].count += 1;
+
+      if (!assetAllocationMap[assetType]) {
+        assetAllocationMap[assetType] = { invested: 0, current: 0, count: 0 };
+      }
+      assetAllocationMap[assetType].invested += rawInv.investedAmount;
+      assetAllocationMap[assetType].current += rawInv.currentValue;
+      assetAllocationMap[assetType].count += 1;
     }
 
     const totalReturnsAmount = totalCurrentValue - totalInvested;
@@ -731,5 +780,44 @@ export const getMarketIndices = action({
       } catch {}
     }
     return results;
+  },
+});
+
+/**
+ * Automatically reclassifies commodity (gold & silver) holdings in the user's database portfolio
+ * without modifying invested amounts, current values, or units.
+ */
+export const autoClassifyCommodities = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return { count: 0 };
+
+    const holdings = await ctx.db
+      .query("investments")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    let updatedCount = 0;
+    for (const inv of holdings) {
+      if (
+        (inv.assetType === "other" || inv.assetType === "mutual_fund") &&
+        (COMMODITY_TICKER_NAME_REGEX.test(inv.name || "") || COMMODITY_TICKER_NAME_REGEX.test(inv.subType || ""))
+      ) {
+        const newSubType =
+          !inv.subType || /^(other|other asset|equity mutual fund)$/i.test(inv.subType.trim())
+            ? resolveCommoditySubtype(inv.name)
+            : inv.subType;
+
+        await ctx.db.patch(inv._id, {
+          assetType: "gold",
+          subType: newSubType,
+          sector: inv.sector || "Commodities",
+          updatedAt: Date.now(),
+        });
+        updatedCount++;
+      }
+    }
+    return { count: updatedCount };
   },
 });
