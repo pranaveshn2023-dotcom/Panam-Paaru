@@ -21,6 +21,54 @@ function resolveCommoditySubtype(name: string): string {
   return "Gold ETF";
 }
 
+function extractFolio(text?: string): string | null {
+  if (!text) return null;
+  const m = text.match(/(?:folio|foliono|folio\s*no|acct|account)\s*[:#\-]?\s*([a-z0-9/_-]+)/i);
+  return m ? m[1].toLowerCase().replace(/[^a-z0-9]/g, "") : null;
+}
+
+function normalizeAssetKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[-_/\\]/g, " ")
+    .replace(/\s*(direct|regular|growth|idcw|dividend|plan|option)\b/gi, "")
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
+
+function getHoldingDedupeKey(name: string, notes?: string): string {
+  const folio = extractFolio(notes) || extractFolio(name);
+  const nameKey = normalizeAssetKey(name) || name.trim().toLowerCase();
+  return folio ? `${nameKey}_f_${folio}` : `n_${nameKey}`;
+}
+
+function areHoldingsEquivalent(
+  a: { name: string; notes?: string },
+  b: { name: string; notes?: string }
+): boolean {
+  const aRaw = a.name.trim().toLowerCase();
+  const bRaw = b.name.trim().toLowerCase();
+  const aKey = normalizeAssetKey(a.name);
+  const bKey = normalizeAssetKey(b.name);
+
+  // Scheme/Asset Name MUST match (preventing different schemes under same AMC/Folio from colliding)
+  const nameMatches =
+    aRaw === bRaw ||
+    (aKey.length >= 4 && bKey.length >= 4 && aKey === bKey);
+
+  if (!nameMatches) return false;
+
+  // If both have folio numbers, they must not conflict
+  const aFolio = extractFolio(a.notes) || extractFolio(a.name);
+  const bFolio = extractFolio(b.notes) || extractFolio(b.name);
+
+  if (aFolio && bFolio && aFolio !== bFolio) {
+    return false;
+  }
+
+  return true;
+}
+
 export const list = query({
   args: {
     assetType: v.optional(v.string()),
@@ -38,19 +86,14 @@ export const list = query({
     // Query-level deduplication to ensure multiple duplicate uploads never show duplicate cards
     const dedupedMap = new Map<string, (typeof investments)[0]>();
     for (const inv of investments) {
-      const folio = extractFolio(inv.notes) || extractFolio(inv.name);
-      const nameKey = normalizeAssetKey(inv.name);
-      const key = folio ? `f_${folio}` : `n_${nameKey || inv.name.trim().toLowerCase()}`;
+      const key = getHoldingDedupeKey(inv.name, inv.notes);
 
       let matchKey: string | null = null;
       if (dedupedMap.has(key)) {
         matchKey = key;
       } else {
         for (const [k, v] of dedupedMap.entries()) {
-          if (
-            v.name.trim().toLowerCase() === inv.name.trim().toLowerCase() ||
-            (nameKey && normalizeAssetKey(v.name) === nameKey)
-          ) {
+          if (areHoldingsEquivalent(v, inv)) {
             matchKey = k;
             break;
           }
@@ -148,19 +191,14 @@ export const getPortfolioSummary = query({
     // Query-level deduplication for portfolio summary
     const dedupedMap = new Map<string, (typeof investments)[0]>();
     for (const inv of investments) {
-      const folio = extractFolio(inv.notes) || extractFolio(inv.name);
-      const nameKey = normalizeAssetKey(inv.name);
-      const key = folio ? `f_${folio}` : `n_${nameKey || inv.name.trim().toLowerCase()}`;
+      const key = getHoldingDedupeKey(inv.name, inv.notes);
 
       let matchKey: string | null = null;
       if (dedupedMap.has(key)) {
         matchKey = key;
       } else {
         for (const [k, v] of dedupedMap.entries()) {
-          if (
-            v.name.trim().toLowerCase() === inv.name.trim().toLowerCase() ||
-            (nameKey && normalizeAssetKey(v.name) === nameKey)
-          ) {
+          if (areHoldingsEquivalent(v, inv)) {
             matchKey = k;
             break;
           }
@@ -303,21 +341,6 @@ export const add = mutation({
   },
 });
 
-function extractFolio(text?: string): string | null {
-  if (!text) return null;
-  const m = text.match(/(?:folio|foliono|folio\s*no|acct|account)\s*[:#\-]?\s*([a-z0-9/_-]+)/i);
-  return m ? m[1].toLowerCase().replace(/[^a-z0-9]/g, "") : null;
-}
-
-function normalizeAssetKey(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[-_/\\]/g, " ")
-    .replace(/\s*(direct|regular|growth|idcw|dividend|plan|option)\b/gi, "")
-    .replace(/[^a-z0-9]/g, "")
-    .trim();
-}
-
 export const batchAdd = mutation({
   args: {
     fileName: v.optional(v.string()),
@@ -389,30 +412,8 @@ export const batchAdd = mutation({
     for (const item of args.items) {
       if (!item.name.trim()) continue;
 
-      const itemFolio = extractFolio(item.notes) || extractFolio(item.name);
-      const itemKey = normalizeAssetKey(item.name);
-
-      // Find matching existing holding
-      const matchIndex = existingHoldings.findIndex((ex) => {
-        // 1. Exact folio number match
-        if (itemFolio) {
-          const exFolio = extractFolio(ex.notes) || extractFolio(ex.name);
-          if (exFolio && exFolio === itemFolio) return true;
-        }
-
-        // 2. Exact name match (case-insensitive)
-        if (ex.name.trim().toLowerCase() === item.name.trim().toLowerCase()) {
-          return true;
-        }
-
-        // 3. Normalized key match (stripping direct/growth/punctuation)
-        if (itemKey.length >= 4) {
-          const exKey = normalizeAssetKey(ex.name);
-          if (exKey === itemKey) return true;
-        }
-
-        return false;
-      });
+      // Find matching existing holding by scheme/stock name equivalence (preventing different schemes under same folio from colliding)
+      const matchIndex = existingHoldings.findIndex((ex) => areHoldingsEquivalent(ex, item));
 
       const derivedCurrentPrice =
         item.currentPrice && item.currentPrice > 0
@@ -449,6 +450,7 @@ export const batchAdd = mutation({
         if (hasChanges) {
           // Overwrite existing holding with new values from updated statement
           await ctx.db.patch(existing._id, {
+            name: item.name.trim(),
             currentValue: Math.max(0, item.currentValue),
             investedAmount: item.investedAmount > 0 ? item.investedAmount : existing.investedAmount,
             units: item.units !== undefined ? item.units : existing.units,
@@ -467,6 +469,7 @@ export const batchAdd = mutation({
           // Update memory copy to prevent duplicate updates within the same batch
           existingHoldings[matchIndex] = {
             ...existing,
+            name: item.name.trim(),
             currentValue: Math.max(0, item.currentValue),
             investedAmount: item.investedAmount > 0 ? item.investedAmount : existing.investedAmount,
             units: item.units !== undefined ? item.units : existing.units,
@@ -1024,6 +1027,20 @@ export const autoClassifyCommodities = mutation({
         });
         updatedCount++;
       }
+
+      // Auto-heal holding where Axis Balanced Advantage was accidentally overwritten with Axis Liquid numbers
+      if (
+        inv.name.toLowerCase().includes("balanced advantage") &&
+        inv.investedAmount <= 10 &&
+        (inv.units ?? 0) <= 0.01
+      ) {
+        await ctx.db.patch(inv._id, {
+          name: "Axis Liquid Direct Fund Growth",
+          subType: "Liquid",
+          updatedAt: Date.now(),
+        });
+        updatedCount++;
+      }
     }
     return { count: updatedCount };
   },
@@ -1048,19 +1065,14 @@ export const autoDeduplicateExistingHoldings = mutation({
     let removedCount = 0;
 
     for (const holding of holdings) {
-      const folio = extractFolio(holding.notes) || extractFolio(holding.name);
-      const nameKey = normalizeAssetKey(holding.name);
-      const key = folio ? `f_${folio}` : `n_${nameKey || holding.name.trim().toLowerCase()}`;
+      const key = getHoldingDedupeKey(holding.name, holding.notes);
 
       let matchKey: string | null = null;
       if (seenMap.has(key)) {
         matchKey = key;
       } else {
         for (const [k, v] of seenMap.entries()) {
-          if (
-            v.name.trim().toLowerCase() === holding.name.trim().toLowerCase() ||
-            (nameKey && normalizeAssetKey(v.name) === nameKey)
-          ) {
+          if (areHoldingsEquivalent(v, holding)) {
             matchKey = k;
             break;
           }
