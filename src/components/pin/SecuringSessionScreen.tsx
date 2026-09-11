@@ -8,7 +8,7 @@ interface SecuringSessionScreenProps {
 
 export const SecuringSessionScreen: React.FC<SecuringSessionScreenProps> = ({
   message = 'Securing Session...',
-  subMessage = 'Verifying security lock & credentials',
+  subMessage = 'Verifying credentials',
 }) => {
   return (
     <div className="min-h-screen w-full bg-[#0C0C0E] flex flex-col items-center justify-center p-6 select-none animate-in fade-in duration-200">
