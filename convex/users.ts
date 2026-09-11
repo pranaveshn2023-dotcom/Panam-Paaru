@@ -167,22 +167,21 @@ export const initializeUserData = mutation({
     }
 
     // Initialize default wallets / accounts if none exist (MyMoney style)
-    const existingWallets = await ctx.db
+    const userWallets = await ctx.db
       .query("wallets")
       .withIndex("by_user", (q) => q.eq("userId", userId))
-      .take(1);
+      .collect();
 
-    if (existingWallets.length === 0) {
+    if (userWallets.length === 0) {
       const now = Date.now();
       await ctx.db.insert("wallets", {
         userId,
         name: "Primary Bank Account",
         type: "bank",
-        balance: 25000,
-        initialBalance: 25000,
+        balance: 0,
+        initialBalance: 0,
         color: "#00F0FF",
         icon: "Building2",
-        accountNumberLast4: "4821",
         isDefault: true,
         notes: "Main checking & salary account",
         createdAt: now,
@@ -193,8 +192,8 @@ export const initializeUserData = mutation({
         userId,
         name: "Cash in Hand",
         type: "cash",
-        balance: 3500,
-        initialBalance: 3500,
+        balance: 0,
+        initialBalance: 0,
         color: "#05DF72",
         icon: "Banknote",
         isDefault: false,
@@ -207,8 +206,8 @@ export const initializeUserData = mutation({
         userId,
         name: "UPI & Digital Wallet",
         type: "wallet",
-        balance: 5000,
-        initialBalance: 5000,
+        balance: 0,
+        initialBalance: 0,
         color: "#FFE600",
         icon: "Wallet",
         isDefault: false,
@@ -216,6 +215,22 @@ export const initializeUserData = mutation({
         createdAt: now,
         updatedAt: now,
       });
+    } else {
+      // If user has previous seeded placeholder balances (25000, 3500, 5000), reset them to 0
+      for (const w of userWallets) {
+        if (
+          (w.balance === 25000 && w.initialBalance === 25000) ||
+          (w.balance === 3500 && w.initialBalance === 3500) ||
+          (w.balance === 5000 && w.initialBalance === 5000)
+        ) {
+          await ctx.db.patch(w._id, {
+            balance: 0,
+            initialBalance: 0,
+            accountNumberLast4: undefined,
+            updatedAt: Date.now(),
+          });
+        }
+      }
     }
 
     return { success: true };

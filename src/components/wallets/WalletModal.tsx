@@ -72,7 +72,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
     } else {
       setName('');
       setType('bank');
-      setBalance('10000');
+      setBalance('0');
       setColor('#00F0FF');
       setAccountNumberLast4('');
       setIsDefault(false);
