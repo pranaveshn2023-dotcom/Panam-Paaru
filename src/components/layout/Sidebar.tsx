@@ -1,10 +1,10 @@
 import React from 'react';
-import { LayoutDashboard, ArrowLeftRight, CalendarSync, PieChart, Settings, Eye, EyeOff, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, ArrowLeftRight, Wallet, CalendarSync, PieChart, Settings, Eye, EyeOff, TrendingUp } from 'lucide-react';
 import { clsx } from 'clsx';
 import { FinancialStats } from '../../types';
 import { usePrivacy } from '../../context/PrivacyContext';
 
-export type NavTab = 'overview' | 'transactions' | 'budgets' | 'investments' | 'insights' | 'settings';
+export type NavTab = 'overview' | 'transactions' | 'wallets' | 'budgets' | 'investments' | 'insights' | 'settings';
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -24,9 +24,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems: { id: NavTab; label: string; icon: React.FC<{ size?: number; className?: string }>; color: string }[] = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: '#FFE600' },
     { id: 'transactions', label: 'Transactions', icon: ArrowLeftRight, color: '#00F0FF' },
+    { id: 'wallets', label: 'Accounts & Wallets', icon: Wallet, color: '#FFD700' },
     { id: 'budgets', label: 'Budgets & Pockets', icon: CalendarSync, color: '#05DF72' },
-    { id: 'investments', label: 'Investments', icon: TrendingUp, color: '#FFD700' },
-    { id: 'insights', label: 'Insights & Trends', icon: PieChart, color: '#FF4D8D' },
+    { id: 'investments', label: 'Investments', icon: TrendingUp, color: '#FF8A00' },
+    { id: 'insights', label: 'Insights & Flow', icon: PieChart, color: '#FF4D8D' },
     { id: 'settings', label: 'Settings & Security', icon: Settings, color: '#9B51E0' },
   ];
 

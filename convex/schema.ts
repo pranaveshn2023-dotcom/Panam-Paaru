@@ -5,22 +5,48 @@ import { v } from "convex/values";
 export default defineSchema({
   ...authTables,
 
-  // Financial transactions (Income and Expenses)
+  // Multi-Account & Wallets System (MyMoney Style)
+  wallets: defineTable({
+    userId: v.id("users"),
+    name: v.string(), // e.g. "HDFC Salary Account", "Cash in Hand", "ICICI Card", "GPay Wallet"
+    type: v.union(
+      v.literal("bank"),
+      v.literal("cash"),
+      v.literal("card"),
+      v.literal("wallet"),
+      v.literal("savings"),
+      v.literal("investment")
+    ),
+    balance: v.number(), // Current available liquid balance
+    initialBalance: v.number(), // Starting balance
+    color: v.string(),
+    icon: v.string(),
+    accountNumberLast4: v.optional(v.string()),
+    isDefault: v.boolean(),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  // Financial transactions (Income, Expenses, and Wallet-to-Wallet Transfers)
   transactions: defineTable({
     userId: v.id("users"),
     title: v.string(),
     amount: v.number(), // Always stored as positive number (in standard currency units, e.g. 500.50)
-    type: v.union(v.literal("income"), v.literal("expense")),
+    type: v.union(v.literal("income"), v.literal("expense"), v.literal("transfer")),
     category: v.string(),
     date: v.string(), // ISO date string (YYYY-MM-DD or full ISO)
     notes: v.optional(v.string()),
+    walletId: v.optional(v.id("wallets")), // Source wallet that paid or received
+    transferToWalletId: v.optional(v.id("wallets")), // Destination wallet for transfers
     budgetId: v.optional(v.id("budgets")),
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
     .index("by_user_date", ["userId", "date"])
     .index("by_user_type", ["userId", "type"])
-    .index("by_user_category", ["userId", "category"]),
+    .index("by_user_category", ["userId", "category"])
+    .index("by_user_wallet", ["userId", "walletId"]),
 
   // Calendar-Aware & Reloadable Recurring Budgets / Pockets
   budgets: defineTable({
@@ -38,6 +64,9 @@ export default defineSchema({
       v.literal("yearly")
     ),
     startDate: v.string(), // Anchor ISO date string (e.g. 2026-01-31)
+    sourceWalletId: v.optional(v.id("wallets")), // Linked wallet for automatic funding
+    autoDeductFromWallet: v.optional(v.boolean()), // Whether to auto-deduct every recurrence
+    lastDeductedPeriodIndex: v.optional(v.number()), // Index of last period auto-deducted
     alertThreshold: v.optional(v.number()), // percentage warning threshold e.g. 80%
     lowBalanceThresholdAmount: v.optional(v.number()), // alert when balance remaining is below ₹X
     lowBalanceThresholdPercent: v.optional(v.number()), // alert when remaining balance is below X%
@@ -45,7 +74,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_user", ["userId"])
-    .index("by_user_category", ["userId", "category"]),
+    .index("by_user_category", ["userId", "category"])
+    .index("by_user_wallet", ["userId", "sourceWalletId"]),
 
   // Investment Portfolio Assets
   investments: defineTable({

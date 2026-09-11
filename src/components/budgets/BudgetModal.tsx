@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
-import { Budget, Category, RecurrenceType } from '../../types';
+import { Budget, Category, RecurrenceType, Wallet } from '../../types';
 import { CalendarSync, Tag, AlertTriangle, ShieldAlert, Coins } from 'lucide-react';
 
 interface BudgetModalProps {
@@ -15,12 +15,15 @@ interface BudgetModalProps {
     category: string;
     recurrence: RecurrenceType;
     startDate: string;
+    sourceWalletId?: string;
+    autoDeductFromWallet?: boolean;
     alertThreshold?: number;
     lowBalanceThresholdAmount?: number;
     lowBalanceThresholdPercent?: number;
   }) => Promise<void>;
   initialData?: Budget | null;
   categories: Category[];
+  wallets?: Wallet[];
   currencySymbol?: string;
 }
 
@@ -30,6 +33,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   onSubmit,
   initialData,
   categories,
+  wallets = [],
   currencySymbol = '₹',
 }) => {
   const [name, setName] = useState('');
@@ -38,6 +42,8 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   const [category, setCategory] = useState('');
   const [recurrence, setRecurrence] = useState<RecurrenceType>('monthly');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [sourceWalletId, setSourceWalletId] = useState<string>('');
+  const [autoDeductFromWallet, setAutoDeductFromWallet] = useState(true);
   const [alertThreshold, setAlertThreshold] = useState('80');
   const [lowAmount, setLowAmount] = useState('');
   const [lowPercent, setLowPercent] = useState('20');
@@ -54,6 +60,8 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setCategory(initialData.category);
       setRecurrence(initialData.recurrence);
       setStartDate(initialData.startDate.slice(0, 10));
+      setSourceWalletId(initialData.sourceWalletId || '');
+      setAutoDeductFromWallet(initialData.autoDeductFromWallet ?? true);
       setAlertThreshold(String(initialData.alertThreshold ?? 80));
       setLowAmount(initialData.lowBalanceThresholdAmount ? String(initialData.lowBalanceThresholdAmount) : '');
       setLowPercent(initialData.lowBalanceThresholdPercent ? String(initialData.lowBalanceThresholdPercent) : '20');
@@ -64,12 +72,15 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setCategory(expenseCategories[0]?.name || 'Food & Dining');
       setRecurrence('monthly');
       setStartDate(new Date().toISOString().slice(0, 10));
+      const defaultW = wallets.find((w) => w.isDefault) || wallets[0];
+      setSourceWalletId(defaultW?._id || '');
+      setAutoDeductFromWallet(true);
       setAlertThreshold('80');
       setLowAmount('1000');
       setLowPercent('20');
     }
     setError('');
-  }, [initialData, isOpen, categories]);
+  }, [initialData, isOpen, categories, wallets]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,6 +119,8 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           category,
           recurrence,
           startDate,
+          sourceWalletId: sourceWalletId || undefined,
+          autoDeductFromWallet: !!sourceWalletId && autoDeductFromWallet,
           alertThreshold: !isNaN(numThreshold) ? numThreshold : 80,
           lowBalanceThresholdAmount: numLowAmount,
           lowBalanceThresholdPercent: numLowPercent,
@@ -194,6 +207,43 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Funding Wallet Selection & Auto-Deduct Toggle (MyMoney Core Functionality) */}
+        {wallets.length > 0 && (
+          <div className="p-3.5 bg-[#E8F8F0] border-2 border-[#05DF72] shadow-neo-sm flex flex-col gap-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <label className="text-xs font-black uppercase text-[#0B6B38] flex items-center gap-1.5">
+                <Coins size={14} /> Source Funding Wallet
+              </label>
+              <select
+                value={sourceWalletId}
+                onChange={(e) => setSourceWalletId(e.target.value)}
+                className="p-1.5 text-xs font-black bg-white border-2 border-[#121212] cursor-pointer"
+              >
+                <option value="">-- No linked wallet (Manual) --</option>
+                {wallets.map((w) => (
+                  <option key={w._id} value={w._id}>
+                    {w.name} (Bal: {currencySymbol}{w.balance.toLocaleString('en-IN')})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {sourceWalletId && (
+              <label className="flex items-center gap-2 pt-1 border-t border-[#05DF72]/40 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoDeductFromWallet}
+                  onChange={(e) => setAutoDeductFromWallet(e.target.checked)}
+                  className="w-4 h-4 accent-[#05DF72] cursor-pointer"
+                />
+                <span className="text-[11px] font-bold text-[#0B6B38]">
+                  Auto-deduct {currencySymbol}{amount || '0'} from this wallet every {recurrence} renewal cycle
+                </span>
+              </label>
+            )}
+          </div>
+        )}
 
         {/* Category & Recurrence */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

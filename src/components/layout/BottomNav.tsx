@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, ArrowLeftRight, CalendarSync, PieChart, Settings, Plus, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, ArrowLeftRight, Wallet, CalendarSync, PieChart, Settings, Plus, TrendingUp } from 'lucide-react';
 import { clsx } from 'clsx';
 import { NavTab } from './Sidebar';
 
@@ -17,9 +17,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const items = [
     { id: 'overview' as NavTab, label: 'Home', icon: LayoutDashboard },
     { id: 'transactions' as NavTab, label: 'Trans.', icon: ArrowLeftRight },
+    { id: 'wallets' as NavTab, label: 'Wallets', icon: Wallet },
     { id: 'budgets' as NavTab, label: 'Budgets', icon: CalendarSync },
     { id: 'investments' as NavTab, label: 'Invest', icon: TrendingUp },
-    { id: 'insights' as NavTab, label: 'Trends', icon: PieChart },
+    { id: 'insights' as NavTab, label: 'Flow', icon: PieChart },
     { id: 'settings' as NavTab, label: 'Settings', icon: Settings },
   ];
 

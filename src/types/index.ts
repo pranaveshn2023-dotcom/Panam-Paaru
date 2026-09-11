@@ -1,6 +1,31 @@
-export type TransactionType = 'income' | 'expense';
+export type TransactionType = 'income' | 'expense' | 'transfer';
 
 export type RecurrenceType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+
+export type WalletType = 'bank' | 'cash' | 'card' | 'wallet' | 'savings' | 'investment';
+
+export interface Wallet {
+  _id: string;
+  userId?: string;
+  name: string;
+  type: WalletType;
+  balance: number;
+  initialBalance: number;
+  color: string;
+  icon: string;
+  accountNumberLast4?: string;
+  isDefault: boolean;
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WalletSummary {
+  wallets: Wallet[];
+  totalBalance: number;
+  expenseSoFar: number;
+  incomeSoFar: number;
+}
 
 export interface Transaction {
   _id: string;
@@ -11,6 +36,8 @@ export interface Transaction {
   category: string;
   date: string;
   notes?: string;
+  walletId?: string;
+  transferToWalletId?: string;
   budgetId?: string;
   createdAt: number;
 }
@@ -26,6 +53,12 @@ export interface Budget {
   category: string;
   recurrence: RecurrenceType;
   startDate: string;
+  sourceWalletId?: string;
+  autoDeductFromWallet?: boolean;
+  lastDeductedPeriodIndex?: number;
+  sourceWalletName?: string;
+  sourceWalletColor?: string;
+  sourceWalletType?: WalletType;
   alertThreshold?: number;
   lowBalanceThresholdAmount?: number;
   lowBalanceThresholdPercent?: number;

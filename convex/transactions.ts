@@ -74,7 +74,7 @@ export const getStats = query({
         if (tx.date.startsWith(currentMonthPrefix)) {
           thisMonthIncome += tx.amount;
         }
-      } else {
+      } else if (tx.type === "expense") {
         totalExpense += tx.amount;
         if (tx.date.startsWith(currentMonthPrefix)) {
           thisMonthExpense += tx.amount;
@@ -104,10 +104,12 @@ export const add = mutation({
   args: {
     title: v.string(),
     amount: v.number(),
-    type: v.union(v.literal("income"), v.literal("expense")),
+    type: v.union(v.literal("income"), v.literal("expense"), v.literal("transfer")),
     category: v.string(),
     date: v.string(),
     notes: v.optional(v.string()),
+    walletId: v.optional(v.id("wallets")),
+    transferToWalletId: v.optional(v.id("wallets")),
     budgetId: v.optional(v.id("budgets")),
   },
   handler: async (ctx, args) => {
@@ -118,16 +120,51 @@ export const add = mutation({
       throw new Error("Amount must be greater than 0");
     }
 
+    const now = Date.now();
+    const cleanAmount = Math.abs(args.amount);
+
+    // Apply wallet balance change
+    if (args.walletId) {
+      const wallet = await ctx.db.get(args.walletId);
+      if (wallet && wallet.userId === userId) {
+        if (args.type === "expense") {
+          await ctx.db.patch(args.walletId, {
+            balance: wallet.balance - cleanAmount,
+            updatedAt: now,
+          });
+        } else if (args.type === "income") {
+          await ctx.db.patch(args.walletId, {
+            balance: wallet.balance + cleanAmount,
+            updatedAt: now,
+          });
+        } else if (args.type === "transfer" && args.transferToWalletId) {
+          const destWallet = await ctx.db.get(args.transferToWalletId);
+          if (destWallet && destWallet.userId === userId) {
+            await ctx.db.patch(args.walletId, {
+              balance: wallet.balance - cleanAmount,
+              updatedAt: now,
+            });
+            await ctx.db.patch(args.transferToWalletId, {
+              balance: destWallet.balance + cleanAmount,
+              updatedAt: now,
+            });
+          }
+        }
+      }
+    }
+
     return await ctx.db.insert("transactions", {
       userId,
       title: args.title.trim(),
-      amount: Math.abs(args.amount),
+      amount: cleanAmount,
       type: args.type,
       category: args.category,
       date: args.date,
       notes: args.notes?.trim(),
+      walletId: args.walletId,
+      transferToWalletId: args.transferToWalletId,
       budgetId: args.budgetId,
-      createdAt: Date.now(),
+      createdAt: now,
     });
   },
 });
@@ -137,28 +174,95 @@ export const update = mutation({
     id: v.id("transactions"),
     title: v.string(),
     amount: v.number(),
-    type: v.union(v.literal("income"), v.literal("expense")),
+    type: v.union(v.literal("income"), v.literal("expense"), v.literal("transfer")),
     category: v.string(),
     date: v.string(),
     notes: v.optional(v.string()),
+    walletId: v.optional(v.id("wallets")),
+    transferToWalletId: v.optional(v.id("wallets")),
     budgetId: v.optional(v.id("budgets")),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Unauthorized");
 
-    const tx = await ctx.db.get(args.id);
-    if (!tx || tx.userId !== userId) {
+    const oldTx = await ctx.db.get(args.id);
+    if (!oldTx || oldTx.userId !== userId) {
       throw new Error("Transaction not found or unauthorized");
+    }
+
+    const now = Date.now();
+    const newAmount = Math.abs(args.amount);
+
+    // 1. Revert previous wallet impact
+    if (oldTx.walletId) {
+      const oldWallet = await ctx.db.get(oldTx.walletId);
+      if (oldWallet) {
+        if (oldTx.type === "expense") {
+          await ctx.db.patch(oldTx.walletId, {
+            balance: oldWallet.balance + oldTx.amount,
+            updatedAt: now,
+          });
+        } else if (oldTx.type === "income") {
+          await ctx.db.patch(oldTx.walletId, {
+            balance: oldWallet.balance - oldTx.amount,
+            updatedAt: now,
+          });
+        } else if (oldTx.type === "transfer" && oldTx.transferToWalletId) {
+          const oldDest = await ctx.db.get(oldTx.transferToWalletId);
+          await ctx.db.patch(oldTx.walletId, {
+            balance: oldWallet.balance + oldTx.amount,
+            updatedAt: now,
+          });
+          if (oldDest) {
+            await ctx.db.patch(oldTx.transferToWalletId, {
+              balance: oldDest.balance - oldTx.amount,
+              updatedAt: now,
+            });
+          }
+        }
+      }
+    }
+
+    // 2. Apply new wallet impact
+    if (args.walletId) {
+      const newWallet = await ctx.db.get(args.walletId);
+      if (newWallet) {
+        if (args.type === "expense") {
+          await ctx.db.patch(args.walletId, {
+            balance: newWallet.balance - newAmount,
+            updatedAt: now,
+          });
+        } else if (args.type === "income") {
+          await ctx.db.patch(args.walletId, {
+            balance: newWallet.balance + newAmount,
+            updatedAt: now,
+          });
+        } else if (args.type === "transfer" && args.transferToWalletId) {
+          const newDest = await ctx.db.get(args.transferToWalletId);
+          await ctx.db.patch(args.walletId, {
+            balance: newWallet.balance - newAmount,
+            updatedAt: now,
+          });
+          if (newDest) {
+            await ctx.db.patch(args.transferToWalletId, {
+              balance: newDest.balance + newAmount,
+              updatedAt: now,
+            });
+          }
+        }
+      }
     }
 
     await ctx.db.patch(args.id, {
       title: args.title.trim(),
-      amount: Math.abs(args.amount),
+      amount: newAmount,
       type: args.type,
       category: args.category,
       date: args.date,
       notes: args.notes?.trim(),
+      walletId: args.walletId,
+      transferToWalletId: args.transferToWalletId,
       budgetId: args.budgetId,
     });
 
@@ -177,6 +281,37 @@ export const remove = mutation({
     const tx = await ctx.db.get(args.id);
     if (!tx || tx.userId !== userId) {
       throw new Error("Transaction not found or unauthorized");
+    }
+
+    // Revert wallet impact before deleting
+    if (tx.walletId) {
+      const wallet = await ctx.db.get(tx.walletId);
+      if (wallet) {
+        const now = Date.now();
+        if (tx.type === "expense") {
+          await ctx.db.patch(tx.walletId, {
+            balance: wallet.balance + tx.amount,
+            updatedAt: now,
+          });
+        } else if (tx.type === "income") {
+          await ctx.db.patch(tx.walletId, {
+            balance: wallet.balance - tx.amount,
+            updatedAt: now,
+          });
+        } else if (tx.type === "transfer" && tx.transferToWalletId) {
+          const destWallet = await ctx.db.get(tx.transferToWalletId);
+          await ctx.db.patch(tx.walletId, {
+            balance: wallet.balance + tx.amount,
+            updatedAt: now,
+          });
+          if (destWallet) {
+            await ctx.db.patch(tx.transferToWalletId, {
+              balance: destWallet.balance - tx.amount,
+              updatedAt: now,
+            });
+          }
+        }
+      }
     }
 
     await ctx.db.delete(args.id);

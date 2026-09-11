@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { FinancialStats, Transaction, Budget, Category } from '../types';
+import { FinancialStats, Transaction, Budget, Category, Wallet as WalletType, WalletSummary } from '../types';
 import { NeoButton } from '../components/ui/NeoButton';
 import { usePrivacy } from '../context/PrivacyContext';
 import {
@@ -9,6 +9,7 @@ import {
   PiggyBank,
   ArrowUpRight,
   ArrowDownLeft,
+  ArrowLeftRight,
   CalendarSync,
   Plus,
   AlertTriangle,
@@ -31,8 +32,11 @@ interface OverviewPageProps {
   transactions: Transaction[];
   budgets: Budget[];
   categories: Category[];
-  onOpenAddModal: (defaultType?: 'expense' | 'income') => void;
+  wallets?: WalletType[];
+  walletSummary?: WalletSummary | null;
+  onOpenAddModal: (defaultType?: 'expense' | 'income' | 'transfer') => void;
   onOpenBudgetModal: () => void;
+  onOpenTransferModal?: () => void;
   onNavigateToTab: (tab: any) => void;
   currencySymbol?: string;
   userName?: string;
@@ -43,8 +47,11 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
   transactions,
   budgets,
   categories,
+  wallets = [],
+  walletSummary,
   onOpenAddModal,
   onOpenBudgetModal,
+  onOpenTransferModal,
   onNavigateToTab,
   currencySymbol = '₹',
   userName,
@@ -161,6 +168,95 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
           </button>
         </div>
       )}
+
+      {/* Smart Accounts / Wallets Widget (Matching MyMoney Screenshot 3) */}
+      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 sm:p-5 flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b-2 border-[#121212] pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-[#FFE600] border-2 border-[#121212] flex items-center justify-center font-black">
+              <Wallet size={18} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase text-[#121212]">
+                  ACCOUNTS & WALLETS
+                </span>
+                <span className="px-2 py-0.5 bg-[#121212] text-[#05DF72] text-[10px] font-mono font-black shadow-neo-sm">
+                  TOTAL: {formatPrivateAmount(walletSummary?.totalBalance ?? totalBalance, currencySymbol)}
+                </span>
+              </div>
+              <span className="text-[10px] font-bold text-neutral-500">
+                {wallets.length} active account{wallets.length !== 1 ? 's' : ''} connected
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => onOpenTransferModal ? onOpenTransferModal() : onOpenAddModal('transfer')}
+              className="px-2.5 py-1.5 bg-[#00F0FF] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer"
+            >
+              <ArrowLeftRight size={13} strokeWidth={3} />
+              <span>Transfer</span>
+            </button>
+            <button
+              onClick={() => onOpenAddModal('income')}
+              className="px-2.5 py-1.5 bg-[#05DF72] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer"
+            >
+              <ArrowDownLeft size={13} strokeWidth={3} />
+              <span>Income</span>
+            </button>
+            <button
+              onClick={() => onOpenAddModal('expense')}
+              className="px-2.5 py-1.5 bg-[#FF4343] text-white border-2 border-[#121212] text-xs font-black uppercase flex items-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer"
+            >
+              <ArrowUpRight size={13} strokeWidth={3} />
+              <span>Expense</span>
+            </button>
+            <button
+              onClick={() => onNavigateToTab('wallets')}
+              className="px-2.5 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-[#121212] border-2 border-[#121212] text-xs font-black uppercase shadow-neo-sm transition-all cursor-pointer ml-auto sm:ml-0"
+            >
+              Manage →
+            </button>
+          </div>
+        </div>
+
+        {/* Mini Account Pills */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+          {wallets.length === 0 ? (
+            <div className="col-span-full py-2 text-xs font-bold text-neutral-500">
+              No accounts created yet. Click Manage to add bank, cash or card accounts.
+            </div>
+          ) : (
+            wallets.map((w) => (
+              <div
+                key={w._id}
+                onClick={() => onNavigateToTab('wallets')}
+                className="p-3 bg-neutral-50 hover:bg-neutral-100 border-2 border-[#121212] shadow-neo-sm flex items-center justify-between cursor-pointer transition-all"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className="w-3.5 h-3.5 border border-[#121212] shrink-0 shadow-neo-sm"
+                    style={{ backgroundColor: w.color }}
+                  />
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs font-black uppercase text-[#121212] truncate">
+                      {w.name}
+                    </span>
+                    <span className="text-[10px] font-bold text-neutral-500 uppercase">
+                      {w.type} {w.accountNumberLast4 ? `• ••${w.accountNumberLast4}` : ''}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-xs sm:text-sm font-mono font-black text-[#121212] shrink-0">
+                  {formatPrivateAmount(w.balance, currencySymbol)}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
 
       {/* Top 4 Key Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

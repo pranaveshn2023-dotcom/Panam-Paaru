@@ -14,6 +14,9 @@ import {
   Investment,
   AssetType,
   PortfolioSummary,
+  Wallet,
+  WalletType,
+  WalletSummary,
 } from './types';
 
 // Contexts
@@ -30,6 +33,8 @@ import { PinLockScreen } from './components/pin/PinLockScreen';
 import { PinSetupModal } from './components/pin/PinSetupModal';
 import { TransactionFormModal } from './components/transactions/TransactionFormModal';
 import { BudgetModal } from './components/budgets/BudgetModal';
+import { WalletModal } from './components/wallets/WalletModal';
+import { TransferModal } from './components/wallets/TransferModal';
 import { InvestmentModal } from './components/investments/InvestmentModal';
 import { InvestmentImportModal } from './components/investments/InvestmentImportModal';
 import { InvestmentDashboard } from './components/investments/InvestmentDashboard';
@@ -37,6 +42,7 @@ import { InvestmentDashboard } from './components/investments/InvestmentDashboar
 // Pages
 import { OverviewPage } from './pages/OverviewPage';
 import { TransactionsPage } from './pages/TransactionsPage';
+import { WalletsPage } from './pages/WalletsPage';
 import { BudgetsPage } from './pages/BudgetsPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -71,11 +77,24 @@ export function AppContent() {
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
   const [isPinSetupModalOpen, setIsPinSetupModalOpen] = useState(false);
 
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [editingWallet, setEditingWallet] = useState<Wallet | null>(null);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [defaultTransferSourceWalletId, setDefaultTransferSourceWalletId] = useState<string | undefined>(undefined);
+
   const cloudUser = useQuery(api.users.currentUser);
   const cloudTransactions = useQuery(api.transactions.list, undefined) ?? [];
   const cloudStats = useQuery(api.transactions.getStats, undefined) ?? {
     totalIncome: 0, totalExpense: 0, totalBalance: 0,
     thisMonthIncome: 0, thisMonthExpense: 0, savingsRate: 0, transactionCount: 0,
+  };
+  const cloudWalletsData = useQuery(api.wallets.list, undefined);
+  const wallets = (cloudWalletsData?.wallets as Wallet[]) ?? [];
+  const walletSummary: WalletSummary = cloudWalletsData ?? {
+    wallets: [],
+    totalBalance: 0,
+    expenseSoFar: 0,
+    incomeSoFar: 0,
   };
   const cloudBudgets = useQuery(api.budgets.listWithProgress, undefined) ?? [];
   const cloudCategories = useQuery(api.transactions.getCategories, undefined) ?? [];
@@ -89,10 +108,15 @@ export function AppContent() {
   const addTransactionMutation = useMutation(api.transactions.add);
   const updateTransactionMutation = useMutation(api.transactions.update);
   const removeTransactionMutation = useMutation(api.transactions.remove);
+  const createWalletMutation = useMutation(api.wallets.create);
+  const updateWalletMutation = useMutation(api.wallets.update);
+  const removeWalletMutation = useMutation(api.wallets.remove);
+  const transferFundsMutation = useMutation(api.wallets.transfer);
   const createBudgetMutation = useMutation(api.budgets.create);
   const updateBudgetMutation = useMutation(api.budgets.update);
   const removeBudgetMutation = useMutation(api.budgets.remove);
   const topUpBudgetMutation = useMutation(api.budgets.topUp);
+  const checkAndRenewRecurringBudgetsMutation = useMutation(api.budgets.checkAndRenewRecurringBudgets);
   const addInvestmentMutation = useMutation(api.investments.add);
   const batchAddInvestmentMutation = useMutation(api.investments.batchAdd);
   const updateInvestmentMutation = useMutation(api.investments.update);
@@ -116,8 +140,9 @@ export function AppContent() {
   useEffect(() => {
     if (isAuthenticated) {
       initializeUserDataMutation().catch(() => {});
+      checkAndRenewRecurringBudgetsMutation().catch(() => {});
     }
-  }, [isAuthenticated, initializeUserDataMutation]);
+  }, [isAuthenticated, initializeUserDataMutation, checkAndRenewRecurringBudgetsMutation]);
 
   useEffect(() => {
     if (!isAuthenticated || isLocked) return;
@@ -190,13 +215,22 @@ export function AppContent() {
 
   const handleSaveTransaction = async (data: {
     title: string; amount: number; type: TransactionType; category: string;
-    date: string; notes?: string;
+    date: string; notes?: string; walletId?: string; transferToWalletId?: string;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
     if (editingTransaction) {
-      await updateTransactionMutation({ id: editingTransaction._id as any, ...data });
+      await updateTransactionMutation({
+        id: editingTransaction._id as any,
+        ...data,
+        walletId: data.walletId as any,
+        transferToWalletId: data.transferToWalletId as any,
+      });
     } else {
-      await addTransactionMutation(data);
+      await addTransactionMutation({
+        ...data,
+        walletId: data.walletId as any,
+        transferToWalletId: data.transferToWalletId as any,
+      });
     }
   };
 
@@ -204,23 +238,76 @@ export function AppContent() {
     await removeTransactionMutation({ id: id as any });
   };
 
+  const handleSaveWallet = async (data: {
+    name: string;
+    type: WalletType;
+    balance: number;
+    color: string;
+    icon: string;
+    accountNumberLast4?: string;
+    isDefault?: boolean;
+    notes?: string;
+  }) => {
+    if (navigator.vibrate) navigator.vibrate(20);
+    const payload = {
+      ...data,
+      isDefault: data.isDefault ?? false,
+    };
+    if (editingWallet) {
+      await updateWalletMutation({ id: editingWallet._id as any, ...payload });
+    } else {
+      await createWalletMutation(payload);
+    }
+  };
+
+  const handleDeleteWallet = async (id: string) => {
+    if (navigator.vibrate) navigator.vibrate(20);
+    await removeWalletMutation({ id: id as any });
+  };
+
+  const handleTransferFunds = async (data: {
+    fromWalletId: string;
+    toWalletId: string;
+    amount: number;
+    notes?: string;
+    date?: string;
+  }) => {
+    if (navigator.vibrate) navigator.vibrate(30);
+    await transferFundsMutation({
+      fromWalletId: data.fromWalletId as any,
+      toWalletId: data.toWalletId as any,
+      amount: data.amount,
+      notes: data.notes,
+      date: data.date,
+    });
+  };
+
   const handleSaveBudget = async (data: {
     name: string; amount: number; initialLoadedAmount?: number;
     category: string; recurrence: RecurrenceType; startDate: string;
     alertThreshold?: number; lowBalanceThresholdAmount?: number;
     lowBalanceThresholdPercent?: number;
+    sourceWalletId?: string; autoDeductFromWallet?: boolean;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
     if (editingBudget) {
-      await updateBudgetMutation({ id: editingBudget._id as any, isActive: true, ...data });
+      await updateBudgetMutation({
+        id: editingBudget._id as any,
+        isActive: true,
+        ...data,
+        sourceWalletId: data.sourceWalletId as any,
+      });
     } else {
-      await createBudgetMutation(data);
+      await createBudgetMutation({
+        ...data,
+        sourceWalletId: data.sourceWalletId as any,
+      });
     }
   };
 
-  const handleTopUpBudget = async (id: string, topUpAmount: number) => {
+  const handleTopUpBudget = async (id: string, topUpAmount: number, walletId?: string) => {
     if (navigator.vibrate) navigator.vibrate(20);
-    await topUpBudgetMutation({ id: id as any, topUpAmount });
+    await topUpBudgetMutation({ id: id as any, topUpAmount, walletId: walletId as any });
   };
 
   const handleDeleteBudget = async (id: string) => {
@@ -332,9 +419,16 @@ export function AppContent() {
           {activeTab === 'overview' && (
             <OverviewPage
               stats={stats} transactions={transactions} budgets={budgets}
-              categories={categories}
-              onOpenAddModal={() => { setEditingTransaction(null); setIsTransactionModalOpen(true); }}
+              categories={categories} wallets={wallets} walletSummary={walletSummary}
+              onOpenAddModal={(defaultType) => {
+                setEditingTransaction(null);
+                setIsTransactionModalOpen(true);
+              }}
               onOpenBudgetModal={() => { setEditingBudget(null); setIsBudgetModalOpen(true); }}
+              onOpenTransferModal={() => {
+                setDefaultTransferSourceWalletId(undefined);
+                setIsTransferModalOpen(true);
+              }}
               onNavigateToTab={setActiveTab}
               currencySymbol={currencySymbol} userName={user?.name}
             />
@@ -350,9 +444,30 @@ export function AppContent() {
             />
           )}
 
+          {activeTab === 'wallets' && (
+            <WalletsPage
+              wallets={wallets}
+              walletSummary={walletSummary}
+              onOpenWalletModal={() => {
+                setEditingWallet(null);
+                setIsWalletModalOpen(true);
+              }}
+              onOpenTransferModal={(sourceWalletId) => {
+                setDefaultTransferSourceWalletId(sourceWalletId);
+                setIsTransferModalOpen(true);
+              }}
+              onEditWallet={(w) => {
+                setEditingWallet(w);
+                setIsWalletModalOpen(true);
+              }}
+              onDeleteWallet={handleDeleteWallet}
+              currencySymbol={currencySymbol}
+            />
+          )}
+
           {activeTab === 'budgets' && (
             <BudgetsPage
-              budgets={budgets} categories={categories}
+              budgets={budgets} categories={categories} wallets={wallets}
               onOpenBudgetModal={() => { setEditingBudget(null); setIsBudgetModalOpen(true); }}
               onEdit={(b) => { setEditingBudget(b); setIsBudgetModalOpen(true); }}
               onDelete={handleDeleteBudget} onTopUp={handleTopUpBudget}
@@ -363,7 +478,7 @@ export function AppContent() {
           {activeTab === 'investments' && renderInvestmentsPage()}
 
           {activeTab === 'insights' && (
-            <InsightsPage analytics={analytics} currencySymbol={currencySymbol} />
+            <InsightsPage analytics={analytics} transactions={transactions} currencySymbol={currencySymbol} />
           )}
 
           {activeTab === 'settings' && (
@@ -386,14 +501,31 @@ export function AppContent() {
         isOpen={isTransactionModalOpen}
         onClose={() => { setIsTransactionModalOpen(false); setEditingTransaction(null); }}
         onSubmit={handleSaveTransaction} initialData={editingTransaction}
-        categories={categories} currencySymbol={currencySymbol}
+        categories={categories} wallets={wallets} currencySymbol={currencySymbol}
       />
 
       <BudgetModal
         isOpen={isBudgetModalOpen}
         onClose={() => { setIsBudgetModalOpen(false); setEditingBudget(null); }}
         onSubmit={handleSaveBudget} initialData={editingBudget}
-        categories={categories} currencySymbol={currencySymbol}
+        categories={categories} wallets={wallets} currencySymbol={currencySymbol}
+      />
+
+      <WalletModal
+        isOpen={isWalletModalOpen}
+        onClose={() => { setIsWalletModalOpen(false); setEditingWallet(null); }}
+        onSubmit={handleSaveWallet}
+        initialData={editingWallet}
+        currencySymbol={currencySymbol}
+      />
+
+      <TransferModal
+        isOpen={isTransferModalOpen}
+        onClose={() => { setIsTransferModalOpen(false); setDefaultTransferSourceWalletId(undefined); }}
+        onTransfer={handleTransferFunds}
+        wallets={wallets}
+        defaultSourceWalletId={defaultTransferSourceWalletId}
+        currencySymbol={currencySymbol}
       />
 
       <InvestmentModal

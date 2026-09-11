@@ -166,6 +166,58 @@ export const initializeUserData = mutation({
       }
     }
 
+    // Initialize default wallets / accounts if none exist (MyMoney style)
+    const existingWallets = await ctx.db
+      .query("wallets")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .take(1);
+
+    if (existingWallets.length === 0) {
+      const now = Date.now();
+      await ctx.db.insert("wallets", {
+        userId,
+        name: "Primary Bank Account",
+        type: "bank",
+        balance: 25000,
+        initialBalance: 25000,
+        color: "#00F0FF",
+        icon: "Building2",
+        accountNumberLast4: "4821",
+        isDefault: true,
+        notes: "Main checking & salary account",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await ctx.db.insert("wallets", {
+        userId,
+        name: "Cash in Hand",
+        type: "cash",
+        balance: 3500,
+        initialBalance: 3500,
+        color: "#05DF72",
+        icon: "Banknote",
+        isDefault: false,
+        notes: "Physical cash & daily pocket change",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await ctx.db.insert("wallets", {
+        userId,
+        name: "UPI & Digital Wallet",
+        type: "wallet",
+        balance: 5000,
+        initialBalance: 5000,
+        color: "#FFE600",
+        icon: "Wallet",
+        isDefault: false,
+        notes: "Fast UPI / GPay / Paytm payments",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
     return { success: true };
   },
 });

@@ -22,6 +22,13 @@ export const listWithProgress = query({
       .withIndex("by_user_type", (q) => q.eq("userId", userId).eq("type", "expense"))
       .collect();
 
+    // Fetch user wallets for source wallet metadata
+    const wallets = await ctx.db
+      .query("wallets")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const walletMap = new Map(wallets.map((w) => [w._id, w]));
+
     const now = new Date();
 
     return budgets.map((budget) => {
@@ -58,6 +65,8 @@ export const listWithProgress = query({
       const defaultWarning = progressPercent >= (budget.alertThreshold ?? 80);
       const isWarning = (isLowAmount || isLowPercent || defaultWarning) && !isOverBudget;
 
+      const sourceWallet = budget.sourceWalletId ? walletMap.get(budget.sourceWalletId) : undefined;
+
       return {
         ...budget,
         effectiveTotalPool,
@@ -71,6 +80,9 @@ export const listWithProgress = query({
         isLowAmount,
         isLowPercent,
         transactionCount: matchingTxs.length,
+        sourceWalletName: sourceWallet?.name,
+        sourceWalletColor: sourceWallet?.color,
+        sourceWalletType: sourceWallet?.type,
       };
     });
   },
@@ -90,6 +102,8 @@ export const create = mutation({
       v.literal("yearly")
     ),
     startDate: v.string(),
+    sourceWalletId: v.optional(v.id("wallets")),
+    autoDeductFromWallet: v.optional(v.boolean()),
     alertThreshold: v.optional(v.number()),
     lowBalanceThresholdAmount: v.optional(v.number()),
     lowBalanceThresholdPercent: v.optional(v.number()),
@@ -103,6 +117,31 @@ export const create = mutation({
     }
 
     const initialLoaded = args.initialLoadedAmount ?? args.amount;
+    const now = Date.now();
+
+    // If source wallet is chosen with auto-deduct enabled, deduct initial pool immediately
+    if (args.sourceWalletId && args.autoDeductFromWallet) {
+      const wallet = await ctx.db.get(args.sourceWalletId);
+      if (wallet && wallet.userId === userId) {
+        await ctx.db.patch(args.sourceWalletId, {
+          balance: wallet.balance - initialLoaded,
+          updatedAt: now,
+        });
+
+        // Record an initial budget allocation transaction
+        await ctx.db.insert("transactions", {
+          userId,
+          title: `Budget Allocated: ${args.name.trim()}`,
+          amount: initialLoaded,
+          type: "expense",
+          category: args.category,
+          date: args.startDate.slice(0, 10),
+          notes: `Auto-allocated from wallet: ${wallet.name}`,
+          walletId: args.sourceWalletId,
+          createdAt: now,
+        });
+      }
+    }
 
     return await ctx.db.insert("budgets", {
       userId,
@@ -113,11 +152,14 @@ export const create = mutation({
       category: args.category,
       recurrence: args.recurrence,
       startDate: args.startDate,
+      sourceWalletId: args.sourceWalletId,
+      autoDeductFromWallet: args.autoDeductFromWallet ?? false,
+      lastDeductedPeriodIndex: 0,
       alertThreshold: args.alertThreshold ?? 80,
       lowBalanceThresholdAmount: args.lowBalanceThresholdAmount,
       lowBalanceThresholdPercent: args.lowBalanceThresholdPercent,
       isActive: true,
-      createdAt: Date.now(),
+      createdAt: now,
     });
   },
 });
@@ -137,6 +179,8 @@ export const update = mutation({
       v.literal("yearly")
     ),
     startDate: v.string(),
+    sourceWalletId: v.optional(v.id("wallets")),
+    autoDeductFromWallet: v.optional(v.boolean()),
     alertThreshold: v.optional(v.number()),
     lowBalanceThresholdAmount: v.optional(v.number()),
     lowBalanceThresholdPercent: v.optional(v.number()),
@@ -158,6 +202,8 @@ export const update = mutation({
       category: args.category,
       recurrence: args.recurrence,
       startDate: args.startDate,
+      sourceWalletId: args.sourceWalletId,
+      autoDeductFromWallet: args.autoDeductFromWallet,
       alertThreshold: args.alertThreshold ?? 80,
       lowBalanceThresholdAmount: args.lowBalanceThresholdAmount,
       lowBalanceThresholdPercent: args.lowBalanceThresholdPercent,
@@ -172,6 +218,7 @@ export const topUp = mutation({
   args: {
     id: v.id("budgets"),
     topUpAmount: v.number(),
+    walletId: v.optional(v.id("wallets")),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -186,14 +233,105 @@ export const topUp = mutation({
       throw new Error("Budget not found or unauthorized");
     }
 
+    const now = Date.now();
     const currentTotal = (budget.currentLoadedAmount ?? budget.initialLoadedAmount) ?? budget.amount;
     const newTotal = currentTotal + args.topUpAmount;
+
+    // Deduct top-up amount from wallet if provided
+    const fundingWalletId = args.walletId || budget.sourceWalletId;
+    if (fundingWalletId) {
+      const wallet = await ctx.db.get(fundingWalletId);
+      if (wallet && wallet.userId === userId) {
+        await ctx.db.patch(fundingWalletId, {
+          balance: wallet.balance - args.topUpAmount,
+          updatedAt: now,
+        });
+
+        // Record a top-up transaction
+        await ctx.db.insert("transactions", {
+          userId,
+          title: `Budget Top-up: ${budget.name}`,
+          amount: args.topUpAmount,
+          type: "expense",
+          category: budget.category,
+          date: new Date().toISOString().slice(0, 10),
+          notes: `Top-up loaded into budget pocket from ${wallet.name}`,
+          walletId: fundingWalletId,
+          budgetId: budget._id,
+          createdAt: now,
+        });
+      }
+    }
 
     await ctx.db.patch(args.id, {
       currentLoadedAmount: newTotal,
     });
 
     return { success: true, newLoadedAmount: newTotal };
+  },
+});
+
+export const checkAndRenewRecurringBudgets = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return { renewedCount: 0 };
+
+    const budgets = await ctx.db
+      .query("budgets")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .filter((q) => q.eq(q.field("isActive"), true))
+      .collect();
+
+    let renewedCount = 0;
+    const now = new Date();
+    const nowTimestamp = Date.now();
+
+    for (const budget of budgets) {
+      if (!budget.sourceWalletId || !budget.autoDeductFromWallet) continue;
+
+      const activePeriod = getActiveBudgetPeriod(
+        budget.startDate,
+        budget.recurrence as RecurrenceFrequency,
+        now
+      );
+
+      const lastDeducted = budget.lastDeductedPeriodIndex ?? 0;
+      if (activePeriod.periodIndex > lastDeducted) {
+        const wallet = await ctx.db.get(budget.sourceWalletId);
+        if (wallet && wallet.userId === userId) {
+          // Deduct recurring cycle amount from wallet
+          await ctx.db.patch(budget.sourceWalletId, {
+            balance: wallet.balance - budget.amount,
+            updatedAt: nowTimestamp,
+          });
+
+          // Record cycle deduction transaction
+          await ctx.db.insert("transactions", {
+            userId,
+            title: `Recurring Budget Renewed: ${budget.name}`,
+            amount: budget.amount,
+            type: "expense",
+            category: budget.category,
+            date: activePeriod.startDate,
+            notes: `Auto-renewed for cycle (${activePeriod.startDate} - ${activePeriod.endDate}) from ${wallet.name}`,
+            walletId: budget.sourceWalletId,
+            budgetId: budget._id,
+            createdAt: nowTimestamp,
+          });
+
+          // Reset budget pool for the new cycle
+          await ctx.db.patch(budget._id, {
+            currentLoadedAmount: budget.amount,
+            lastDeductedPeriodIndex: activePeriod.periodIndex,
+          });
+
+          renewedCount++;
+        }
+      }
+    }
+
+    return { renewedCount };
   },
 });
 

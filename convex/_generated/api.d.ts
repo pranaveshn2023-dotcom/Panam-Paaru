@@ -17,6 +17,7 @@ import type * as investments from "../investments.js";
 import type * as pin from "../pin.js";
 import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
+import type * as wallets from "../wallets.js";
 
 import type {
   ApiFromModules,
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   pin: typeof pin;
   transactions: typeof transactions;
   users: typeof users;
+  wallets: typeof wallets;
 }>;
 
 /**

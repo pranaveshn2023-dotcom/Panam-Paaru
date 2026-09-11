@@ -8,7 +8,7 @@ PAANAM PARU is a high-speed personal money-management platform built around simp
 
 ## 🚀 Key Features
 
-- **100% Cloud-Only Persistence (Zero Local Storage)**: All transactions, recurring budgets, user profiles, and security parameters are persisted in Convex Cloud DB.
+- **100% Cloud-Only Persistence (Zero Local Storage)**: All transactions, recurring budgets, user profiles, and security parameters are persisted in Convex Cloud DB.All transactions, recurring budgets, user profiles, and security parameters are persisted in Convex Cloud DB.
 - **Google OAuth 2.0 Authentication**: Seamless 1-click Google Sign-In with Convex Auth backend integration and email/password fallback.
 - **6-Digit PIN Security Lock**:
   - Tactile Neo-Brutalist keypad with physical numpad keyboard support.

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Budget, Category, RecurrenceType } from '../types';
+import { Budget, Category, RecurrenceType, Wallet } from '../types';
 import { BudgetCard } from '../components/budgets/BudgetCard';
 import { NeoButton } from '../components/ui/NeoButton';
 import { usePrivacy } from '../context/PrivacyContext';
@@ -8,16 +8,18 @@ import { CalendarSync, Plus, ShieldAlert, Sparkles, Filter } from 'lucide-react'
 interface BudgetsPageProps {
   budgets: Budget[];
   categories: Category[];
+  wallets?: Wallet[];
   onOpenBudgetModal: () => void;
   onEdit: (b: Budget) => void;
   onDelete: (id: string) => void;
-  onTopUp: (id: string, amount: number) => Promise<void>;
+  onTopUp: (id: string, amount: number, walletId?: string) => Promise<void>;
   currencySymbol?: string;
 }
 
 export const BudgetsPage: React.FC<BudgetsPageProps> = ({
   budgets,
   categories,
+  wallets = [],
   onOpenBudgetModal,
   onEdit,
   onDelete,
@@ -149,6 +151,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
               onEdit={onEdit}
               onDelete={onDelete}
               onTopUp={onTopUp}
+              wallets={wallets}
               currencySymbol={currencySymbol}
             />
           ))}
