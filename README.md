@@ -21,7 +21,7 @@
    - [Security & Global Privacy Mode](#5-security--global-privacy-mode)
 4. [Design System: High-Contrast Neo-Brutalism](#-design-system-high-contrast-neo-brutalism)
 5. [Tech Stack & Architecture](#-tech-stack--architecture)
-6. [Directory Structure](#-directory-structure)
+6. [System Architecture & Modules](#-system-architecture--modules)
 7. [Getting Started (Local Development)](#-getting-started-local-development)
 8. [Google OAuth 2.0 & Cloud Setup](#-google-oauth-20--cloud-setup)
 9. [Automated Testing](#-automated-testing)
@@ -99,7 +99,6 @@ A unified cashflow command center featuring a top neo-brutalist segmented pill c
 ## 🔬 Deep-Dive: Core Technical Subsystems
 
 ### 1. Calendar-Aware Recurring Budget Engine
-Located in [`convex/budgets.ts`](file:///c:/Paanam/convex/budgets.ts).
 
 Traditional budget trackers use simple 30-day timers that drift over time. Panam Paaru implements a **deterministic, calendar-aware recurrence engine**:
 - **Supported Recurrence Frequencies**: `daily`, `weekly`, `monthly`, `quarterly`, `annually`.
@@ -192,63 +191,31 @@ Panam Paaru employs an unapologetic, high-contrast **Neo-Brutalist** design aest
 
 ---
 
-## 📁 Directory Structure
+## 🏛️ System Architecture & Modules
 
-```
-Paanam/
-├── convex/                          # Convex Cloud Backend
-│   ├── auth.ts                      # Convex Auth config (Google OAuth)
-│   ├── budgets.ts                   # Recurring budget engine & renewal crons
-│   ├── http.ts                      # HTTP Actions (OAuth callbacks)
-│   ├── insights.ts                  # Analytics & category aggregations
-│   ├── investments.ts               # Holdings & portfolio valuation queries
-│   ├── marketData.ts                # Real-time stock & index quote fetchers
-│   ├── schema.ts                    # Strongly typed Convex DB schema
-│   ├── transactions.ts              # Transaction CRUD & ledger queries
-│   ├── users.ts                     # User profile, currency, & PIN state
-│   └── wallets.ts                   # Multi-wallet & atomic transfer mutations
-│
-├── parser-tests/                    # Headless Statement Parser Test Suite
-│   ├── fixtures/                    # Sample CAMS, KFin, Groww, Zerodha statements
-│   └── run-tests.mjs                # Automated verification script
-│
-├── src/                             # React Client Application
-│   ├── components/
-│   │   ├── auth/                    # Sign-in & Google OAuth screens
-│   │   ├── budgets/                 # Budget creation & progress modals
-│   │   ├── investments/             # Stock charts, holding tables, import modal
-│   │   ├── layout/                  # Header, 4-tab Sidebar, 4-tab BottomNav
-│   │   ├── pin/                     # Tactile PIN keypad & setup dialogs
-│   │   ├── transactions/            # Ledger forms, category selectors
-│   │   ├── ui/                      # NeoButton, ErrorBoundary, Toast
-│   │   └── wallets/                 # Wallet management & Transfer modal
-│   │
-│   ├── context/
-│   │   ├── PinLockContext.tsx       # Inactivity lock & PIN security state
-│   │   └── PrivacyContext.tsx       # Global eye toggle balance masking
-│   │
-│   ├── pages/
-│   │   ├── ExpensesHubPage.tsx      # Unified 4-in-1 cashflow command center
-│   │   ├── OverviewPage.tsx         # Home dashboard & KPI summary
-│   │   ├── TransactionsPage.tsx     # Full transaction ledger view
-│   │   ├── WalletsPage.tsx          # Accounts & balances manager
-│   │   ├── BudgetsPage.tsx          # Recurring budgets view
-│   │   ├── InsightsPage.tsx         # Spending flow & weekday matrix
-│   │   └── SettingsPage.tsx         # Security & preference settings
-│   │
-│   ├── utils/
-│   │   ├── marketData.ts            # Yahoo & AMFI market quote resolvers
-│   │   └── statementParser.ts       # Multi-pass PDF/XLSX/CSV/DOCX parser
-│   │
-│   ├── App.tsx                      # Root application & 4-hub router
-│   ├── index.css                    # Neo-Brutalist design tokens & animations
-│   ├── main.tsx                     # React 19 entry point
-│   └── types.ts                     # Global TypeScript definitions
-│
-├── package.json                     # Project dependencies & scripts
-├── tailwind.config.js               # Tailwind CSS configuration
-└── vite.config.ts                   # Vite configuration
-```
+Panam Paaru is architected into clean, decoupled subsystem modules:
+
+- **Client Presentation Layer**:
+  - **4-Hub Native Experience**: Independent, focused viewport controllers (`Home`, `Expenses Hub`, `Investments`, `Settings`).
+  - **Tactile Neo-Brutalist Design Tokens**: High-contrast borders, solid unblurred drop shadows, and responsive layout controllers supporting desktop sidebar, tablet grid, and mobile bottom dock.
+  - **Interactive Modals & Sheets**: Forms for rapid transaction logging, budget allocation, atomic wallet transfers, PIN authentication, and statement ingestion.
+
+- **Client State & Security Contexts**:
+  - **Security & Idle Lock Controller**: Session resumption verification, window blur monitors, and inactivity timer enforcement.
+  - **Global Privacy Guard**: Real-time mask controller obfuscating sensitive monetary metrics with bullet characters across all views on demand.
+
+- **Cloud Backend & Data Tier**:
+  - **Reactive Document Store**: Real-time synchronization layer powering live cross-device subscriptions with zero polling.
+  - **Deterministic Recurrence Engine**: Calendar-aware budget lifecycle calculator handling irregular month boundaries and wallet auto-deductions.
+  - **Atomic Multi-Account Ledger**: Dual-entry balance mutations ensuring wallet credits and debits remain synchronized.
+  - **Real-Time Financial Feeds**: Automated market price resolvers connecting Indian equity quotes and daily AMFI mutual fund Net Asset Values (NAV).
+
+- **Universal Document Ingestion Suite**:
+  - **Multi-Format Document Extractors**: Multi-pass tabular parsing engine supporting PDFs, spreadsheets, CSV/TSV exports, word documents, and raw clipboard text.
+  - **Fuzzy Classification Heuristics**: Automated asset type categorizer detecting stocks, mutual funds, gold bonds, and fixed income.
+
+- **Automated Verification Harness**:
+  - **Headless Test Suite**: Independent automated validation runners verifying parser accuracy against real-world statement exports.
 
 ---
 
