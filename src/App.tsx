@@ -185,17 +185,12 @@ export function AppContent() {
         e.preventDefault();
         setEditingInvestment(null);
         setIsInvestmentModalOpen(true);
-      } else if (e.key === 'l' || e.key === 'L') {
-        if (isPinEnabled) {
-          e.preventDefault();
-          lockNow();
-        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAuthenticated, isLocked, isPinEnabled, lockNow]);
+  }, [isAuthenticated, isLocked, isPinEnabled]);
 
   const transactions: Transaction[] = cloudTransactions ?? [];
   const budgets: Budget[] = cloudBudgets ?? [];

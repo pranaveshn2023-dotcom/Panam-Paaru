@@ -65,69 +65,80 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [isPinEnabled]);
 
   // Handle background inactivity:
-  // If user is inside the app, NEVER lock even if inactive.
-  // ONLY lock if the user leaves the app in the background for more than 40 seconds!
+  // If user is inside the app (visible on screen), NEVER lock even if inactive or blurred.
+  // ONLY lock if the tab is genuinely hidden/minimized in the background for more than 40 seconds!
   useEffect(() => {
     if (!isPinEnabled) return;
 
     const BACKGROUND_TIMEOUT_MS = 40000; // 40 seconds
-    let backgroundTimer: NodeJS.Timeout | null = null;
+    let backgroundTimer: ReturnType<typeof setTimeout> | null = null;
+    let hiddenAt = 0;
 
-    const onAppBackgrounded = () => {
-      try {
-        sessionStorage.setItem('panam_backgrounded_at', String(Date.now()));
-      } catch {}
-
-      if (backgroundTimer) clearTimeout(backgroundTimer);
-      backgroundTimer = setTimeout(() => {
-        setIsLocked(true);
-      }, BACKGROUND_TIMEOUT_MS);
-    };
-
-    const onAppForegrounded = () => {
+    const clearBgTracking = () => {
       if (backgroundTimer) {
         clearTimeout(backgroundTimer);
         backgroundTimer = null;
       }
-
+      hiddenAt = 0;
       try {
-        const bgAtStr = sessionStorage.getItem('panam_backgrounded_at');
-        if (bgAtStr) {
-          const bgAt = parseInt(bgAtStr, 10);
-          const elapsed = Date.now() - bgAt;
-          if (elapsed >= BACKGROUND_TIMEOUT_MS) {
-            setIsLocked(true);
-          }
-          sessionStorage.removeItem('panam_backgrounded_at');
-        }
+        sessionStorage.removeItem('panam_backgrounded_at');
       } catch {}
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        onAppBackgrounded();
+        // App is genuinely hidden in the background (minimized or switched tab)
+        hiddenAt = Date.now();
+        try {
+          sessionStorage.setItem('panam_backgrounded_at', String(hiddenAt));
+        } catch {}
+
+        if (backgroundTimer) clearTimeout(backgroundTimer);
+        backgroundTimer = setTimeout(() => {
+          if (document.visibilityState === 'hidden') {
+            setIsLocked(true);
+          }
+        }, BACKGROUND_TIMEOUT_MS);
       } else if (document.visibilityState === 'visible') {
-        onAppForegrounded();
+        // App became visible again: check if it was hidden for >= 40s
+        if (backgroundTimer) {
+          clearTimeout(backgroundTimer);
+          backgroundTimer = null;
+        }
+
+        try {
+          const bgAtStr = sessionStorage.getItem('panam_backgrounded_at');
+          const recordedHiddenAt = bgAtStr ? parseInt(bgAtStr, 10) : hiddenAt;
+          if (recordedHiddenAt > 0) {
+            const elapsed = Date.now() - recordedHiddenAt;
+            if (elapsed >= BACKGROUND_TIMEOUT_MS) {
+              setIsLocked(true);
+            }
+          }
+        } catch {}
+
+        clearBgTracking();
       }
     };
 
-    const handleBlur = () => {
-      onAppBackgrounded();
-    };
-
-    const handleFocus = () => {
-      onAppForegrounded();
+    // User interaction inside the app confirms the user is live: cancel any background tracking immediately
+    const onUserActivity = () => {
+      if (document.visibilityState === 'visible') {
+        clearBgTracking();
+      }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('blur', handleBlur);
-    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pointerdown', onUserActivity, { passive: true });
+    window.addEventListener('keydown', onUserActivity, { passive: true });
+    window.addEventListener('scroll', onUserActivity, { passive: true });
 
     return () => {
       if (backgroundTimer) clearTimeout(backgroundTimer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pointerdown', onUserActivity);
+      window.removeEventListener('keydown', onUserActivity);
+      window.removeEventListener('scroll', onUserActivity);
     };
   }, [isPinEnabled]);
 
