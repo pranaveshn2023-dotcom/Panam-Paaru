@@ -130,15 +130,16 @@ export async function fetchLiveStockPrice(
 
   // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
-  for (const t of tokens) {
-    if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
-    if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
-  }
 
   // Dynamic Yahoo search for unhandled symbols
   const searchQueries = [clean];
   if (tokens.length > 1) {
     searchQueries.push(tokens.join(' '));
+    for (const t of tokens) {
+      if (t.length >= 4 && !searchQueries.includes(t)) {
+        searchQueries.push(t);
+      }
+    }
   }
 
   for (const sq of searchQueries) {

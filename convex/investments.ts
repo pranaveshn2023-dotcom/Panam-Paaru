@@ -734,10 +734,6 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
 
   // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
-  for (const t of tokens) {
-    if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
-    if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
-  }
 
   // Dynamic Yahoo Finance search queries with zero hardcoding
   const searchQueries = [clean];
@@ -1023,20 +1019,6 @@ export const autoClassifyCommodities = mutation({
           assetType: "gold",
           subType: newSubType,
           sector: inv.sector || "Commodities",
-          updatedAt: Date.now(),
-        });
-        updatedCount++;
-      }
-
-      // Auto-heal holding where Axis Balanced Advantage was accidentally overwritten with Axis Liquid numbers
-      if (
-        inv.name.toLowerCase().includes("balanced advantage") &&
-        inv.investedAmount <= 10 &&
-        (inv.units ?? 0) <= 0.01
-      ) {
-        await ctx.db.patch(inv._id, {
-          name: "Axis Liquid Direct Fund Growth",
-          subType: "Liquid",
           updatedAt: Date.now(),
         });
         updatedCount++;
