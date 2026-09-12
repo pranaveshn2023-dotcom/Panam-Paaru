@@ -8,12 +8,12 @@
 
 ##  What is Panam Paaru?
 
-> Imagine you have money in different places: some cash in your pocket, some coins in your piggy bank, and some savings in the bank. Sometimes you spend money on snacks, and sometimes your money grows like seeds in a garden.
+> Imagine you have money in different places: some cash in your pocket, some investments in mutual fund or stocks, and some savings in the bank. Sometimes you spend money on snacks, and sometimes your money grows like seeds in a garden.
 >
 > Usually, it's hard to remember where every coin went.  
-> **Panam Paaru is like a magic see-through glass box.** You open it, and you instantly see:
-> 1. **How much money you have right now** (in every pocket and piggy bank).
-> 2. **Where your money went** (so you don't overspend on candy!).
+> **Panam Paaru is like your personal investment and expense tracker companion.** You open it, and you instantly see:
+> 1. **How much money you have right now** (in every Mutual fund and Stock).
+> 2. **Where your money went** (so you don't overspend on unneccessary things!).
 > 3. **How your money is growing** (with live prices updating like a radar).
 >
 > It never forgets a single coin, keeps out nosy peekers with a secret PIN, and works cleanly on your phone or computer!
