@@ -33,9 +33,9 @@
 
 ---
 
-## 🌟 Core Features (Explained Simply & Professionally)
+## 🌟 Core Features of Panam Paaru
 
-### 1.  The 4 Command Hubs — Zero Dock Clutter
+### 1.  The 4 Command Hubs 
 Instead of 10 confusing menus, Panam Paaru organizes your entire financial life into **4 clean hubs**:
 - ** Home / Overview**: Your financial speedometer. Shows your total net balance, your portfolio valuation, quick action buttons (`+ Income`, `- Expense`, `Transfer`), and your active budgets.
 - ** Expenses & Cashflow**: Your daily money journal. Switch smoothly between your **Transactions Ledger**, **Accounts & Wallets**, **Budgets & Pockets**, and **Spending Flow** analysis.
@@ -44,7 +44,7 @@ Instead of 10 confusing menus, Panam Paaru organizes your entire financial life 
 
 ---
 
-### 2.  Smart Piggy Banks (Atomic Multi-Wallet System)
+### 2.  Smart wallets (Atomic Multi-Wallet System)
 Keep every rupee organized by where it actually lives:
 - **Every Account Type**: Bank accounts, Physical Cash on Hand, Credit Cards, Demat/Brokerage cash, and dedicated Savings Vaults.
 - **Move Money Seamlessly**: Transfer funds between wallets with guaranteed double-entry accuracy—taking money out of Cash and putting it into the Bank happens simultaneously with zero discrepancies.
@@ -87,8 +87,8 @@ Your financial life is private. Panam Paaru keeps it that way:
 
 ---
 
-### 7.  Rock-Solid Cloud Sync (Zero Lost Data)
-- **Direct Database Persistence**: Every transaction, wallet, budget, and investment is synchronized immediately with the cloud database.
+### 7.  24/7 active Cloud Sync (Zero Lost Data)
+- **Direct Database Persistence**: Every transaction, wallet, budget, and investment is synchronized immediately with convex cloud database.
 - **No Fragile Browser Storage**: Your data does not depend on vulnerable browser local storage that vanishes when you clear cache.
 - **Device Freedom**: Log in on your phone, laptop, or tablet and see identical, up-to-the-second numbers.
 
@@ -108,10 +108,10 @@ Panam Paaru rejects dull corporate gray interfaces in favor of high-contrast, en
 | Layer | Technology |
 | :--- | :--- |
 | **Frontend** | React 18, TypeScript, Vite |
-| **Backend & Real-Time DB** | Convex Reactive Cloud Backend |
+| **Backend & Real-Time DB** | Convex Reactive & Cloud Backend |
 | **Styling & Aesthetics** | TailwindCSS + Neo-Brutalist Design Tokens |
 | **Market Data APIs** | AMFI India NAV API, Yahoo Finance, CoinGecko |
-| **Document Ingestion** | PDF.js, XLSX, PapaParse |
+| **Document Ingestion** | PDF.js, XLSX, csv |
 | **Icons & Visuals** | Lucide React |
 
 ---
@@ -152,7 +152,7 @@ Visit `http://localhost:5173` in your browser.
 - ⚡ **Universal Live Price Auto-Fetch**: Add any stock, mutual fund, or crypto asset and watch current price and value calculate in real time.
 - 🧹 **Clean Zero Baseline**: All newly created accounts initialize at clean ₹0.00 with zero dummy placeholder clutter.
 
-### v0
+### v0.0
 - 📄 **Universal Statement Ingestion**: Instant drag-and-drop parsing for CAMS/KFintech PDFs, Zerodha CSVs, and Groww Excel files.
 - ⌨️ **Quick Ingestion Shortcut**: Global <kbd>Ctrl</kbd> + <kbd>U</kbd> launch shortcut.
 - 📈 **Live Index Ticker**: Live background ticker for NIFTY 50 and BSE SENSEX benchmark indices.
