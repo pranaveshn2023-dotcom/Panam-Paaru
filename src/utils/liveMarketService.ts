@@ -181,6 +181,83 @@ export async function fetchLiveStockPrice(
 }
 
 /**
+ * Dedicated crypto price fetcher using CoinGecko (INR) + Yahoo Finance fallback.
+ * CoinGecko provides reliable, real-time crypto prices in INR without API keys.
+ */
+export async function fetchLiveCryptoPrice(
+  nameOrSymbol: string
+): Promise<{ price: number; prevClose?: number; symbol?: string } | null> {
+  const clean = nameOrSymbol.trim().toLowerCase()
+    .replace(/\s*(coin|token|crypto|currency|inr|usd|usdt)\s*/gi, '')
+    .trim();
+
+  if (!clean || clean.length < 2) return null;
+
+  // 1. CoinGecko Search → Resolve coin ID dynamically
+  try {
+    const searchUrl = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(clean)}`;
+    const searchRes = await fetch(searchUrl, { signal: AbortSignal.timeout(4000) });
+    if (searchRes.ok) {
+      const searchData: any = await searchRes.json();
+      const coins = searchData?.coins;
+      if (coins && coins.length > 0) {
+        const upperClean = clean.toUpperCase();
+        const exact = coins.find((c: any) =>
+          c.symbol?.toUpperCase() === upperClean ||
+          c.name?.toLowerCase() === clean
+        );
+        const coinId = exact?.id || coins[0]?.id;
+
+        if (coinId) {
+          const priceRes = await fetch(
+            `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=inr&include_24hr_change=true`,
+            { signal: AbortSignal.timeout(4000) }
+          );
+          if (priceRes.ok) {
+            const priceData: any = await priceRes.json();
+            const coinData = priceData?.[coinId];
+            if (coinData && typeof coinData.inr === 'number' && coinData.inr > 0) {
+              const price = coinData.inr;
+              const changePct = coinData.inr_24h_change || 0;
+              const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
+              return { price, prevClose, symbol: coinId.toUpperCase() };
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Fallback: Yahoo Finance with BTC-INR style symbols
+  const upper = nameOrSymbol.trim().toUpperCase().replace(/\s*(COIN|TOKEN|CRYPTO|CURRENCY)\s*/gi, '').trim();
+  const tokens = upper.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 10);
+  const candidates: string[] = [];
+  for (const t of tokens) {
+    if (t === 'INR' || t === 'USD' || t === 'USDT') continue;
+    if (!candidates.includes(`${t}-INR`)) candidates.push(`${t}-INR`);
+    if (!candidates.includes(`${t}-USD`)) candidates.push(`${t}-USD`);
+  }
+
+  for (const sym of candidates) {
+    const url = `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}`)}`;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (res.ok) {
+        const data: any = await res.json();
+        const meta = data?.chart?.result?.[0]?.meta;
+        if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+          const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
+          const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
+          return { price: meta.regularMarketPrice, prevClose, symbol: sym };
+        }
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+/**
  * Dynamic sector detector without hardcoded company or sector dictionaries.
  * Reads actual sector strictly if present in the document. If absent, returns empty.
  */

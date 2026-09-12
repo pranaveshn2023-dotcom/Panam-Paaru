@@ -825,7 +825,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                           <td className="p-2.5 text-right font-mono text-xs font-bold text-neutral-700">
                             <input
                               type="number"
-                              step="0.001"
+                              step="any"
                               value={h.units ?? ''}
                               placeholder="—"
                               onChange={(e) =>

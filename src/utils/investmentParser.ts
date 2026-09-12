@@ -68,8 +68,8 @@ export interface RawFileContent {
 
 export function cleanUnits(units: number | undefined): number | undefined {
   if (units === undefined || isNaN(units) || units <= 0) return undefined;
-  // Round to 4 decimal places to remove JS IEEE 754 float artifacts (e.g. 0.001000000000000009 -> 0.001)
-  const rounded = Math.round(units * 10000) / 10000;
+  // Round to 8 decimal places to support crypto satoshi-level precision while removing JS IEEE 754 float artifacts
+  const rounded = Math.round(units * 1e8) / 1e8;
   return rounded;
 }
 

@@ -787,6 +787,103 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
   return null;
 }
 
+// ──────────────────────────────────────────
+// Dedicated Crypto Price Fetcher (CoinGecko + Yahoo Finance)
+// ──────────────────────────────────────────
+
+/**
+ * Dynamically resolves a crypto name/ticker to a CoinGecko coin ID.
+ * Uses CoinGecko's search API — zero hardcoded coin maps.
+ */
+async function resolveCoinGeckoId(nameOrTicker: string): Promise<string | null> {
+  const clean = nameOrTicker.trim().toLowerCase()
+    .replace(/\s*(coin|token|crypto|currency|inr|usd|usdt)\s*/gi, '')
+    .trim();
+
+  if (!clean || clean.length < 2) return null;
+
+  try {
+    const searchRes = await fetch(
+      `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(clean)}`,
+      { signal: AbortSignal.timeout(4000) }
+    );
+    if (!searchRes.ok) return null;
+    const data: any = await searchRes.json();
+    const coins = data?.coins;
+    if (!coins || coins.length === 0) return null;
+
+    // Find best match: exact symbol or name match first
+    const upperClean = clean.toUpperCase();
+    const exact = coins.find((c: any) =>
+      c.symbol?.toUpperCase() === upperClean ||
+      c.name?.toLowerCase() === clean
+    );
+    return exact?.id || coins[0]?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCryptoPrice(
+  name: string
+): Promise<{ price: number; prevClose?: number; symbol?: string } | null> {
+  // 1. Try CoinGecko (most reliable for crypto INR prices)
+  const coinId = await resolveCoinGeckoId(name);
+  if (coinId) {
+    try {
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=inr&include_24hr_change=true`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (res.ok) {
+        const data: any = await res.json();
+        const coinData = data?.[coinId];
+        if (coinData && typeof coinData.inr === 'number' && coinData.inr > 0) {
+          const price = coinData.inr;
+          const changePct = coinData.inr_24h_change || 0;
+          const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
+          return { price, prevClose, symbol: coinId.toUpperCase() };
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Fallback: Yahoo Finance with explicit crypto pair symbols
+  const clean = name.trim().toUpperCase().replace(/\s*(COIN|TOKEN|CRYPTO|CURRENCY)\s*/gi, '').trim();
+  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 10);
+
+  // Build Yahoo-style crypto candidates
+  const candidates: string[] = [];
+  for (const t of tokens) {
+    if (t === 'INR' || t === 'USD' || t === 'USDT') continue;
+    if (!candidates.includes(`${t}-INR`)) candidates.push(`${t}-INR`);
+    if (!candidates.includes(`${t}-USD`)) candidates.push(`${t}-USD`);
+  }
+
+  for (const sym of candidates) {
+    try {
+      const chartRes = await fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (!chartRes.ok) continue;
+      const data: any = await chartRes.json();
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+        const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
+        const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
+        return {
+          price: meta.regularMarketPrice,
+          prevClose,
+          symbol: sym,
+        };
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
 async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; prevNav?: number } | null> {
   const cleanQuery = name
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
@@ -885,12 +982,9 @@ export const syncLiveMarketPrices = action({
             if (stk && stk.price > 0) livePrice = stk.price;
           }
         } else if (inv.assetType === "crypto") {
-          const cry = await fetchStockQuote(inv.name.includes("INR") ? inv.name : `${inv.name} INR`);
+          const cry = await fetchCryptoPrice(inv.name);
           if (cry && cry.price > 0) {
             livePrice = cry.price;
-          } else {
-            const fallback = await fetchStockQuote(inv.name);
-            if (fallback && fallback.price > 0) livePrice = fallback.price;
           }
         } else {
           // Stocks, Gold ETFs, Silver ETFs, SGBs, Commodities, REITs

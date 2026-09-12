@@ -9,7 +9,7 @@ import { PortfolioTrendChart } from './InvestmentChart';
 import { InvestmentCard } from './InvestmentCard';
 import { useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import { fetchAmfiNav, fetchLiveStockPrice } from '../../utils/liveMarketService';
+import { fetchAmfiNav, fetchLiveStockPrice, fetchLiveCryptoPrice } from '../../utils/liveMarketService';
 import {
   TrendingUp,
   TrendingDown,
@@ -176,6 +176,9 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
               const liveStock = await fetchLiveStockPrice(inv.name);
               if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
             }
+          } else if (inv.assetType === 'crypto') {
+            const live = await fetchLiveCryptoPrice(inv.name);
+            if (live && live.price > 0) livePrice = live.price;
           } else {
             const live = await fetchLiveStockPrice(inv.name);
             if (live && live.price > 0) livePrice = live.price;

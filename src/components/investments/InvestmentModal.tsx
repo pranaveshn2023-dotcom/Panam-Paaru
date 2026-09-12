@@ -245,7 +245,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
             </label>
             <input
               type="number"
-              step="0.001"
+              step="any"
               min="0"
               value={units}
               onChange={(e) => setUnits(e.target.value)}
@@ -260,7 +260,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
             </label>
             <input
               type="number"
-              step="0.01"
+              step="any"
               min="0"
               value={buyPrice}
               onChange={(e) => setBuyPrice(e.target.value)}
@@ -275,7 +275,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
             </label>
             <input
               type="number"
-              step="0.01"
+              step="any"
               min="0"
               value={currentPrice}
               onChange={(e) => setCurrentPrice(e.target.value)}
