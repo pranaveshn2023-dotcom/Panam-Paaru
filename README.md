@@ -37,10 +37,10 @@
 
 ### 1.  The 4 Command Hubs 
 Instead of 10 confusing menus, Panam Paaru organizes your entire financial life into **4 clean hubs**:
-- ** Home / Overview**: Your financial speedometer. Shows your total net balance, your portfolio valuation, quick action buttons (`+ Income`, `- Expense`, `Transfer`), and your active budgets.
-- ** Expenses & Cashflow**: Your daily money journal. Switch smoothly between your **Transactions Ledger**, **Accounts & Wallets**, **Budgets & Pockets**, and **Spending Flow** analysis.
-- ** Investments & Wealth**: Your money growth tracker. Live prices for Indian stocks, mutual funds, gold, and crypto with visual profit/loss and allocation charts.
-- ** Settings & Security**: Set your security PIN, adjust auto-lock timers, pick your display currency, and monitor live cloud sync.
+- **Home / Overview**: Your financial speedometer. Shows your total net balance, your portfolio valuation, quick action buttons (`+ Income`, `- Expense`, `Transfer`), and your active budgets.
+- **Expenses & Cashflow**: Your daily money journal. Switch smoothly between your **Transactions Ledger**, **Accounts & Wallets**, **Budgets & Pockets**, and **Spending Flow** analysis.
+- **Investments & Wealth**: Your money growth tracker. Live prices for Indian stocks, mutual funds, gold, and crypto with visual profit/loss and allocation charts.
+- **Settings & Security**: Set your security PIN, adjust auto-lock timers, pick your display currency, and monitor live cloud sync.
 
 ---
 
