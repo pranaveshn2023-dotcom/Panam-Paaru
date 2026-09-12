@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
 import { Investment, AssetType } from '../../types';
-import { TrendingUp, Coins, Layers, Calendar, DollarSign, Tag, Info } from 'lucide-react';
+import { TrendingUp, Layers, Calendar, DollarSign, Zap, Loader2 } from 'lucide-react';
+import { fetchAmfiNav, fetchLiveStockPrice, fetchLiveCryptoPrice } from '../../utils/liveMarketService';
 
 interface InvestmentModalProps {
   isOpen: boolean;
@@ -57,6 +58,13 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Live price auto-fetch state
+  const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [livePriceSymbol, setLivePriceSymbol] = useState('');
+  const [isFetchingPrice, setIsFetchingPrice] = useState(false);
+  const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchIdRef = useRef(0); // Monotonic ID to discard stale responses
+
   useEffect(() => {
     if (initialData) {
       setName(initialData.name);
@@ -70,6 +78,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setSipDay(initialData.sipDay ? String(initialData.sipDay) : '5');
       setXirr(initialData.xirr || '');
       setNotes(initialData.notes || '');
+      setLivePrice(initialData.currentPrice || null);
     } else {
       setName('');
       setAssetType('mutual_fund');
@@ -82,9 +91,101 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setSipDay('5');
       setXirr('');
       setNotes('');
+      setLivePrice(null);
+      setLivePriceSymbol('');
     }
     setError('');
   }, [initialData, isOpen]);
+
+  // ── Live price auto-fetch (debounced) ──
+  const doFetchLivePrice = useCallback(async (assetName: string, type: AssetType, id: number) => {
+    if (!assetName || assetName.trim().length < 2) {
+      setLivePrice(null);
+      setLivePriceSymbol('');
+      setIsFetchingPrice(false);
+      return;
+    }
+
+    // FD/RD, PPF/EPF, Real Estate, and Other don't have live market prices
+    if (type === 'fd_rd' || type === 'ppf_epf' || type === 'real_estate' || type === 'other') {
+      setLivePrice(null);
+      setLivePriceSymbol('');
+      setIsFetchingPrice(false);
+      return;
+    }
+
+    setIsFetchingPrice(true);
+
+    try {
+      let result: { price: number; prevClose?: number; symbol?: string } | null = null;
+
+      if (type === 'crypto') {
+        result = await fetchLiveCryptoPrice(assetName);
+      } else if (type === 'mutual_fund') {
+        const mf = await fetchAmfiNav(assetName);
+        if (mf && mf.nav > 0) {
+          result = { price: mf.nav, symbol: mf.schemeName };
+        } else {
+          result = await fetchLiveStockPrice(assetName);
+        }
+      } else {
+        // stocks, gold — use Yahoo Finance
+        result = await fetchLiveStockPrice(assetName);
+      }
+
+      // Discard if a newer request has been fired
+      if (id !== fetchIdRef.current) return;
+
+      if (result && result.price > 0) {
+        setLivePrice(result.price);
+        setLivePriceSymbol(result.symbol || '');
+        setCurrentPrice(String(result.price));
+      } else {
+        setLivePrice(null);
+        setLivePriceSymbol('');
+      }
+    } catch {
+      if (id === fetchIdRef.current) {
+        setLivePrice(null);
+        setLivePriceSymbol('');
+      }
+    } finally {
+      if (id === fetchIdRef.current) {
+        setIsFetchingPrice(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+
+    if (name.trim().length >= 2) {
+      fetchTimeoutRef.current = setTimeout(() => {
+        const id = ++fetchIdRef.current;
+        doFetchLivePrice(name, assetType, id);
+      }, 800);
+    } else {
+      fetchIdRef.current++;
+      setLivePrice(null);
+      setLivePriceSymbol('');
+      setIsFetchingPrice(false);
+    }
+
+    return () => {
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+    };
+  }, [name, assetType, doFetchLivePrice]);
+
+  // ── Auto-compute current value from units × livePrice ──
+  useEffect(() => {
+    if (livePrice && livePrice > 0) {
+      const numUnits = parseFloat(units);
+      if (!isNaN(numUnits) && numUnits > 0) {
+        const computed = Math.round(numUnits * livePrice * 100) / 100;
+        setCurrentValue(String(computed));
+      }
+    }
+  }, [units, livePrice]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,6 +239,8 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     }
   };
 
+  const hasAutoValue = !!(livePrice && units && parseFloat(units) > 0);
+
   return (
     <NeoModal
       isOpen={isOpen}
@@ -152,7 +255,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           label="Investment / Asset Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Parag Parikh Flexi Cap, Nifty 50, HDFC FD, Gold 24K"
+          placeholder="e.g. Parag Parikh Flexi Cap, Bitcoin, Reliance, Gold 24K"
           required
         />
 
@@ -181,9 +284,46 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           </div>
         </div>
 
+        {/* ── Live Price Indicator Badge ── */}
+        {(isFetchingPrice || livePrice) && (
+          <div
+            className="flex items-center gap-2 px-3 py-2 border-2 text-xs font-black rounded-sm"
+            style={{
+              background: livePrice ? 'linear-gradient(135deg, #e8fdf0, #f0fdf4)' : '#fafafa',
+              borderColor: livePrice ? '#05DF72' : '#ddd',
+            }}
+          >
+            {isFetchingPrice ? (
+              <>
+                <Loader2 size={14} className="animate-spin" style={{ color: '#888' }} />
+                <span style={{ color: '#888' }}>Fetching live market price...</span>
+              </>
+            ) : livePrice ? (
+              <>
+                <span
+                  style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: '#05DF72', display: 'inline-block',
+                    boxShadow: '0 0 6px #05DF72',
+                    animation: 'pulse 2s infinite',
+                  }}
+                />
+                <Zap size={13} style={{ color: '#05DF72' }} />
+                <span style={{ color: '#121212' }}>
+                  LIVE: {currencySymbol}{livePrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                </span>
+                {livePriceSymbol && (
+                  <span style={{ color: '#888', fontWeight: 600, fontSize: 10 }}>
+                    ({livePriceSymbol.length > 30 ? livePriceSymbol.substring(0, 30) + '…' : livePriceSymbol})
+                  </span>
+                )}
+              </>
+            ) : null}
+          </div>
+        )}
+
         {/* Invested Capital vs Current Valuation */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Invested Capital */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-black uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--neo-border)' }}>
               <DollarSign size={13} />
@@ -200,7 +340,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                 value={investedAmount}
                 onChange={(e) => {
                   setInvestedAmount(e.target.value);
-                  if (!currentValue || currentValue === investedAmount) {
+                  if (!livePrice && (!currentValue || currentValue === investedAmount)) {
                     setCurrentValue(e.target.value);
                   }
                 }}
@@ -212,11 +352,13 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
             </div>
           </div>
 
-          {/* Current Valuation */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-black uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--neo-border)' }}>
               <TrendingUp size={13} style={{ color: 'var(--neo-green)' }} />
               Current Value ({currencySymbol}) *
+              {hasAutoValue && (
+                <span className="text-[9px] font-bold ml-1 px-1 py-0.5" style={{ color: '#fff', background: '#05DF72', borderRadius: 2 }}>AUTO</span>
+              )}
             </label>
             <div className="relative flex items-center">
               <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
@@ -237,7 +379,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           </div>
         </div>
 
-        {/* Optional Units, Purchase Price & Current Price */}
+        {/* Units, Buy Price & Live Price */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="flex flex-col gap-1">
             <label className="text-[11px] font-black uppercase text-neutral-600">
@@ -249,7 +391,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
               min="0"
               value={units}
               onChange={(e) => setUnits(e.target.value)}
-              placeholder="e.g. 50 shares or 10.5 g"
+              placeholder="e.g. 50 shares or 0.005 BTC"
               className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
             />
           </div>
@@ -270,18 +412,32 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-black uppercase text-neutral-600">
-              Current Price / NAV ({currencySymbol})
+            <label className="text-[11px] font-black uppercase text-neutral-600 flex items-center gap-1">
+              Live Price / NAV ({currencySymbol})
+              {livePrice && (
+                <span
+                  style={{
+                    width: 6, height: 6, borderRadius: '50%',
+                    background: '#05DF72', display: 'inline-block',
+                    boxShadow: '0 0 4px #05DF72',
+                  }}
+                />
+              )}
             </label>
             <input
               type="number"
               step="any"
               min="0"
               value={currentPrice}
-              onChange={(e) => setCurrentPrice(e.target.value)}
-              placeholder="e.g. 520.00"
+              onChange={(e) => {
+                setCurrentPrice(e.target.value);
+                const val = parseFloat(e.target.value);
+                if (!isNaN(val) && val > 0) setLivePrice(val);
+              }}
+              placeholder={isFetchingPrice ? 'Fetching...' : 'Auto-fetched'}
               className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
-              style={{ color: 'var(--neo-green)' }}
+              style={{ color: livePrice ? '#05DF72' : undefined }}
+              readOnly={!!livePrice}
             />
           </div>
         </div>
