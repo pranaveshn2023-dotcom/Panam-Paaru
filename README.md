@@ -6,7 +6,7 @@
 
 ---
 
-## 🧒 What is Panam Paaru? (Explain Like I'm 5)
+## 🧒 What is Panam Paaru?
 
 > Imagine you have money in different places: some cash in your pocket, some coins in your piggy bank, and some savings in the bank. Sometimes you spend money on snacks, and sometimes your money grows like seeds in a garden.
 >
