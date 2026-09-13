@@ -240,7 +240,7 @@ export async function fetchAmfiNav(
     // 3. Direct scheme code check (if 6-digit scheme code embedded in text or notes)
     const codeMatch = fundName.match(/\b\d{6}\b/);
     if (codeMatch) {
-      const detailRes = await fetch(`https://api.mfapi.in/mf/${codeMatch[0]}`, { signal: AbortSignal.timeout(4000) });
+      const detailRes = await fetch(`https://api.mfapi.in/mf/${codeMatch[0]}/latest`, { signal: AbortSignal.timeout(4000) });
       if (detailRes.ok) {
         const details = await detailRes.json();
         const latest = details?.data?.[0];
@@ -307,7 +307,7 @@ export async function fetchAmfiNav(
 
     for (const cand of topCandidates) {
       try {
-        const detailRes = await fetch(`https://api.mfapi.in/mf/${cand.schemeCode}`, {
+        const detailRes = await fetch(`https://api.mfapi.in/mf/${cand.schemeCode}/latest`, {
           signal: AbortSignal.timeout(4000),
         });
         if (!detailRes.ok) continue;

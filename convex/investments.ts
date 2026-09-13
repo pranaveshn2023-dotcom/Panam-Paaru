@@ -1,5 +1,5 @@
-import { query, mutation, action } from "./_generated/server";
-import { api } from "./_generated/api";
+import { query, mutation, action, internalQuery, internalMutation } from "./_generated/server";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
@@ -737,8 +737,15 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
   // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
 
+  const strippedCorporate = clean
+    .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, '')
+    .trim();
+
   // Dynamic Yahoo Finance search queries with zero hardcoding
   const searchQueries = [clean];
+  if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
+    searchQueries.push(strippedCorporate);
+  }
   if (tokens.length > 1) {
     searchQueries.push(tokens.join(' '));
     for (const t of tokens) {
@@ -860,15 +867,25 @@ async function fetchCryptoPrice(
   }
 
   // 2. Fallback: Yahoo Finance with explicit crypto pair symbols
-  const clean = name.trim().toUpperCase().replace(/\s*(COIN|TOKEN|CRYPTO|CURRENCY)\s*/gi, '').trim();
+  const clean = name.trim().toUpperCase().replace(/\s*\b(COIN|TOKEN|CRYPTO|CURRENCY)\b\s*/gi, '').trim();
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 10);
+
+  const CRYPTO_ALIASES: Record<string, string> = {
+    BITCOIN: 'BTC',
+    ETHEREUM: 'ETH',
+    SOLANA: 'SOL',
+    RIPPLE: 'XRP',
+    CARDANO: 'ADA',
+    DOGECOIN: 'DOGE',
+  };
 
   // Build Yahoo-style crypto candidates
   const candidates: string[] = [];
   for (const t of tokens) {
     if (t === 'INR' || t === 'USD' || t === 'USDT') continue;
-    if (!candidates.includes(`${t}-INR`)) candidates.push(`${t}-INR`);
-    if (!candidates.includes(`${t}-USD`)) candidates.push(`${t}-USD`);
+    const ticker = CRYPTO_ALIASES[t] || t;
+    if (!candidates.includes(`${ticker}-INR`)) candidates.push(`${ticker}-INR`);
+    if (!candidates.includes(`${ticker}-USD`)) candidates.push(`${ticker}-USD`);
   }
 
   for (const sym of candidates) {
@@ -881,10 +898,14 @@ async function fetchCryptoPrice(
       const data: any = await chartRes.json();
       const meta = data?.chart?.result?.[0]?.meta;
       if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+        let price = meta.regularMarketPrice;
+        if (sym.endsWith('-USD')) {
+          price = price * 87.5; // Approximate conversion if only USD pair is available
+        }
         const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
-        const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
+        const prevClose = change !== undefined ? price - change : (meta.previousClose || meta.chartPreviousClose);
         return {
-          price: meta.regularMarketPrice,
+          price,
           prevClose,
           symbol: sym,
         };
@@ -1016,12 +1037,14 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
   return score;
 }
 
-async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string } | null> {
-  // Check if 6-digit scheme code
-  const codeMatch = name.match(/\b\d{6}\b/);
+async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string } | null> {
+  const combined = `${name} ${notes || ''}`;
+
+  // 1. Direct scheme code check (if 6-digit scheme code embedded in text or notes)
+  const codeMatch = combined.match(/\b\d{6}\b/);
   if (codeMatch) {
     try {
-      const detailRes = await fetch(`https://api.mfapi.in/mf/${codeMatch[0]}`, { signal: AbortSignal.timeout(4000) });
+      const detailRes = await fetch(`https://api.mfapi.in/mf/${codeMatch[0]}/latest`, { signal: AbortSignal.timeout(4000) });
       if (detailRes.ok) {
         const details: any = await detailRes.json();
         const latest = details?.data?.[0];
@@ -1034,6 +1057,37 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
               schemeName: details.meta?.scheme_name || name,
               prevNav: details.data?.[1]?.nav ? parseFloat(details.data[1].nav) : undefined,
             };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Direct ISIN check (e.g. INF200K01QV8 from CAS / broker statement)
+  const isinMatch = combined.match(/\b(INF[A-Z0-9]{9})\b/i);
+  if (isinMatch) {
+    try {
+      const isin = isinMatch[1].toUpperCase();
+      const masterRes = await fetch('https://api.mfapi.in/mf', { signal: AbortSignal.timeout(4000) });
+      if (masterRes.ok) {
+        const masterList: any[] = await masterRes.json();
+        const found = masterList.find((x) => x.isinGrowth === isin || x.isinDivReinvestment === isin);
+        if (found && found.schemeCode) {
+          const detailRes = await fetch(`https://api.mfapi.in/mf/${found.schemeCode}/latest`, { signal: AbortSignal.timeout(4000) });
+          if (detailRes.ok) {
+            const details: any = await detailRes.json();
+            const latest = details?.data?.[0];
+            if (latest && latest.nav) {
+              const navNum = parseFloat(latest.nav);
+              if (!isNaN(navNum) && navNum > 0) {
+                return {
+                  nav: navNum,
+                  date: latest.date || '',
+                  schemeName: details.meta?.scheme_name || found.schemeName || name,
+                  prevNav: details.data?.[1]?.nav ? parseFloat(details.data[1].nav) : undefined,
+                };
+              }
+            }
           }
         }
       }
@@ -1097,7 +1151,7 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
   for (const candidate of topCandidates) {
     try {
       const detailRes = await fetch(
-        `https://api.mfapi.in/mf/${candidate.schemeCode}`,
+        `https://api.mfapi.in/mf/${candidate.schemeCode}/latest`,
         { signal: AbortSignal.timeout(4000) }
       );
       if (!detailRes.ok) continue;
@@ -1128,28 +1182,74 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
   return null;
 }
 
+export const internalListInvestments = internalQuery({
+  args: {
+    investmentIds: v.optional(v.array(v.id("investments"))),
+  },
+  handler: async (ctx, args) => {
+    if (args.investmentIds && args.investmentIds.length > 0) {
+      const results: any[] = [];
+      for (const id of args.investmentIds) {
+        const item = await ctx.db.get(id);
+        if (item) results.push(item);
+      }
+      return results;
+    }
+    const userId = await getAuthUserId(ctx);
+    if (userId) {
+      return await ctx.db.query("investments").withIndex("by_user", (q) => q.eq("userId", userId)).collect();
+    }
+    return await ctx.db.query("investments").collect();
+  },
+});
+
+export const internalBatchUpdatePrices = internalMutation({
+  args: {
+    updates: v.array(
+      v.object({
+        id: v.id("investments"),
+        currentValue: v.number(),
+        currentPrice: v.optional(v.number()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    for (const u of args.updates) {
+      const inv = await ctx.db.get(u.id);
+      if (inv) {
+        await ctx.db.patch(u.id, {
+          currentValue: Math.max(0, u.currentValue),
+          currentPrice: u.currentPrice ?? inv.currentPrice,
+          updatedAt: now,
+        });
+      }
+    }
+    return { success: true, count: args.updates.length };
+  },
+});
+
 export const syncLiveMarketPrices = action({
   args: {
     investmentIds: v.optional(v.array(v.id("investments"))),
   },
   handler: async (ctx, args) => {
-    const allInvestments: any[] = await ctx.runQuery(api.investments.list, {});
+    const allInvestments: any[] = await ctx.runQuery(
+      internal.investments.internalListInvestments,
+      { investmentIds: args.investmentIds }
+    );
     if (!allInvestments || allInvestments.length === 0) {
       return { success: true, count: 0, updates: [] };
     }
 
-    const targetList = args.investmentIds && args.investmentIds.length > 0
-      ? allInvestments.filter((inv) => args.investmentIds!.includes(inv._id))
-      : allInvestments;
-
     const updates: { id: any; currentValue: number; currentPrice?: number }[] = [];
 
-    for (const inv of targetList) {
+    for (const inv of allInvestments) {
       try {
         let livePrice: number | null = null;
 
         if (inv.assetType === "mutual_fund") {
-          const mf = await fetchMfNav(inv.name);
+          const mf = await fetchMfNav(inv.name, inv.notes);
           if (mf && mf.nav > 0) {
             livePrice = mf.nav;
           } else if (/\b(etf|bees)\b/i.test(inv.name)) {
@@ -1195,7 +1295,7 @@ export const syncLiveMarketPrices = action({
     }
 
     if (updates.length > 0) {
-      await ctx.runMutation(api.investments.batchUpdateLivePrices, { updates });
+      await ctx.runMutation(internal.investments.internalBatchUpdatePrices, { updates });
     }
 
     return { success: true, count: updates.length, updates };

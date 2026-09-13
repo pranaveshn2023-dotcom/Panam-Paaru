@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery, useMutation, useAction } from 'convex/react';
 import { useConvexAuth } from '@convex-dev/auth/react';
 import { api } from '../convex/_generated/api';
 import {
@@ -128,6 +128,7 @@ export function AppContent() {
   const checkAndRenewRecurringBudgetsMutation = useMutation(api.budgets.checkAndRenewRecurringBudgets);
   const addInvestmentMutation = useMutation(api.investments.add);
   const batchAddInvestmentMutation = useMutation(api.investments.batchAdd);
+  const syncLiveMarketPricesAction = useAction(api.investments.syncLiveMarketPrices);
   const updateInvestmentMutation = useMutation(api.investments.update);
   const quickUpdateInvestmentMutation = useMutation(api.investments.quickUpdateValue);
   const removeInvestmentMutation = useMutation(api.investments.remove);
@@ -357,6 +358,8 @@ export function AppContent() {
       } else {
         toast.info('All holdings are up to date.');
       }
+      // Immediately refresh live market prices for the newly imported assets
+      syncLiveMarketPricesAction({}).catch(() => {});
     }
   };
 
