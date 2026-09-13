@@ -117,34 +117,91 @@ interface ReturnsChartProps {
 
 export const ReturnsChart: React.FC<ReturnsChartProps> = ({ investments }) => {
   const { isPrivacyMode } = usePrivacy();
-  const data = investments.slice(0, 8).map((inv) => {
+  const [displayLimit, setDisplayLimit] = useState<number | 'all'>('all');
+  const [sortOption, setSortOption] = useState<'value' | 'gain' | 'invested' | 'name'>('value');
+
+  if (!investments || investments.length === 0) return null;
+
+  const sorted = [...investments].sort((a, b) => {
+    if (sortOption === 'value') return b.currentValue - a.currentValue;
+    if (sortOption === 'gain') {
+      const aGain = a.currentValue - a.investedAmount;
+      const bGain = b.currentValue - b.investedAmount;
+      return bGain - aGain;
+    }
+    if (sortOption === 'invested') return b.investedAmount - a.investedAmount;
+    return a.name.localeCompare(b.name);
+  });
+
+  const displayHoldings = displayLimit === 'all' ? sorted : sorted.slice(0, displayLimit);
+
+  const data = displayHoldings.map((inv) => {
     const gain = inv.currentValue - inv.investedAmount;
     const gainPercent = inv.investedAmount > 0 ? Number(((gain / inv.investedAmount) * 100).toFixed(2)) : 0;
     return {
-      name: inv.name.length > 15 ? inv.name.substring(0, 15) + '...' : inv.name,
+      fullName: inv.name,
+      name: inv.name.length > 20 ? inv.name.substring(0, 18) + '...' : inv.name,
       invested: inv.investedAmount,
       current: inv.currentValue,
-      gain: gainPercent,
+      gain,
+      gainPercent,
     };
   });
 
+  const barHeight = 36;
+  const chartHeight = Math.max(260, data.length * barHeight);
+
   return (
     <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 sm:p-6 flex flex-col gap-3">
-      <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3">
-        <h3 className="text-xs font-black uppercase text-[#121212] tracking-wider">
-          Returns by Holding
-        </h3>
+      <div className="flex flex-wrap items-center justify-between border-b-2 border-[#121212] pb-3 gap-2">
+        <div>
+          <h3 className="text-xs font-black uppercase text-[#121212] tracking-wider">
+            Returns by Holding ({displayHoldings.length} of {investments.length})
+          </h3>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={String(displayLimit)}
+            onChange={(e) => setDisplayLimit(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            className="px-2 py-1 text-[11px] font-black uppercase bg-white border border-[#121212] cursor-pointer"
+          >
+            <option value="all">All Holdings ({investments.length})</option>
+            <option value="10">Top 10</option>
+            <option value="20">Top 20</option>
+            <option value="30">Top 30</option>
+          </select>
+
+          <select
+            value={sortOption}
+            onChange={(e) => setSortOption(e.target.value as any)}
+            className="px-2 py-1 text-[11px] font-black uppercase bg-[#FFE600] border border-[#121212] cursor-pointer text-[#121212]"
+          >
+            <option value="value">Highest Value</option>
+            <option value="gain">Highest Returns</option>
+            <option value="invested">Highest Invested</option>
+            <option value="name">A – Z</option>
+          </select>
+        </div>
       </div>
-      <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} layout="vertical" margin={{ left: 20, right: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#121212" opacity={0.2} />
+
+      <div className="overflow-y-auto max-h-[480px] border border-neutral-200 bg-neutral-50/50 p-2">
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <BarChart data={data} layout="vertical" margin={{ left: 10, right: 20, top: 10, bottom: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#121212" opacity={0.15} />
             <XAxis
               type="number"
               tick={isPrivacyMode ? false : { fontSize: 11, fill: '#121212', fontWeight: 700 }}
               tickLine={isPrivacyMode ? false : { stroke: '#121212' }}
+              tickFormatter={(v) =>
+                `₹${v >= 100000 ? (v / 100000).toFixed(1) + 'L' : v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`
+              }
             />
-            <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#121212', fontWeight: 700 }} width={120} />
+            <YAxis
+              type="category"
+              dataKey="name"
+              tick={{ fontSize: 10, fill: '#121212', fontWeight: 700 }}
+              width={140}
+            />
             <Tooltip
               contentStyle={{
                 background: '#121212',
@@ -154,9 +211,15 @@ export const ReturnsChart: React.FC<ReturnsChartProps> = ({ investments }) => {
                 fontSize: '12px',
               }}
               formatter={(value: any, name: any) => [
-                isPrivacyMode ? '••••••' : `₹${Number(value).toLocaleString('en-IN')}`,
+                isPrivacyMode
+                  ? '••••••'
+                  : `₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
                 name,
               ]}
+              labelFormatter={(_label, payload) => {
+                const item = payload?.[0]?.payload;
+                return item?.fullName || _label;
+              }}
             />
             <Legend />
             <Bar dataKey="invested" fill="#FFE600" name="Invested" stroke="#121212" strokeWidth={1} radius={[0, 4, 4, 0]} />
