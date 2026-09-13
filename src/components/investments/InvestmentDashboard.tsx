@@ -172,7 +172,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             const live = await fetchAmfiNav(inv.name);
             if (live && live.nav > 0) {
               livePrice = live.nav;
-            } else {
+            } else if (/\b(etf|bees)\b/i.test(inv.name)) {
               const liveStock = await fetchLiveStockPrice(inv.name);
               if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
             }

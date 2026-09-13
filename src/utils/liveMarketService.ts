@@ -1,15 +1,15 @@
 import { AssetType } from '../types';
 
 // In-memory cache for live NAVs to prevent duplicate network calls
-const navCache = new Map<string, { nav: number; date: string; schemeName: string }>();
+const navCache = new Map<string, { nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number }>();
 
-// Persistent localStorage cache key
-const LS_CACHE_KEY = 'paanam_mf_nav_cache_v2';
+// Persistent localStorage cache key (v3 ensures stale/IDCW cached NAVs from prior versions are purged)
+const LS_CACHE_KEY = 'paanam_mf_nav_cache_v3';
 
-// Cache TTL: 5 minutes for real-time NAV data (was 6 hours)
-const CACHE_TTL_MS = 5 * 60 * 1000;
+// Cache TTL: 10 minutes for real-time NAV data
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
-function getPersistentCache(): Record<string, { nav: number; date: string; schemeName: string; timestamp: number }> {
+function getPersistentCache(): Record<string, { nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number; timestamp: number }> {
   try {
     const raw = localStorage.getItem(LS_CACHE_KEY);
     return raw ? JSON.parse(raw) : {};
@@ -18,7 +18,7 @@ function getPersistentCache(): Record<string, { nav: number; date: string; schem
   }
 }
 
-function savePersistentCache(key: string, data: { nav: number; date: string; schemeName: string }) {
+function savePersistentCache(key: string, data: { nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number }) {
   try {
     const cache = getPersistentCache();
     cache[key.toLowerCase().trim()] = { ...data, timestamp: Date.now() };
@@ -28,9 +28,13 @@ function savePersistentCache(key: string, data: { nav: number; date: string; sch
   }
 }
 
-/** Clear stale NAV cache entries older than 24h and outdated entries */
+/** Clear stale NAV cache entries older than 24h and purge legacy buggy cache keys */
 function cleanupPersistentCache() {
   try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('paanam_mf_nav_cache_v1');
+      localStorage.removeItem('paanam_mf_nav_cache_v2');
+    }
     const cache = getPersistentCache();
     const now = Date.now();
     let changed = false;
@@ -44,10 +48,38 @@ function cleanupPersistentCache() {
   } catch {}
 }
 
-// Run cleanup occasionally
+// Run cleanup immediately
 if (typeof window !== 'undefined') {
   cleanupPersistentCache();
-  setInterval(cleanupPersistentCache, 60 * 60 * 1000); // every hour
+  setInterval(cleanupPersistentCache, 60 * 60 * 1000);
+}
+
+/**
+ * Robust date parser handling DD-MM-YYYY and DD-MMM-YYYY formats from AMFI / mfapi.in
+ */
+export function parseNavDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.trim().split(/[-/]/);
+  if (parts.length === 3) {
+    const d = parseInt(parts[0], 10);
+    let m: number;
+    const months: Record<string, number> = {
+      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+    };
+    const mStr = parts[1].toLowerCase().slice(0, 3);
+    if (months[mStr] !== undefined) {
+      m = months[mStr];
+    } else {
+      m = parseInt(parts[1], 10) - 1;
+    }
+    const y = parseInt(parts[2], 10);
+    if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+      return new Date(y, m, d);
+    }
+  }
+  const f = new Date(dateStr);
+  return isNaN(f.getTime()) ? null : f;
 }
 
 /**
@@ -56,6 +88,11 @@ if (typeof window !== 'undefined') {
 export function cleanSearchQuery(raw: string): string {
   return raw
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
+    .replace(/\bmidcap\b/gi, 'mid cap')
+    .replace(/\bsmallcap\b/gi, 'small cap')
+    .replace(/\blargecap\b/gi, 'large cap')
+    .replace(/\bflexicap\b/gi, 'flexi cap')
+    .replace(/\bmulticap\b/gi, 'multi cap')
     .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
     .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
     .replace(/\s{2,}/g, ' ')
@@ -63,11 +100,106 @@ export function cleanSearchQuery(raw: string): string {
 }
 
 /**
- * Fetch official AMFI live NAV dynamically for any Indian Mutual Fund
+ * Precision score matching for Indian Mutual Funds:
+ * - Strictly defaults to Growth plans (95%+ of investor holdings) unless user explicitly specified IDCW / Dividend.
+ * - Prioritizes Direct plans unless Regular is explicitly specified.
+ * - Heavily penalizes category mismatches (e.g., Nifty Next 50 when user asked for Nifty 50, or US/Global when not asked).
+ * - Heavily penalizes discontinued, institutional, bonus, or segregated options.
+ */
+function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
+  const qLower = rawQuery
+    .toLowerCase()
+    .replace(/\bmidcap\b/gi, 'mid cap')
+    .replace(/\bsmallcap\b/gi, 'small cap')
+    .replace(/\blargecap\b/gi, 'large cap')
+    .replace(/\bflexicap\b/gi, 'flexi cap')
+    .replace(/\bmulticap\b/gi, 'multi cap');
+
+  const sName = item.schemeName || '';
+  const sLower = sName.toLowerCase();
+
+  const wantsDirect = /\bdirect\b/i.test(qLower);
+  const wantsRegular = /\bregular\b/i.test(qLower);
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(qLower);
+
+  let score = 0;
+
+  // Direct exact/substring match bonus
+  if (sLower === qLower) score += 100;
+  else if (sLower.includes(qLower)) score += 40;
+
+  // Stop words for token matching
+  const stopWords = new Set(['fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular', 'idcw', 'dividend', 'amc', 'mutual', 'the', 'of', 'and', '&', '-']);
+  const qTokens = qLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !stopWords.has(t));
+  const sTokens = new Set(sLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2));
+
+  for (const qt of qTokens) {
+    if (sTokens.has(qt)) {
+      score += 20;
+    } else {
+      for (const st of sTokens) {
+        if (st.includes(qt) || qt.includes(st)) {
+          score += 10;
+          break;
+        }
+      }
+    }
+  }
+
+  // Penalize distinct category keywords if absent from query
+  const categoryKeywords = [
+    'next', 'small', 'mid', 'large', 'flexi', 'multi', 'focused', 'elss',
+    'hybrid', 'arbitrage', 'liquid', 'overnight', 'gilt', 'debt', 'index',
+    'us', 'global', 'overseas', 'international', 'gold', 'silver', 'esg',
+    'contra', 'pharma', 'tech', 'digital', 'infrastructure', 'banking',
+    'etf', 'nifty', 'sensex',
+  ];
+  for (const cat of categoryKeywords) {
+    if (sTokens.has(cat) && !qTokens.some((qt) => qt.includes(cat) || cat.includes(qt))) {
+      score -= 35;
+    }
+  }
+
+  // Direct vs Regular preference
+  const isDirect = sLower.includes('direct');
+  const isRegular = sLower.includes('regular');
+  if (wantsDirect) {
+    if (isDirect) score += 30;
+    if (isRegular) score -= 30;
+  } else if (wantsRegular) {
+    if (isRegular) score += 30;
+    if (isDirect) score -= 30;
+  } else {
+    // Default to Direct Plan
+    if (isDirect) score += 15;
+  }
+
+  // Growth vs IDCW preference (Default is ALWAYS Growth!)
+  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sLower);
+  const isGrowth = /\bgrowth\b/i.test(sLower);
+  if (wantsIdcw) {
+    if (isIdcw) score += 40;
+    if (isGrowth) score -= 20;
+  } else {
+    if (isGrowth) score += 40;
+    if (isIdcw) score -= 60; // Strong penalty against unintended IDCW
+  }
+
+  // Penalize institutional, bonus, or discontinued plans
+  if (/institutional|unclaimed|segregated|bonus/i.test(sLower)) {
+    score -= 50;
+  }
+
+  return score;
+}
+
+/**
+ * Fetch official AMFI live NAV dynamically for any Indian Mutual Fund.
+ * Uses real-time feeds from api.mfapi.in with multi-tier search and Growth-default resolution.
  */
 export async function fetchAmfiNav(
   fundName: string
-): Promise<{ nav: number; date: string; schemeName: string; schemeCode?: number } | null> {
+): Promise<{ nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number } | null> {
   const normKey = fundName.toLowerCase().trim();
 
   // 1. Check in-memory cache
@@ -75,7 +207,7 @@ export async function fetchAmfiNav(
     return navCache.get(normKey)!;
   }
 
-  // 2. Check persistent localStorage cache (valid for 5 minutes)
+  // 2. Check persistent localStorage cache (valid for 10 minutes)
   const pCache = getPersistentCache();
   const cached = pCache[normKey];
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
@@ -84,76 +216,108 @@ export async function fetchAmfiNav(
   }
 
   try {
-    // 3. Search scheme in AMFI directory via api.mfapi.in
-    const query = cleanSearchQuery(fundName);
-    if (query.length < 3) return null;
-
-    const searchRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`);
-    if (!searchRes.ok) return null;
-
-    const list: { schemeCode: number; schemeName: string }[] = await searchRes.json();
-    if (!list || list.length === 0) return null;
-
-    // Pick best match: score-based matching instead of first-match
-    const isDirect = /direct/i.test(fundName);
-    const isGrowth = /growth/i.test(fundName);
-    const cleanLower = query.toLowerCase();
-
-    let bestItem: { schemeCode: number; schemeName: string } | null = null;
-    let bestScore = 0;
-
-    for (const item of list) {
-      const itemLower = item.schemeName.toLowerCase();
-      const itemDirect = itemLower.includes('direct');
-      const itemGrowth = itemLower.includes('growth');
-
-      let score = 0;
-      if (isDirect === itemDirect) score += 3;
-      if (isGrowth === itemGrowth) score += 2;
-      // Name similarity
-      const queryWords = cleanLower.split(/\s+/).filter(Boolean);
-      for (const qw of queryWords) {
-        if (qw.length >= 2 && itemLower.includes(qw)) score += 2;
-      }
-      if (itemLower === cleanLower) score += 10;
-      else if (itemLower.includes(cleanLower)) score += 5;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestItem = item;
+    // 3. Direct scheme code check (if 6-digit scheme code embedded in text or notes)
+    const codeMatch = fundName.match(/\b\d{6}\b/);
+    if (codeMatch) {
+      const detailRes = await fetch(`https://api.mfapi.in/mf/${codeMatch[0]}`, { signal: AbortSignal.timeout(4000) });
+      if (detailRes.ok) {
+        const details = await detailRes.json();
+        const latest = details?.data?.[0];
+        if (latest && latest.nav) {
+          const navNum = parseFloat(latest.nav);
+          if (!isNaN(navNum) && navNum > 0) {
+            const res = {
+              nav: navNum,
+              date: latest.date || '',
+              schemeName: details.meta?.scheme_name || fundName,
+              schemeCode: parseInt(codeMatch[0], 10),
+              prevNav: details.data?.[1]?.nav ? parseFloat(details.data[1].nav) : undefined,
+            };
+            navCache.set(normKey, res);
+            savePersistentCache(normKey, res);
+            return res;
+          }
+        }
       }
     }
 
-    if (!bestItem || bestScore < 3) return null;
+    // 4. Multi-tier query builder
+    const clean = cleanSearchQuery(fundName);
+    const coreWords = clean.split(/\s+/).filter(Boolean);
+    if (coreWords.length === 0) return null;
 
-    // 4. Fetch latest NAV data for chosen schemeCode
-    const detailRes = await fetch(`https://api.mfapi.in/mf/${bestItem.schemeCode}`);
-    if (!detailRes.ok) return null;
+    const queries: string[] = [
+      coreWords.join(' '),
+      coreWords.slice(0, 3).join(' '),
+      coreWords.slice(0, 2).join(' '),
+    ].filter((q) => q.length >= 3);
 
-    const details = await detailRes.json();
-    if (!details.data || details.data.length === 0) return null;
+    const uniqueQueries = [...new Set(queries)];
+    const candidateMap = new Map<number, { schemeCode: number; schemeName: string; score: number }>();
 
-    const latest = details.data[0];
-    const navNum = parseFloat(latest.nav);
-    if (isNaN(navNum) || navNum <= 0) return null;
+    for (const q of uniqueQueries) {
+      try {
+        const searchRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`, {
+          signal: AbortSignal.timeout(3500),
+        });
+        if (searchRes.ok) {
+          const list: { schemeCode: number; schemeName: string }[] = await searchRes.json();
+          if (Array.isArray(list)) {
+            for (const item of list) {
+              if (!candidateMap.has(item.schemeCode)) {
+                const score = scoreSchemeCandidate(item, fundName);
+                candidateMap.set(item.schemeCode, { ...item, score });
+              }
+            }
+          }
+        }
+      } catch {}
+      // If the primary query returned good candidates, no need to over-query
+      if (candidateMap.size > 0) break;
+    }
 
-    // Validate NAV date — reject stale NAVs older than 2 days
-    const navDate = latest.date || '';
-    const navDateObj = new Date(navDate);
-    const daysDiff = (Date.now() - navDateObj.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysDiff > 2) return null;
+    const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
+    if (sortedCandidates.length === 0) return null;
 
-    const result = {
-      nav: navNum,
-      date: navDate,
-      schemeName: details.meta?.scheme_name || bestItem.schemeName,
-      schemeCode: bestItem.schemeCode,
-    };
+    // 5. Inspect top candidates to find the active plan with the most recent NAV
+    const topCandidates = sortedCandidates.slice(0, 4);
+    const now = Date.now();
 
-    navCache.set(normKey, result);
-    savePersistentCache(normKey, result);
+    for (const cand of topCandidates) {
+      try {
+        const detailRes = await fetch(`https://api.mfapi.in/mf/${cand.schemeCode}`, {
+          signal: AbortSignal.timeout(4000),
+        });
+        if (!detailRes.ok) continue;
 
-    return result;
+        const details = await detailRes.json();
+        const latest = details?.data?.[0];
+        if (!latest || !latest.nav) continue;
+
+        const navNum = parseFloat(latest.nav);
+        if (isNaN(navNum) || navNum <= 0) continue;
+
+        // Date validation: reject only truly dead schemes (> 60 days inactive)
+        const navDate = parseNavDate(latest.date);
+        if (navDate && now - navDate.getTime() > 60 * 24 * 60 * 60 * 1000) {
+          continue; // Discontinued scheme, skip to next candidate
+        }
+
+        const result = {
+          nav: navNum,
+          date: latest.date || '',
+          schemeName: details.meta?.scheme_name || cand.schemeName,
+          schemeCode: cand.schemeCode,
+          prevNav: details.data?.[1]?.nav ? parseFloat(details.data[1].nav) : undefined,
+        };
+
+        navCache.set(normKey, result);
+        savePersistentCache(normKey, result);
+        return result;
+      } catch {}
+    }
+
+    return null;
   } catch (err) {
     console.warn(`[LiveNAV] Failed to fetch live NAV for: ${fundName}`, err);
     return null;

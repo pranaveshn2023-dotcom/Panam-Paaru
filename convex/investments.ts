@@ -730,6 +730,8 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
 
   if (clean.endsWith('.NS') || clean.endsWith('.BO') || clean.endsWith('-INR') || clean.endsWith('-USD')) {
     candidates.push(clean);
+  } else {
+    candidates.push(`${clean}.NS`, `${clean}.BO`);
   }
 
   // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
@@ -749,7 +751,7 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
   for (const sq of searchQueries) {
     try {
       const searchRes = await fetch(
-        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=5`,
+        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
         { signal: AbortSignal.timeout(3500) }
       );
       if (searchRes.ok) {
@@ -762,6 +764,15 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
       }
     } catch {}
   }
+
+  // Prioritize Indian NSE/BSE symbols
+  candidates.sort((a, b) => {
+    const aInr = a.endsWith('.NS') || a.endsWith('.BO') || a.endsWith('-INR');
+    const bInr = b.endsWith('.NS') || b.endsWith('.BO') || b.endsWith('-INR');
+    if (aInr && !bInr) return -1;
+    if (!aInr && bInr) return 1;
+    return 0;
+  });
 
   for (const sym of candidates) {
     try {
@@ -884,81 +895,187 @@ async function fetchCryptoPrice(
   return null;
 }
 
-async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; prevNav?: number } | null> {
+function parseMfNavDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.trim().split(/[-/]/);
+  if (parts.length === 3) {
+    const d = parseInt(parts[0], 10);
+    let m: number;
+    const months: Record<string, number> = {
+      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+    };
+    const mStr = parts[1].toLowerCase().slice(0, 3);
+    if (months[mStr] !== undefined) {
+      m = months[mStr];
+    } else {
+      m = parseInt(parts[1], 10) - 1;
+    }
+    const y = parseInt(parts[2], 10);
+    if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+      return new Date(y, m, d);
+    }
+  }
+  const f = new Date(dateStr);
+  return isNaN(f.getTime()) ? null : f;
+}
+
+function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
+  const qLower = rawQuery
+    .toLowerCase()
+    .replace(/\bmidcap\b/gi, 'mid cap')
+    .replace(/\bsmallcap\b/gi, 'small cap')
+    .replace(/\blargecap\b/gi, 'large cap')
+    .replace(/\bflexicap\b/gi, 'flexi cap')
+    .replace(/\bmulticap\b/gi, 'multi cap');
+
+  const sName = item.schemeName || '';
+  const sLower = sName.toLowerCase();
+
+  const wantsDirect = /\bdirect\b/i.test(qLower);
+  const wantsRegular = /\bregular\b/i.test(qLower);
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(qLower);
+
+  let score = 0;
+
+  if (sLower === qLower) score += 100;
+  else if (sLower.includes(qLower)) score += 40;
+
+  const stopWords = new Set(['fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular', 'idcw', 'dividend', 'amc', 'mutual', 'the', 'of', 'and', '&', '-']);
+  const qTokens = qLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !stopWords.has(t));
+  const sTokens = new Set(sLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2));
+
+  for (const qt of qTokens) {
+    if (sTokens.has(qt)) {
+      score += 20;
+    } else {
+      for (const st of sTokens) {
+        if (st.includes(qt) || qt.includes(st)) {
+          score += 10;
+          break;
+        }
+      }
+    }
+  }
+
+  const categoryKeywords = [
+    'next', 'small', 'mid', 'large', 'flexi', 'multi', 'focused', 'elss',
+    'hybrid', 'arbitrage', 'liquid', 'overnight', 'gilt', 'debt', 'index',
+    'us', 'global', 'overseas', 'international', 'gold', 'silver', 'esg',
+    'contra', 'pharma', 'tech', 'digital', 'infrastructure', 'banking',
+    'etf', 'nifty', 'sensex',
+  ];
+  for (const cat of categoryKeywords) {
+    if (sTokens.has(cat) && !qTokens.some((qt) => qt.includes(cat) || cat.includes(qt))) {
+      score -= 35;
+    }
+  }
+
+  const isDirect = sLower.includes('direct');
+  const isRegular = sLower.includes('regular');
+  if (wantsDirect) {
+    if (isDirect) score += 30;
+    if (isRegular) score -= 30;
+  } else if (wantsRegular) {
+    if (isRegular) score += 30;
+    if (isDirect) score -= 30;
+  } else {
+    if (isDirect) score += 15;
+  }
+
+  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sLower);
+  const isGrowth = /\bgrowth\b/i.test(sLower);
+  if (wantsIdcw) {
+    if (isIdcw) score += 40;
+    if (isGrowth) score -= 20;
+  } else {
+    if (isGrowth) score += 40;
+    if (isIdcw) score -= 60;
+  }
+
+  if (/institutional|unclaimed|segregated|bonus/i.test(sLower)) {
+    score -= 50;
+  }
+
+  return score;
+}
+
+async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string } | null> {
+  // Check if 6-digit scheme code
+  const codeMatch = name.match(/\b\d{6}\b/);
+  if (codeMatch) {
+    try {
+      const detailRes = await fetch(`https://api.mfapi.in/mf/${codeMatch[0]}`, { signal: AbortSignal.timeout(4000) });
+      if (detailRes.ok) {
+        const details: any = await detailRes.json();
+        const latest = details?.data?.[0];
+        if (latest && latest.nav) {
+          const navNum = parseFloat(latest.nav);
+          if (!isNaN(navNum) && navNum > 0) {
+            return {
+              nav: navNum,
+              date: latest.date || '',
+              schemeName: details.meta?.scheme_name || name,
+              prevNav: details.data?.[1]?.nav ? parseFloat(details.data[1].nav) : undefined,
+            };
+          }
+        }
+      }
+    } catch {}
+  }
+
   const cleanQuery = name
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
+    .replace(/\bmidcap\b/gi, 'mid cap')
+    .replace(/\bsmallcap\b/gi, 'small cap')
+    .replace(/\blargecap\b/gi, 'large cap')
+    .replace(/\bflexicap\b/gi, 'flexi cap')
+    .replace(/\bmulticap\b/gi, 'multi cap')
     .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
     .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
 
-  if (cleanQuery.length < 3) return null;
+  const words = cleanQuery.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return null;
 
-  // Build multiple search query variations for better matching
-  const queries: string[] = [cleanQuery];
-  const words = cleanQuery.split(' ').filter(Boolean);
-  if (words.length >= 2) {
-    queries.push(words.slice(0, 2).join(' '));
-  }
-  if (words.length > 3) {
-    queries.push(words.slice(0, 3).join(' '));
-  }
-  // Also try last 2-3 words (often the scheme name part)
-  if (words.length >= 2) {
-    queries.push(words.slice(-2).join(' '));
-    queries.push(words.slice(-3).join(' '));
-  }
-  // Deduplicate
+  const queries: string[] = [
+    words.join(' '),
+    words.slice(0, 3).join(' '),
+    words.slice(0, 2).join(' '),
+  ].filter((q) => q.length >= 3);
+
   const uniqueQueries = [...new Set(queries)];
-
-  const isDirect = /direct/i.test(name);
-  const isGrowth = /growth/i.test(name);
-
-  let bestMatch: { nav: number; date?: string; prevNav?: number; score: number; schemeCode: number } | null = null;
-  const candidateDetails: { schemeCode: number; score: number }[] = [];
+  const candidateMap = new Map<number, { schemeCode: number; schemeName: string; score: number }>();
 
   for (const query of uniqueQueries) {
     try {
       const searchRes = await fetch(
         `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
-        { signal: AbortSignal.timeout(4000) }
+        { signal: AbortSignal.timeout(3500) }
       );
-      if (!searchRes.ok) continue;
-      const list: any[] = await searchRes.json();
-      if (!list || list.length === 0) continue;
-
-      // Score-based matching instead of first-match
-      for (const item of list) {
-        const schemeName = String(item.schemeName || '');
-        const itemLower = schemeName.toLowerCase();
-        const itemDirect = itemLower.includes('direct');
-        const itemGrowth = itemLower.includes('growth');
-
-        let score = 0;
-        if (isDirect === itemDirect) score += 3;
-        if (isGrowth === itemGrowth) score += 2;
-        const queryWords = query.toLowerCase().split(/\s+/).filter(Boolean);
-        for (const qw of queryWords) {
-          if (qw.length >= 2 && itemLower.includes(qw)) score += 2;
-        }
-        if (itemLower === cleanQuery.toLowerCase()) score += 10;
-        else if (itemLower.includes(cleanQuery.toLowerCase())) score += 5;
-
-        if (score >= 3) {
-          candidateDetails.push({ schemeCode: item.schemeCode, score });
+      if (searchRes.ok) {
+        const list: any[] = await searchRes.json();
+        if (Array.isArray(list)) {
+          for (const item of list) {
+            if (!candidateMap.has(item.schemeCode)) {
+              const score = scoreMfCandidate(item, name);
+              candidateMap.set(item.schemeCode, { ...item, score });
+            }
+          }
         }
       }
-    } catch { /* skip this query */ }
+    } catch {}
+    if (candidateMap.size > 0) break;
   }
 
-  // Sort candidates by score descending, take top 5
-  candidateDetails.sort((a, b) => b.score - a.score);
-  const topCandidates = candidateDetails.slice(0, 5);
+  const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
+  if (sortedCandidates.length === 0) return null;
+
+  const topCandidates = sortedCandidates.slice(0, 4);
+  const now = Date.now();
 
   for (const candidate of topCandidates) {
-    // Skip if we already have a better match
-    if (bestMatch && candidate.score <= bestMatch.score) continue;
-
     try {
       const detailRes = await fetch(
         `https://api.mfapi.in/mf/${candidate.schemeCode}`,
@@ -973,32 +1090,20 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
         const navNum = parseFloat(latest.nav);
         if (isNaN(navNum) || navNum <= 0) continue;
 
-        // Validate NAV date — reject if older than 2 days
-        const navDate = latest.date || '';
-        const navDateObj = new Date(navDate);
-        const now = new Date();
-        const daysDiff = (now.getTime() - navDateObj.getTime()) / (1000 * 60 * 60 * 24);
-        if (daysDiff > 2) continue; // Stale NAV, skip
-
-        if (candidate.score > (bestMatch?.score ?? 0)) {
-          bestMatch = {
-            nav: navNum,
-            date: navDate,
-            prevNav: prev ? parseFloat(prev.nav) : undefined,
-            score: candidate.score,
-            schemeCode: candidate.schemeCode,
-          };
+        // Skip discontinued dead schemes older than 60 days
+        const navDate = parseMfNavDate(latest.date);
+        if (navDate && now - navDate.getTime() > 60 * 24 * 60 * 60 * 1000) {
+          continue;
         }
-      }
-    } catch { /* skip this candidate */ }
-  }
 
-  if (bestMatch) {
-    return {
-      nav: bestMatch.nav,
-      date: bestMatch.date,
-      prevNav: bestMatch.prevNav,
-    };
+        return {
+          nav: navNum,
+          date: latest.date,
+          schemeName: details.meta?.scheme_name || candidate.schemeName,
+          prevNav: prev ? parseFloat(prev.nav) : undefined,
+        };
+      }
+    } catch {}
   }
 
   return null;
@@ -1028,8 +1133,8 @@ export const syncLiveMarketPrices = action({
           const mf = await fetchMfNav(inv.name);
           if (mf && mf.nav > 0) {
             livePrice = mf.nav;
-          } else {
-            // Check if exchange-traded ETF or listed product
+          } else if (/\b(etf|bees)\b/i.test(inv.name)) {
+            // ONLY check stock/ETF quote if explicitly an ETF or BEES instrument
             const stk = await fetchStockQuote(inv.name);
             if (stk && stk.price > 0) livePrice = stk.price;
           }
@@ -1075,6 +1180,35 @@ export const syncLiveMarketPrices = action({
     }
 
     return { success: true, count: updates.length, updates };
+  },
+});
+
+export const fetchLivePrice = action({
+  args: {
+    name: v.string(),
+    assetType: v.string(),
+  },
+  handler: async (_ctx, args) => {
+    const { name, assetType } = args;
+    if (!name || name.trim().length < 2) return null;
+
+    if (assetType === "mutual_fund") {
+      const mf = await fetchMfNav(name);
+      if (mf && mf.nav > 0) {
+        return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
+      }
+      if (/\b(etf|bees)\b/i.test(name)) {
+        return await fetchStockQuote(name);
+      }
+      return null;
+    }
+
+    if (assetType === "crypto") {
+      return await fetchCryptoPrice(name);
+    }
+
+    // Stocks, Gold, Silver, SGB, Commodities
+    return await fetchStockQuote(name);
   },
 });
 

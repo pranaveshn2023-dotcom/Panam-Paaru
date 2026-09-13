@@ -4,6 +4,8 @@ import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
 import { Investment, AssetType } from '../../types';
 import { TrendingUp, Layers, Calendar, DollarSign, Zap, Loader2 } from 'lucide-react';
+import { useAction } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 import { fetchAmfiNav, fetchLiveStockPrice, fetchLiveCryptoPrice } from '../../utils/liveMarketService';
 
 interface InvestmentModalProps {
@@ -55,15 +57,17 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   const [sipDay, setSipDay] = useState('5');
   const [xirr, setXirr] = useState('');
   const [notes, setNotes] = useState('');
-  const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
-  // Live price auto-fetch state
-  const [livePrice, setLivePrice] = useState<number | null>(null);
-  const [livePriceSymbol, setLivePriceSymbol] = useState('');
+  // ── Real-time price fetching state ──
   const [isFetchingPrice, setIsFetchingPrice] = useState(false);
-  const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fetchIdRef = useRef(0); // Monotonic ID to discard stale responses
+  const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [livePriceSymbol, setLivePriceSymbol] = useState<string>('');
+  const fetchTimeoutRef = useRef<any>(null);
+  const fetchIdRef = useRef<number>(0);
+
+  const fetchLivePriceAction = useAction(api.investments.fetchLivePrice);
 
   useEffect(() => {
     if (initialData) {
@@ -79,6 +83,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setXirr(initialData.xirr || '');
       setNotes(initialData.notes || '');
       setLivePrice(initialData.currentPrice || null);
+      setLivePriceSymbol(initialData.name);
     } else {
       setName('');
       setAssetType('mutual_fund');
@@ -119,18 +124,37 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     try {
       let result: { price: number; prevClose?: number; symbol?: string } | null = null;
 
-      if (type === 'crypto') {
-        result = await fetchLiveCryptoPrice(assetName);
-      } else if (type === 'mutual_fund') {
+      if (type === 'mutual_fund') {
+        // Fast direct AMFI lookup (works natively with CORS in browser)
         const mf = await fetchAmfiNav(assetName);
         if (mf && mf.nav > 0) {
           result = { price: mf.nav, symbol: mf.schemeName };
         } else {
-          result = await fetchLiveStockPrice(assetName);
+          // Backend server action with direct Yahoo Finance & AMFI access
+          try {
+            const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
+            if (serverRes && serverRes.price > 0) result = serverRes;
+          } catch {}
+        }
+      } else if (type === 'crypto') {
+        // First try client-side CoinGecko
+        result = await fetchLiveCryptoPrice(assetName);
+        if (!result || result.price <= 0) {
+          try {
+            const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
+            if (serverRes && serverRes.price > 0) result = serverRes;
+          } catch {}
         }
       } else {
-        // stocks, gold — use Yahoo Finance
-        result = await fetchLiveStockPrice(assetName);
+        // Stocks, Gold, Silver, ETFs — query backend action for unblocked NSE/BSE quotes
+        try {
+          const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
+          if (serverRes && serverRes.price > 0) result = serverRes;
+        } catch {}
+
+        if (!result || result.price <= 0) {
+          result = await fetchLiveStockPrice(assetName);
+        }
       }
 
       // Discard if a newer request has been fired
@@ -154,7 +178,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         setIsFetchingPrice(false);
       }
     }
-  }, []);
+  }, [fetchLivePriceAction]);
 
   useEffect(() => {
     if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
@@ -163,7 +187,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       fetchTimeoutRef.current = setTimeout(() => {
         const id = ++fetchIdRef.current;
         doFetchLivePrice(name, assetType, id);
-      }, 800);
+      }, 350);
     } else {
       fetchIdRef.current++;
       setLivePrice(null);
