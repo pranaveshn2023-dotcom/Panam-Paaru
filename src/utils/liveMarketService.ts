@@ -490,7 +490,8 @@ export async function fetchAmfiNav(
       if (b.score !== a.score) return b.score - a.score;
       if (a.isDirect && !b.isDirect) return -1;
       if (!a.isDirect && b.isDirect) return 1;
-      return b.nav - a.nav;
+      if (b.nav !== a.nav) return b.nav - a.nav;
+      return (a.schemeCode || 0) - (b.schemeCode || 0);
     });
 
     const result = {
@@ -655,6 +656,16 @@ export async function fetchLiveUsdInrRate(): Promise<number> {
       if (typeof rate === 'number' && rate > 0) return rate;
     }
   } catch {}
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD', {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      const rate = data?.rates?.INR;
+      if (typeof rate === 'number' && rate > 0) return rate;
+    }
+  } catch {}
   return 88;
 }
 
@@ -763,7 +774,8 @@ export async function fetchLiveCryptoPrice(
         if (best) {
           const usdPrice = best.d[0];
           const changePct = best.d[1] || 0;
-          const inrPrice = Math.round(usdPrice * 100 * 100) / 100;
+          const usdInr = await fetchLiveUsdInrRate();
+          const inrPrice = Math.round(usdPrice * usdInr * 100) / 100;
           const prevClose = changePct !== 0 ? inrPrice / (1 + changePct / 100) : undefined;
           return { price: inrPrice, prevClose, symbol: best.s };
         }

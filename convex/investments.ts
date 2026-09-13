@@ -891,6 +891,16 @@ async function fetchLiveUsdInrRate(): Promise<number> {
       if (typeof rate === 'number' && rate > 0) return rate;
     }
   } catch {}
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD', {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      const rate = data?.rates?.INR;
+      if (typeof rate === 'number' && rate > 0) return rate;
+    }
+  } catch {}
   return 88;
 }
 
@@ -945,7 +955,8 @@ async function fetchCryptoPrice(
         if (best) {
           const usdPrice = best.d[0];
           const changePct = best.d[1] || 0;
-          const inrPrice = Math.round(usdPrice * 100 * 100) / 100;
+          const usdInr = await fetchLiveUsdInrRate();
+          const inrPrice = Math.round(usdPrice * usdInr * 100) / 100;
           const prevClose = changePct !== 0 ? inrPrice / (1 + changePct / 100) : undefined;
           return { price: inrPrice, prevClose, symbol: best.s };
         }
@@ -1333,7 +1344,7 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
 
   const topCandidates = sortedCandidates.slice(0, 6);
   const now = Date.now();
-  const validResults: { nav: number; date: string; schemeName: string; prevNav?: number; score: number; isDirect: boolean }[] = [];
+  const validResults: { nav: number; date: string; schemeName: string; prevNav?: number; score: number; isDirect: boolean; schemeCode?: number }[] = [];
 
   for (const candidate of topCandidates) {
     try {
@@ -1369,6 +1380,7 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
           prevNav: prev ? parseFloat(prev.nav) : undefined,
           score: candidate.score,
           isDirect: /direct/i.test(resolvedName) || /direct/i.test(candidate.schemeName),
+          schemeCode: candidate.schemeCode,
         });
       }
     } catch {}
@@ -1381,7 +1393,8 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
     if (b.score !== a.score) return b.score - a.score;
     if (a.isDirect && !b.isDirect) return -1;
     if (!a.isDirect && b.isDirect) return 1;
-    return b.nav - a.nav;
+    if (b.nav !== a.nav) return b.nav - a.nav;
+    return (a.schemeCode || 0) - (b.schemeCode || 0);
   });
 
   return {
@@ -1398,16 +1411,12 @@ export const internalListInvestments = internalQuery({
   },
   handler: async (ctx, args) => {
     if (args.investmentIds && args.investmentIds.length > 0) {
-      const results: any[] = [];
+      const results = [];
       for (const id of args.investmentIds) {
         const item = await ctx.db.get(id);
         if (item) results.push(item);
       }
       return results;
-    }
-    const userId = await getAuthUserId(ctx);
-    if (userId) {
-      return await ctx.db.query("investments").withIndex("by_user", (q) => q.eq("userId", userId)).collect();
     }
     return await ctx.db.query("investments").collect();
   },
@@ -1525,11 +1534,17 @@ export const syncLiveMarketPrices = action({
             updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
           }
 
-          updates.push({
-            id: inv._id,
-            currentValue: updatedVal,
-            currentPrice: livePrice,
-          });
+          // Guard against random or unnecessary database rewrites:
+          // ONLY trigger a mutation if the real provider market price or valuation has actually moved!
+          const valDiff = Math.abs(updatedVal - inv.currentValue);
+          const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));
+          if (valDiff > 0.01 || priceDiff > 0.0001) {
+            updates.push({
+              id: inv._id,
+              currentValue: updatedVal,
+              currentPrice: livePrice,
+            });
+          }
         }
       } catch (err) {
         console.warn(`[SyncLiveMarket] Error fetching price for ${inv.name}:`, err);
@@ -1548,13 +1563,14 @@ export const fetchLivePrice = action({
   args: {
     name: v.string(),
     assetType: v.string(),
+    notes: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
-    const { name, assetType } = args;
+    const { name, assetType, notes } = args;
     if (!name || name.trim().length < 2) return null;
 
     if (assetType === "mutual_fund") {
-      const mf = await fetchMfNav(name);
+      const mf = await fetchMfNav(name, notes);
       if (mf && mf.nav > 0) {
         return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
       }
@@ -1576,7 +1592,7 @@ export const fetchLivePrice = action({
         if (stk && stk.price > 0) return stk;
 
         // 2. Try AMFI NAV for Gold/Silver mutual funds
-        const mf = await fetchMfNav(name);
+        const mf = await fetchMfNav(name, notes);
         if (mf && mf.nav > 0) {
           return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
         }

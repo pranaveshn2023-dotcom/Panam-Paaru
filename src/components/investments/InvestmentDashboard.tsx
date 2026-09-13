@@ -220,7 +220,11 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
               const ratio = livePrice / inv.currentPrice;
               updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
             }
-            updates.push({ id: inv._id as any, currentValue: updatedVal, currentPrice: livePrice });
+            const valDiff = Math.abs(updatedVal - inv.currentValue);
+            const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));
+            if (valDiff > 0.01 || priceDiff > 0.0001) {
+              updates.push({ id: inv._id as any, currentValue: updatedVal, currentPrice: livePrice });
+            }
           }
         }
         if (updates.length > 0) {
