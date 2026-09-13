@@ -1,232 +1,166 @@
-# ⚡ Panam Paaru (பணம் பாரு)
-### *See Your Money. Own Your Wealth.*
+# Panam Paaru (பணம் பாரு)
 
-> **"Panam Paaru"** is Tamil for **"Look at Your Money!"**  
-> It is an ultra-fast, transparent personal wealth dashboard and cashflow engine built for people who want absolute clarity over their finances—without clunky spreadsheets, fake numbers, or confusing financial jargon.
+Personal Wealth Dashboard and Cashflow Management Engine
 
----
-
-<<<<<<< HEAD
-## What is Panam Paaru?
-
-> Imagine you have money in different places: some cash in your pocket, some cash in your bank account, and some savings in your investments. Sometimes you spend money on snacks, and sometimes your money grows like seeds in a garden.
->
-> Usually, it's hard to remember where every coin went.  
-> **Panam Paaru is like a magic see-through glass box.** You open it, and you instantly see:
-> 1. **How much money you have right now** (in every fund or stock).
-> 2. **Where your money went** (so you don't overspend on unnecessary things).
-=======
-##  What is Panam Paaru?
-
-> Imagine you have money in different places: some cash in your pocket, some investments in mutual fund or stocks, and some savings in the bank. Sometimes you spend money on snacks, and sometimes your money grows like seeds in a garden.
->
-> Usually, it's hard to remember where every coin went.  
-> **Panam Paaru is like your personal investment and expense tracker companion.** You open it, and you instantly see:
-> 1. **How much money you have right now** (in every Mutual fund and Stock).
-> 2. **Where your money went** (so you don't overspend on unneccessary things!).
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-> 3. **How your money is growing** (with live prices updating like a radar).
->
-> It never forgets a single coin, keeps out nosy peekers with a secret PIN, and works cleanly on your phone or computer!
+Panam Paaru ("Look at Your Money") is a real-time personal finance and portfolio tracking platform engineered for high-precision visibility over net worth, cashflow, and investments. It consolidates banking accounts, multi-asset portfolios, and calendar-aware recurring budgets into a unified, reactive interface.
 
 ---
 
-##  The Difference: Typical Apps vs. Panam Paaru
+## System Overview
 
-<<<<<<< HEAD
-| What happens? | Typical Finance Apps  | Panam Paaru ⚡ |
-=======
-| What happens? | Typical Finance Apps  | Panam Paaru ⚡ |
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
+Traditional personal finance tools often suffer from stale manual data entry, complex multi-page navigation, or fragile browser storage. Panam Paaru solves these limitations through:
+
+1. **Zero-Baseline Initialization**: Clean ledger state upon account creation without synthetic dummy records or default placeholder clutter.
+2. **Real-Time Valuation**: Automated price feeds for mutual funds, equities, bullion, and digital assets.
+3. **Automated Statement Ingestion**: Direct extraction and parsing of CAMS, KFintech, and brokerage statements (PDF, XLSX, CSV).
+4. **Calendar-Aware Budget Cycles**: Accurate leap-year and variable month-end rollover logic (28, 29, 30, and 31-day months).
+5. **Reactive Cloud Persistence**: Distributed, transactional cloud persistence powered by Convex, eliminating cache-wipe vulnerabilities.
+6. **Local Privacy Controls**: Quick-toggle numeric masking and inactivity-based PIN locks for shared screen environments.
+
+---
+
+## Comparison: Conventional Tools vs. Panam Paaru
+
+| Feature / Workflow | Conventional Tools | Panam Paaru |
 | :--- | :--- | :--- |
-| **First time you open it** | Filled with confusing dummy numbers & fake charts | **Clean zero-balance slate.** Only your real money matters. |
-| **Checking stock/crypto values** | You have to look up the price and type it manually | **Live price radar.** Updates automatically from official market feeds. |
-| **Entering bank/broker statements** | Hours of tedious copy-pasting line by line | **Magic Paper Reader.** Drop in your PDF/Excel sheet and it imports in 2 seconds. |
-| **Monthly budget rollover** | Fails on months with 28, 29, or 31 days | **Calendar-smart engine.** Handles leap years and month ends perfectly. |
-| **Someone looks over your shoulder** | Your private net worth is exposed | **1-Click Privacy Shield.** Instantly masks all numbers to `••••••`. |
-| **Your data safety** | Gets wiped if browser cache clears | **Cloud-persisted.** 100% durable, reactive, and always in sync. |
+| Initial Setup | Populated with mock data and arbitrary assumptions | Zero-balance initialization using verified user inputs |
+| Investment Valuation | Manual quote lookups and manual price updates | Automated synchronization via official AMFI and market APIs |
+| Statement Processing | Manual line-by-line spreadsheet entry | Automated file parsing for PDF, XLSX, and CSV formats |
+| Budget Rollover | Rigid 30-day approximations causing end-of-month drift | Deterministic calendar snapping for month-end and leap years |
+| Screen Privacy | Full balances permanently visible on screen | Instant privacy toggle masking values to fixed placeholders |
+| Data Persistence | Client-side local storage susceptible to browser cache clearance | Convex transactional cloud backend with multi-device sync |
 
 ---
 
-<<<<<<< HEAD
-##  Core Features
+## Core Architecture and Features
 
-### 1.  The 4 Command Hubs — Zero Dock Clutter
-Instead of 10 confusing menus, Panam Paaru organizes your entire financial life into **4 clean hubs**:
-- **Home / Overview**: Your financial speedometer. Shows your total net balance, your portfolio valuation, quick action buttons (`+ Income`, `- Expense`, `Transfer`), and your active budgets.
-- **Expenses & Cashflow**: Your daily money journal. Switch smoothly between your **Transactions Ledger**, **Accounts & Wallets**, **Budgets & Pockets**, and **Spending Flow** analysis.
-- **Investments & Wealth**: Your money growth tracker. Live prices for Indian stocks, mutual funds, gold, and crypto with visual profit/loss and allocation charts.
-- **Settings & Security**: Set your security PIN, adjust auto-lock timers, pick your display currency, and monitor live cloud sync.
+### 1. Unified Command Hubs
+The user interface is segmented into four primary operational domains:
+- **Overview**: High-level financial telemetry, total balance aggregates, portfolio valuations, and rapid action triggers (Income, Expense, Transfer).
+- **Cashflow**: Daily financial operations containing the transaction ledger, account manager, recurring budget allocations, and categorical spend analysis.
+- **Investments**: Multi-asset portfolio management, profit/loss attribution, allocation distribution metrics, and live index benchmarks.
+- **Settings & Security**: PIN management, auto-lock timeout configuration, display currency formatting, and real-time backend connection status.
 
----
+### 2. Multi-Account Management
+Maintains accurate account separation across all asset locations:
+- **Supported Account Types**: Bank accounts, physical cash on hand, credit lines, brokerage balances, and dedicated savings pockets.
+- **Atomic Fund Transfers**: Double-entry consistency ensuring simultaneous balance adjustments between source and destination accounts.
+- **Zero Discrepancy Baseline**: Explicit tracking without arbitrary initial values.
 
-### 2.  Smart Wallets
-=======
-##  Core Features of Panam Paaru
+### 3. Calendar-Aware Recurring Budgets
+Enforces strict budget limits that adapt to real-world calendar constraints:
+- **Cadence Options**: Daily, Weekly, Monthly, Quarterly, and Annual intervals.
+- **Boundary Handling**: Month-end configurations (e.g., January 31) automatically normalize to February 28/29 and snap back to March 31 without configuration drift.
+- **Automatic Allocation**: Systematic deduction from linked funding accounts upon cycle renewal.
+- **Utilization Tracking**: Real-time progress indicators displaying remaining headroom against set thresholds.
 
-### 1.  The 4 Command Hubs 
-Instead of 10 confusing menus, Panam Paaru organizes your entire financial life into **4 clean hubs**:
-- **Home / Overview**: Your financial speedometer. Shows your total net balance, your portfolio valuation, quick action buttons (`+ Income`, `- Expense`, `Transfer`), and your active budgets.
-- **Expenses & Cashflow**: Your daily money journal. Switch smoothly between your **Transactions Ledger**, **Accounts & Wallets**, **Budgets & Pockets**, and **Spending Flow** analysis.
-- **Investments & Wealth**: Your money growth tracker. Live prices for Indian stocks, mutual funds, gold, and crypto with visual profit/loss and allocation charts.
-- **Settings & Security**: Set your security PIN, adjust auto-lock timers, pick your display currency, and monitor live cloud sync.
+### 4. Automated Asset Valuation Engine
+Continuously updates portfolio holding values against primary market sources:
+- **Mutual Funds**: Daily NAV synchronization via the Association of Mutual Funds in India (AMFI) database.
+- **Indian Equities**: Live market pricing for NSE and BSE listed equities.
+- **Cryptocurrencies**: Market data tracking for major tokens via CoinGecko feeds.
+- **Bullion**: Valuation tracking for physical gold and Sovereign Gold Bonds (SGB) based on current spot rates.
+- **Market Benchmarks**: Background index polling for NIFTY 50 and BSE SENSEX performance tracking.
 
----
+### 5. Universal Statement Ingestion
+Eliminates manual portfolio data entry through client-side parsing:
+- **Supported Formats**: CAMS CAS PDFs, KFintech PDFs, Zerodha CSV exports, and Groww Excel workbooks (XLSX).
+- **Normalization Pipeline**: Automatic identification and mapping of scheme names, folio references, transaction dates, unit counts, acquisition costs, and current valuations.
+- **Global Shortcut**: Accessible via Ctrl + U (Windows/Linux) or Cmd + U (macOS) from any screen.
 
-### 2.  Smart wallets (Atomic Multi-Wallet System)
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-Keep every rupee organized by where it actually lives:
-- **Every Account Type**: Bank accounts, Physical Cash on Hand, Credit Cards, Demat/Brokerage cash, and dedicated Savings Vaults.
-- **Move Money Seamlessly**: Transfer funds between wallets with guaranteed double-entry accuracy—taking money out of Cash and putting it into the Bank happens simultaneously with zero discrepancies.
-- **Clean Starting Line**: Every newly created account starts at clean `₹0.00`. No fabricated numbers.
+### 6. Security and Screen Privacy
+Designed for secure usage in corporate or public spaces:
+- **PIN Verification**: 4-digit master PIN enforcement with virtual keypad and physical keyboard support.
+- **Inactivity Timeout**: Automated screen lockout with configurable timeouts (Immediate, 1 minute, 5 minutes, 15 minutes).
+- **Single-Click Privacy Mask**: Instant obfuscation of monetary values and portfolio metrics across all views.
 
----
-
-<<<<<<< HEAD
-### 3.  Pocket Money Rules (Calendar-Smart Recurring Budgets)
-=======
-### 3.  Pocket Money Rules (Calendar-Smart Recurring Budgets)
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-Set spending boundaries that adapt to the real calendar:
-- **Deterministic Cycles**: Daily, Weekly, Monthly, Quarterly, and Yearly.
-- **Month-End Intelligent**: If your budget starts on January 31st, it automatically renews on February 28th (or 29th in a leap year), and accurately snaps back to March 31st.
-- **Auto-Deduct from Source**: When a new budget cycle begins or an emergency pocket is refilled, funds are deducted automatically from your chosen wallet.
-- **Live Progress Bars**: Watch exactly how much headroom you have left before you reach your spending limit.
-
----
-
-<<<<<<< HEAD
-### 4.  The Live Money Radar (Real-Time Investment Valuation)
-=======
-### 4.  The Live Money Radar (Real-Time Investment Valuation)
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-Stop manually looking up today's stock price or mutual fund NAV. Panam Paaru fetches live values automatically:
-- **Mutual Funds (AMFI)**: Direct lookup against official Association of Mutual Funds in India daily NAVs.
-- **Indian Equities (NSE/BSE)**: Live stock prices fetched via Yahoo Finance feeds.
-- **Cryptocurrencies**: Live rates for Bitcoin, Ethereum, and altcoins fetched continuously via CoinGecko.
-- **Gold & Sovereign Gold Bonds (SGB)**: Real-time price tracking based on active bullion indices.
-- **NIFTY 50 & SENSEX Ticker**: Live market pulse running in real-time with automatic background refresh.
+### 7. Reactive Cloud Synchronization
+- **Backend Architecture**: Real-time document subscription and mutation model powered by Convex.
+- **State Integrity**: Eliminates reliance on unpersisted client-side cache or vulnerable local storage.
+- **Cross-Platform Parity**: Instant updates reflected concurrently across desktop, tablet, and mobile browsers.
 
 ---
 
-<<<<<<< HEAD
-### 5. The Magic Paper Reader (Universal Statement Importer)
-=======
-### 5.  The Magic Paper Reader (Universal Statement Importer)
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-Got a statement from your bank, Zerodha, Groww, CAMS, or KFintech? Don't type it out:
-- **Drag & Drop Any Format**: Accepts PDF statements (CAMS CAS, KFintech), Excel sheets (XLSX), CSV files (Zerodha Console), and raw copied text.
-- **Intelligent Column Detection**: Smart multi-pass scanner automatically identifies scheme names, folio numbers, units, purchase price, and current valuations.
-- **Instant Keyboard Shortcut**: Press <kbd>Ctrl</kbd> + <kbd>U</kbd> (or <kbd>Cmd</kbd> + <kbd>U</kbd> on Mac) anywhere in the app to open the importer immediately.
+## Technology Stack
+
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| Frontend Framework | React 19 | UI rendering and component lifecycle management |
+| Language | TypeScript | Static typing and interface contracts |
+| Build Tool | Vite | Fast module bundling and local development server |
+| Backend & Database | Convex | Real-time reactive document database and server functions |
+| Styling | Tailwind CSS | Utility-first styling with structured design tokens |
+| Visualizations | Recharts | Portfolio allocation and cashflow trajectory charts |
+| Document Parsing | PDF.js, XLSX, CSV | Client-side statement ingestion and schema mapping |
+| Icons | Lucide React | Standardized system iconography |
 
 ---
 
-<<<<<<< HEAD
-### 6.  Secret Lock & Privacy Glasses (Bank-Grade Protection)
-=======
-### 6.  Secret Lock & Privacy Glasses (Bank-Grade Protection)
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-Your financial life is private. Panam Paaru keeps it that way:
-- **Tactile Security PIN**: Enter your 4-digit code using the on-screen keypad or your physical keyboard numpad.
-- **Inactivity Auto-Lock**: Automatically locks the screen if you step away (Immediate, 1 min, 5 min, or 15 min).
-- **1-Click Privacy Mode (`👁`)**: Click the eye icon in the top navigation to instantly mask all account balances, transaction amounts, and profit figures with dots (`••••••`). Perfect for using the app in public or at work.
+## Getting Started
 
----
+### Prerequisites
+- Node.js (v18.0.0 or higher recommended)
+- npm (v9.0.0 or higher)
+- Convex Account and CLI
 
-<<<<<<< HEAD
-### 7. Convex Cloud sync
-- **Direct Database Persistence**: Every transaction, wallet, budget, and investment is synchronized immediately with the convex cloud database.
-=======
-### 7.  24/7 active Cloud Sync (Zero Lost Data)
-- **Direct Database Persistence**: Every transaction, wallet, budget, and investment is synchronized immediately with convex cloud database.
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-- **No Fragile Browser Storage**: Your data does not depend on vulnerable browser local storage that vanishes when you clear cache.
-- **Device Freedom**: Log in on your phone, laptop, or tablet and see identical, up-to-the-second numbers.
+### Installation
 
----
-
-<<<<<<< HEAD
-### 8.  Tactile Neo-Brutalist Design (Buttons You Can Feel)
-=======
-### 8.  Tactile Neo-Brutalist Design (Buttons You Can Feel)
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-Panam Paaru rejects dull corporate gray interfaces in favor of high-contrast, energetic, tactile design:
-- **Bold 2px–3px Borders**: High contrast and crystal-clear readability under any lighting condition.
-- **Crisp Drop Shadows**: 4px hard offsets with zero fuzzy blur.
-- **Physical Feedback**: Buttons visibly press down (`translate(2px, 2px)`) when you click or tap them.
-- **Thumb-Optimized**: 52px touch targets on mobile so you never mis-tap.
-
----
-
-## 🛠️ Tech Stack Under the Hood
-
-| Layer | Technology |
-| :--- | :--- |
-| **Frontend** | React 18, TypeScript, Vite |
-<<<<<<< HEAD
-| **Backend & Real-Time DB** | Convex Reactive Cloud Backend |
-| **Styling & Aesthetics** | TailwindCSS + Neo-Brutalist Design Tokens |
-| **Market Data APIs** | AMFI India NAV API, Yahoo Finance, CoinGecko |
-| **Document Ingestion** | PDF.js, XLSX, CSV |
-=======
-| **Backend & Real-Time DB** | Convex Reactive & Cloud Backend |
-| **Styling & Aesthetics** | TailwindCSS + Neo-Brutalist Design Tokens |
-| **Market Data APIs** | AMFI India NAV API, Yahoo Finance, CoinGecko |
-| **Document Ingestion** | PDF.js, XLSX, csv |
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-| **Icons & Visuals** | Lucide React |
-
----
-
-## 🚀 Quick Start (Run Locally in 60 Seconds)
-
-### 1. Clone & Install
+1. Clone the repository:
 ```bash
 git clone https://github.com/pranaveshn2023-dotcom/Panam-Paaru.git
 cd Paanam
+```
+
+2. Install dependencies:
+```bash
 npm install
 ```
 
-### 2. Configure Environment
-Create a `.env.local` file with your Convex deployment:
+3. Configure environment variables:
+Create a `.env.local` file in the project root:
 ```env
-VITE_CONVEX_URL="https://your-convex-deployment.convex.cloud"
+VITE_CONVEX_URL="https://<your-project-slug>.convex.cloud"
 ```
 
-### 3. Start Development Server
+### Running Locally
+
+Execute the backend service and the frontend development server:
+
 ```bash
-# Terminal 1: Convex real-time backend
+# Terminal 1: Convex local backend synchronization
 npx convex dev
 
-# Terminal 2: Web frontend
+# Terminal 2: Vite development server
 npm run dev
 ```
 
-Visit `http://localhost:5173` in your browser.
+The application will be accessible at `http://localhost:5173`.
+
+### Production Build
+
+To validate TypeScript compilation and generate the production bundle:
+
+```bash
+npm run build
+```
+
+The compiled output will be generated in the `dist` directory.
 
 ---
 
-## 🆕 Version History
+## Release Notes
 
-<<<<<<< HEAD
-### v2.1 (Current)
-=======
-### v1.0 (Current)
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-**4-Hub Native Navigation**: Streamlined layout into 4 high-focus hubs (`Home`, `Expenses`, `Invest`, `Settings`).
-**Unified Cashflow Center**: Switch between ledger, wallets, budgets, and spending breakdown seamlessly without page reloads.
-**Universal Live Price Auto-Fetch**: Add any stock, mutual fund, or crypto asset and watch current price and value calculate in real time.
-**Clean Zero Baseline**: All newly created accounts initialize at clean ₹0.00 with zero dummy placeholder clutter.
-=======
-### v0.0
->>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-**Universal Statement Ingestion**: Instant drag-and-drop parsing for CAMS/KFintech PDFs, Zerodha CSVs, and Groww Excel files.
-**Quick Ingestion Shortcut**: Global <kbd>Ctrl</kbd> + <kbd>U</kbd> launch shortcut.
-**Live Index Ticker**: Live background ticker for NIFTY 50 and BSE SENSEX benchmark indices.
+### Version 1.0.0
+- Implemented four-hub primary layout: Overview, Cashflow, Investments, and Settings.
+- Unified cashflow center combining transactions, account management, and budget allocations.
+- Integrated automated AMFI NAV, equity, and crypto market price synchronization.
+- Added client-side universal statement ingestion engine supporting PDF, XLSX, and CSV sources.
+- Configured keyboard shortcut (Ctrl + U / Cmd + U) for statement ingestion.
+- Added live market benchmark monitoring for NIFTY 50 and BSE SENSEX.
+- Implemented client privacy mode and idle session timeout security.
 
 ---
 
-## 📄 License & Integrity
+## License
 
-Built with ❤️ for financial clarity and independence.  
-**See your money. Know your worth with Panam Paaru.**
+This project is licensed under the ISC License. See the LICENSE file for details.
