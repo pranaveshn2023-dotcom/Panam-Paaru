@@ -3,8 +3,8 @@ import { AssetType } from '../types';
 // In-memory cache for live NAVs to prevent duplicate network calls
 const navCache = new Map<string, { nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number }>();
 
-// Persistent localStorage cache key (v3 ensures stale/IDCW cached NAVs from prior versions are purged)
-const LS_CACHE_KEY = 'paanam_mf_nav_cache_v3';
+// Persistent localStorage cache key (v4 ensures stale/IDCW cached NAVs from prior versions are purged)
+const LS_CACHE_KEY = 'paanam_mf_nav_cache_v4';
 
 // Cache TTL: 10 minutes for real-time NAV data
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -34,6 +34,7 @@ function cleanupPersistentCache() {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('paanam_mf_nav_cache_v1');
       localStorage.removeItem('paanam_mf_nav_cache_v2');
+      localStorage.removeItem('paanam_mf_nav_cache_v3');
     }
     const cache = getPersistentCache();
     const now = Date.now();
@@ -83,10 +84,22 @@ export function parseNavDate(dateStr: string): Date | null {
 }
 
 /**
+ * Strip broker/CAMS/Groww category suffixes (e.g. "- LARGE CAP", "- MID CAP")
+ */
+export function stripBrokerSuffix(name: string): string {
+  if (!name) return '';
+  return name
+    .replace(/\s*[-–—:]\s*(large\s*cap|mid\s*cap|small\s*cap|flexi\s*cap|multi\s*cap|large\s*&\s*mid\s*cap|elss|sectoral(\s*\/\s*thematic)?|thematic|international|debt|hybrid|liquid|arbitrage|equity|value|focused|balanced\s*advantage)\b.*/i, '')
+    .replace(/\.{2,}$/, '')
+    .trim();
+}
+
+/**
  * Clean scheme name for AMFI search query
  */
 export function cleanSearchQuery(raw: string): string {
-  return raw
+  const stripped = stripBrokerSuffix(raw);
+  return stripped
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
     .replace(/\bmidcap\b/gi, 'mid cap')
     .replace(/\bsmallcap\b/gi, 'small cap')
@@ -107,7 +120,8 @@ export function cleanSearchQuery(raw: string): string {
  * - Heavily penalizes discontinued, institutional, bonus, or segregated options.
  */
 function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
-  const qLower = rawQuery
+  const stripped = stripBrokerSuffix(rawQuery);
+  const qLower = stripped
     .toLowerCase()
     .replace(/\bmidcap\b/gi, 'mid cap')
     .replace(/\bsmallcap\b/gi, 'small cap')
@@ -248,6 +262,7 @@ export async function fetchAmfiNav(
 
     const queries: string[] = [
       coreWords.join(' '),
+      coreWords.slice(0, 4).join(' '),
       coreWords.slice(0, 3).join(' '),
       coreWords.slice(0, 2).join(' '),
     ].filter((q) => q.length >= 3);

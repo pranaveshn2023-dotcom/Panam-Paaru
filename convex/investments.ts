@@ -920,8 +920,17 @@ function parseMfNavDate(dateStr: string): Date | null {
   return isNaN(f.getTime()) ? null : f;
 }
 
+export function stripBrokerSuffix(name: string): string {
+  if (!name) return '';
+  return name
+    .replace(/\s*[-–—:]\s*(large\s*cap|mid\s*cap|small\s*cap|flexi\s*cap|multi\s*cap|large\s*&\s*mid\s*cap|elss|sectoral(\s*\/\s*thematic)?|thematic|international|debt|hybrid|liquid|arbitrage|equity|value|focused|balanced\s*advantage)\b.*/i, '')
+    .replace(/\.{2,}$/, '')
+    .trim();
+}
+
 function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
-  const qLower = rawQuery
+  const stripped = stripBrokerSuffix(rawQuery);
+  const qLower = stripped
     .toLowerCase()
     .replace(/\bmidcap\b/gi, 'mid cap')
     .replace(/\bsmallcap\b/gi, 'small cap')
@@ -1024,7 +1033,9 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
     } catch {}
   }
 
-  const cleanQuery = name
+  const strippedName = stripBrokerSuffix(name);
+
+  const cleanQuery = strippedName
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
     .replace(/\bmidcap\b/gi, 'mid cap')
     .replace(/\bsmallcap\b/gi, 'small cap')
@@ -1041,6 +1052,7 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
 
   const queries: string[] = [
     words.join(' '),
+    words.slice(0, 4).join(' '),
     words.slice(0, 3).join(' '),
     words.slice(0, 2).join(' '),
   ].filter((q) => q.length >= 3);
@@ -1059,7 +1071,7 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
         if (Array.isArray(list)) {
           for (const item of list) {
             if (!candidateMap.has(item.schemeCode)) {
-              const score = scoreMfCandidate(item, name);
+              const score = scoreMfCandidate(item, strippedName);
               candidateMap.set(item.schemeCode, { ...item, score });
             }
           }
