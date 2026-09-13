@@ -88,10 +88,17 @@ export function parseNavDate(dateStr: string): Date | null {
  */
 export function stripBrokerSuffix(name: string): string {
   if (!name) return '';
-  return name
-    .replace(/\s*[-–—:]\s*(large\s*cap|mid\s*cap|small\s*cap|flexi\s*cap|multi\s*cap|large\s*&\s*mid\s*cap|elss|sectoral(\s*\/\s*thematic)?|thematic|international|debt|hybrid|liquid|arbitrage|equity|value|focused|balanced\s*advantage)\b.*/i, '')
-    .replace(/\.{2,}$/, '')
-    .trim();
+  const cleaned = name.replace(/\.{2,}$/, '').trim();
+  const dashParts = cleaned.split(/\s+[-–—:]\s+/);
+  if (dashParts.length > 1 && dashParts[0].trim().length >= 4) {
+    const lastPart = dashParts[dashParts.length - 1].trim();
+    const trailingWords = lastPart.split(/\s+/);
+    // If trailing segment is an attached broker classification tag (<= 3 words) and not a plan type
+    if (trailingWords.length <= 3 && !/\b(growth|direct|regular|idcw|dividend|plan)\b/i.test(lastPart)) {
+      return dashParts.slice(0, -1).join(' ').trim();
+    }
+  }
+  return cleaned;
 }
 
 /**
