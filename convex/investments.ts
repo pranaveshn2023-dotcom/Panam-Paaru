@@ -900,42 +900,9 @@ async function fetchCryptoPrice(
   const { coinId, symbol } = await resolveCryptoMeta(name);
   const targetSymbol = (symbol || name).trim().toUpperCase();
 
-  // 1. Primary: TradingView Scanner API (Direct INR Pair, e.g. COINBASE:BTCINR, COINBASE:ETHINR, COINBASE:SOLINR)
-  // Zero API keys required, free real-time live market feed from TradingView
+  // 1. Primary: Real-time Indian Crypto Exchange (CoinDCX public live ticker)
+  // Exactly matches the domestic INR spot price seen on Indian apps like CoinSwitch (e.g. ~76.71L)
   if (targetSymbol) {
-    try {
-      const tvRes = await fetch('https://scanner.tradingview.com/crypto/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbols: {
-            tickers: [
-              `COINBASE:${targetSymbol}INR`,
-              `COINDCX:${targetSymbol}INR`,
-              `WAZIRX:${targetSymbol}INR`,
-            ],
-          },
-          columns: ['close', 'change', 'description', 'currency'],
-        }),
-        signal: AbortSignal.timeout(4000),
-      });
-      if (tvRes.ok) {
-        const tvData: any = await tvRes.json();
-        const rows: any[] = tvData?.data || [];
-        const inrRow = rows.find(
-          (r) => r.s && r.s.endsWith('INR') && typeof r.d?.[0] === 'number' && r.d[0] > 0
-        );
-        if (inrRow) {
-          const price = inrRow.d[0];
-          const changePct = inrRow.d[1] || 0;
-          const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
-          return { price, prevClose, symbol: inrRow.s };
-        }
-      }
-    } catch {}
-
-    // 2. Secondary: Real-time Indian Crypto Exchange (CoinDCX public ticker)
-    // Reflects the exact domestic INR spot price seen on Indian apps (CoinSwitch, CoinDCX, WazirX)
     try {
       const dcxRes = await fetch('https://api.coindcx.com/exchange/ticker', {
         signal: AbortSignal.timeout(4000),
@@ -948,6 +915,39 @@ async function fetchCryptoPrice(
           const changePct = parseFloat(match.change_24_hour || '0');
           const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
           return { price, prevClose, symbol: match.market };
+        }
+      }
+    } catch {}
+
+    // 2. Secondary: TradingView Scanner API (Global Benchmark: BINANCE:BTCUSDT / BYBIT:BTCUSDT)
+    try {
+      const tvRes = await fetch('https://scanner.tradingview.com/crypto/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbols: {
+            tickers: [
+              `BINANCE:${targetSymbol}USDT`,
+              `BYBIT:${targetSymbol}USDT`,
+              `COINBASE:${targetSymbol}USD`,
+            ],
+          },
+          columns: ['close', 'change', 'description'],
+        }),
+        signal: AbortSignal.timeout(4000),
+      });
+      if (tvRes.ok) {
+        const tvData: any = await tvRes.json();
+        const rows: any[] = tvData?.data || [];
+        const best = rows.find(
+          (r) => r.d && typeof r.d[0] === 'number' && r.d[0] > 0
+        );
+        if (best) {
+          const usdPrice = best.d[0];
+          const changePct = best.d[1] || 0;
+          const inrPrice = Math.round(usdPrice * 100 * 100) / 100;
+          const prevClose = changePct !== 0 ? inrPrice / (1 + changePct / 100) : undefined;
+          return { price: inrPrice, prevClose, symbol: best.s };
         }
       }
     } catch {}
