@@ -94,16 +94,16 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
 }) => {
   const iconSizes = {
     sm: 'w-7 h-7',
-    md: 'w-9 h-9',
-    lg: 'w-12 h-12',
-    xl: 'w-16 h-16',
+    md: 'w-7 h-7 sm:w-9 sm:h-9',
+    lg: 'w-10 h-10 sm:w-12 sm:h-12',
+    xl: 'w-14 h-14 sm:w-16 sm:h-16',
   };
 
   const titleSizes = {
-    sm: 'text-base',
-    md: 'text-xl',
-    lg: 'text-2xl',
-    xl: 'text-4xl',
+    sm: 'text-sm sm:text-base',
+    md: 'text-base sm:text-xl',
+    lg: 'text-xl sm:text-2xl',
+    xl: 'text-3xl sm:text-4xl',
   };
 
   return (

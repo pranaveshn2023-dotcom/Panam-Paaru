@@ -1,4 +1,4 @@
-import React, { Suspense, useState } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import {
   BarChart,
   Bar,
@@ -90,12 +90,12 @@ export const AllocationChart: React.FC<AllocationChartProps> = ({ assetBreakdown
         <div className="w-full sm:w-1/2 flex flex-col gap-2">
           {data.map((item) => (
             <div key={item.name} className="flex items-center justify-between text-xs font-black">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <div
                   className="w-3 h-3 border border-[#121212] shrink-0"
                   style={{ backgroundColor: ASSET_COLORS[item.name?.toLowerCase().replace(/\s+/g, '_')] || '#FFE600' }}
                 />
-                <span className="uppercase">{item.name}</span>
+                <span className="uppercase truncate max-w-[120px] sm:max-w-none">{item.name}</span>
               </div>
               <div className="flex items-center gap-3">
                 <span className="font-mono">{item.value}%</span>
@@ -119,6 +119,13 @@ export const ReturnsChart: React.FC<ReturnsChartProps> = ({ investments }) => {
   const { isPrivacyMode } = usePrivacy();
   const [displayLimit, setDisplayLimit] = useState<number | 'all'>('all');
   const [sortOption, setSortOption] = useState<'value' | 'gain' | 'invested' | 'name'>('value');
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 640 : false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   if (!investments || investments.length === 0) return null;
 
@@ -138,9 +145,10 @@ export const ReturnsChart: React.FC<ReturnsChartProps> = ({ investments }) => {
   const data = displayHoldings.map((inv) => {
     const gain = inv.currentValue - inv.investedAmount;
     const gainPercent = inv.investedAmount > 0 ? Number(((gain / inv.investedAmount) * 100).toFixed(2)) : 0;
+    const maxLen = isMobile ? 12 : 20;
     return {
       fullName: inv.name,
-      name: inv.name.length > 20 ? inv.name.substring(0, 18) + '...' : inv.name,
+      name: inv.name.length > maxLen ? inv.name.substring(0, maxLen - 2) + '...' : inv.name,
       invested: inv.investedAmount,
       current: inv.currentValue,
       gain,
@@ -184,13 +192,13 @@ export const ReturnsChart: React.FC<ReturnsChartProps> = ({ investments }) => {
         </div>
       </div>
 
-      <div className="overflow-y-auto max-h-[480px] border border-neutral-200 bg-neutral-50/50 p-2">
+      <div className="overflow-y-auto max-h-[480px] border border-neutral-200 bg-neutral-50/50 p-2 overscroll-y-contain">
         <ResponsiveContainer width="100%" height={chartHeight}>
-          <BarChart data={data} layout="vertical" margin={{ left: 10, right: 20, top: 10, bottom: 10 }}>
+          <BarChart data={data} layout="vertical" margin={{ left: isMobile ? 0 : 10, right: isMobile ? 10 : 20, top: 10, bottom: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#121212" opacity={0.15} />
             <XAxis
               type="number"
-              tick={isPrivacyMode ? false : { fontSize: 11, fill: '#121212', fontWeight: 700 }}
+              tick={isPrivacyMode ? false : { fontSize: isMobile ? 10 : 11, fill: '#121212', fontWeight: 700 }}
               tickLine={isPrivacyMode ? false : { stroke: '#121212' }}
               tickFormatter={(v) =>
                 `₹${v >= 100000 ? (v / 100000).toFixed(1) + 'L' : v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`
@@ -199,8 +207,8 @@ export const ReturnsChart: React.FC<ReturnsChartProps> = ({ investments }) => {
             <YAxis
               type="category"
               dataKey="name"
-              tick={{ fontSize: 10, fill: '#121212', fontWeight: 700 }}
-              width={140}
+              tick={{ fontSize: isMobile ? 9 : 10, fill: '#121212', fontWeight: 700 }}
+              width={isMobile ? 80 : 140}
             />
             <Tooltip
               contentStyle={{
@@ -428,9 +436,9 @@ export const PortfolioTrendChart: React.FC<TrendChartProps> = ({
               {isPositive ? '+' : ''}{returnsPercent.toFixed(2)}%
             </span>
           </div>
-          <div className="flex items-center gap-3 mt-1 text-[11px] font-mono font-bold text-neutral-600">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1 text-[11px] font-mono font-bold text-neutral-600">
             <span>Valuation: <strong className="text-[#121212]">{isPrivacyMode ? '••••••' : `${currencySymbol}${totalCurrentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</strong></span>
-            <span>•</span>
+            <span className="hidden sm:inline">•</span>
             <span>Basis: <strong className="text-[#121212]">{isPrivacyMode ? '••••••' : `${currencySymbol}${totalInvested.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</strong></span>
           </div>
         </div>

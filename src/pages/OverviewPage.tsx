@@ -191,31 +191,31 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full sm:w-auto">
             <button
               onClick={() => onOpenTransferModal ? onOpenTransferModal() : onOpenAddModal('transfer')}
-              className="px-2.5 py-1.5 bg-[#00F0FF] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer"
+              className="flex-1 sm:flex-initial px-2 sm:px-2.5 py-1.5 bg-[#00F0FF] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center justify-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer text-center"
             >
               <ArrowLeftRight size={13} strokeWidth={3} />
               <span>Transfer</span>
             </button>
             <button
               onClick={() => onOpenAddModal('income')}
-              className="px-2.5 py-1.5 bg-[#05DF72] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer"
+              className="flex-1 sm:flex-initial px-2 sm:px-2.5 py-1.5 bg-[#05DF72] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center justify-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer text-center"
             >
               <ArrowDownLeft size={13} strokeWidth={3} />
               <span>Income</span>
             </button>
             <button
               onClick={() => onOpenAddModal('expense')}
-              className="px-2.5 py-1.5 bg-[#FF4343] text-white border-2 border-[#121212] text-xs font-black uppercase flex items-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer"
+              className="flex-1 sm:flex-initial px-2 sm:px-2.5 py-1.5 bg-[#FF4343] text-white border-2 border-[#121212] text-xs font-black uppercase flex items-center justify-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer text-center"
             >
               <ArrowUpRight size={13} strokeWidth={3} />
               <span>Expense</span>
             </button>
             <button
               onClick={() => onNavigateToTab('wallets')}
-              className="px-2.5 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-[#121212] border-2 border-[#121212] text-xs font-black uppercase shadow-neo-sm transition-all cursor-pointer ml-auto sm:ml-0"
+              className="flex-1 sm:flex-initial px-2 sm:px-2.5 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-[#121212] border-2 border-[#121212] text-xs font-black uppercase shadow-neo-sm transition-all cursor-pointer text-center"
             >
               Manage →
             </button>

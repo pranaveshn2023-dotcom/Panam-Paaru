@@ -508,7 +508,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="px-2.5 py-1.5 text-xs font-black bg-white border border-[#121212] cursor-pointer"
+              className="px-2.5 py-1.5 text-xs font-black bg-white border border-[#121212] cursor-pointer flex-1 sm:flex-initial"
             >
               <option value="value">Sort by Value</option>
               <option value="returns">Sort by Returns</option>
@@ -518,12 +518,12 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
 
             {/* Broker Filter */}
             {availableBrokers.length > 0 && (
-              <div className="flex items-center gap-1">
-                <Building2 size={13} className="text-neutral-500 hidden sm:inline" />
+              <div className="flex items-center gap-1 flex-1 sm:flex-initial">
+                <Building2 size={13} className="text-neutral-500 hidden sm:inline shrink-0" />
                 <select
                   value={selectedBrokerFilter}
                   onChange={(e) => setSelectedBrokerFilter(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs font-black bg-[#FFE600] border border-[#121212] cursor-pointer text-[#121212]"
+                  className="px-2.5 py-1.5 text-xs font-black bg-[#FFE600] border border-[#121212] cursor-pointer text-[#121212] w-full sm:w-auto"
                 >
                   <option value="all">All Brokers ({availableBrokers.length})</option>
                   {availableBrokers.map((b) => (

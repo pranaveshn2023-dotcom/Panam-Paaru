@@ -440,7 +440,7 @@ export function AppContent() {
         onOpenPinSetup={() => setIsPinSetupModalOpen(true)}
       />
 
-      <div className="flex-1 flex w-full max-w-7xl mx-auto pb-20 md:pb-8 min-w-0">
+      <div className="flex-1 flex w-full max-w-7xl mx-auto pb-24 md:pb-8 min-w-0">
         <Sidebar
           activeTab={activeTab}
           onSelectTab={setActiveTab}

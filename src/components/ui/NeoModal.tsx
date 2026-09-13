@@ -47,22 +47,22 @@ export const NeoModal: React.FC<NeoModalProps> = ({
       />
       <div
         className={twMerge(
-          'relative w-full bg-white border-[3px] border-[#121212] shadow-neo-xl z-10 animate-scale-in rounded-t-2xl md:rounded-2xl',
+          'relative w-full bg-white border-[3px] border-[#121212] shadow-neo-xl z-10 animate-scale-in rounded-t-2xl md:rounded-2xl max-h-[90dvh] md:max-h-[92vh] flex flex-col',
           maxWidthStyles[maxWidth]
         )}
       >
-        <div className="flex items-center justify-between bg-gradient-to-r from-[#FFE600] to-[#FF8800] px-4 sm:px-5 py-3 border-b-[3px] border-[#121212] rounded-t-2xl">
-          <h3 className="text-sm font-black uppercase tracking-wider text-[#121212] flex items-center gap-2">
+        <div className="flex items-center justify-between bg-gradient-to-r from-[#FFE600] to-[#FF8800] px-4 sm:px-5 py-3 border-b-[3px] border-[#121212] rounded-t-2xl shrink-0">
+          <h3 className="text-sm font-black uppercase tracking-wider text-[#121212] flex items-center gap-2 truncate">
             {title}
           </h3>
           <button
             onClick={onClose}
-            className="w-8 h-8 bg-white hover:bg-[#FF4343] hover:text-white border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center justify-center rounded-lg"
+            className="w-8 h-8 bg-white hover:bg-[#FF4343] hover:text-white border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center justify-center rounded-lg shrink-0 ml-2"
           >
             <X size={18} strokeWidth={3} />
           </button>
         </div>
-        <div className="p-3.5 sm:p-5 max-h-[85vh] sm:max-h-[80vh] overflow-y-auto">
+        <div className="p-3.5 sm:p-5 overflow-y-auto overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))] flex-1">
           {children}
         </div>
       </div>

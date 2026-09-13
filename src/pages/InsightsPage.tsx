@@ -239,15 +239,15 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
           </div>
 
           {/* Month Stepper: < 2026/02 > */}
-          <div className="flex items-center bg-neutral-900 border-2 border-neutral-700 p-1 self-start sm:self-auto shadow-neo-sm">
+          <div className="flex items-center justify-between bg-neutral-900 border-2 border-neutral-700 p-1 self-stretch sm:self-auto shadow-neo-sm">
             <button
               onClick={handlePrevMonth}
               aria-label="Previous Month"
               className="p-1.5 hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer"
             >
-              <ChevronLeft size={20} strokeWidth={3} />
+              <ChevronLeft size={18} strokeWidth={3} />
             </button>
-            <span className="px-4 text-xs sm:text-sm font-mono font-black tracking-wider uppercase text-white min-w-[150px] text-center">
+            <span className="px-2 sm:px-4 text-xs sm:text-sm font-mono font-black tracking-wider uppercase text-white min-w-[120px] sm:min-w-[150px] text-center">
               {monthLabel}
             </span>
             <button
@@ -255,7 +255,7 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
               aria-label="Next Month"
               className="p-1.5 hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer"
             >
-              <ChevronRight size={20} strokeWidth={3} />
+              <ChevronRight size={18} strokeWidth={3} />
             </button>
           </div>
         </div>

@@ -597,13 +597,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         {parsedHoldings.length === 0 && !isPasswordPrompt && (
           <div className="flex flex-col gap-3">
             {/* Broker & Type Selector */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-[#FFFDF5] p-2.5 border-2 border-[#121212]">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black uppercase text-neutral-600">Source:</span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-[#FFFDF5] p-2.5 border-2 border-[#121212]">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <span className="text-[10px] font-black uppercase text-neutral-600 shrink-0">Source:</span>
                 <select
                   value={selectedBroker}
                   onChange={(e) => setSelectedBroker(e.target.value)}
-                  className="px-2 py-1 text-xs font-bold bg-white border border-[#121212] cursor-pointer"
+                  className="px-2 py-1 text-xs font-bold bg-white border border-[#121212] cursor-pointer flex-1 sm:flex-initial"
                 >
                   {BROKER_OPTIONS.map((b) => (
                     <option key={b} value={b}>
@@ -613,11 +613,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 </select>
               </div>
 
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setImportMode('investments')}
-                  className={`px-2.5 py-1 text-[11px] font-black uppercase border transition-all cursor-pointer ${
+                  className={`flex-1 sm:flex-initial px-2.5 py-1 text-[11px] font-black uppercase border transition-all cursor-pointer text-center ${
                     importMode === 'investments'
                       ? 'bg-[#FFE600] text-[#121212] border-[#121212]'
                       : 'bg-white text-neutral-600 border-neutral-300'
@@ -628,7 +628,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setImportMode('expenses')}
-                  className={`px-2.5 py-1 text-[11px] font-black uppercase border transition-all cursor-pointer ${
+                  className={`flex-1 sm:flex-initial px-2.5 py-1 text-[11px] font-black uppercase border transition-all cursor-pointer text-center ${
                     importMode === 'expenses'
                       ? 'bg-[#FFE600] text-[#121212] border-[#121212]'
                       : 'bg-white text-neutral-600 border-neutral-300'
@@ -644,24 +644,26 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('upload')}
-                className={`px-3 py-1.5 text-xs font-black uppercase border-2 transition-all cursor-pointer ${
+                className={`flex-1 sm:flex-initial px-3 py-1.5 text-xs font-black uppercase border-2 transition-all cursor-pointer text-center ${
                   activeTab === 'upload'
                     ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm'
                     : 'bg-white text-neutral-600 border-neutral-300'
                 }`}
               >
-                Upload File (.pdf, .xlsx, .docx, .csv)
+                <span className="sm:hidden">Upload File</span>
+                <span className="hidden sm:inline">Upload File (.pdf, .xlsx, .docx, .csv)</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('paste')}
-                className={`px-3 py-1.5 text-xs font-black uppercase border-2 transition-all cursor-pointer ${
+                className={`flex-1 sm:flex-initial px-3 py-1.5 text-xs font-black uppercase border-2 transition-all cursor-pointer text-center ${
                   activeTab === 'paste'
                     ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm'
                     : 'bg-white text-neutral-600 border-neutral-300'
                 }`}
               >
-                Copy & Paste Table / CSV
+                <span className="sm:hidden">Paste Table</span>
+                <span className="hidden sm:inline">Copy & Paste Table / CSV</span>
               </button>
             </div>
 
@@ -832,7 +834,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 )}
               </div>
 
-              <div className="flex items-center gap-3 text-xs font-mono">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-mono">
                 <div>
                   <span className="text-neutral-500 font-bold uppercase text-[10px]">Invested: </span>
                   <span className="font-black text-[#121212]">
@@ -863,8 +865,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             </div>
 
             {/* Table Header & Rows */}
-            <div className="border-2 border-[#121212] bg-white overflow-x-auto max-h-[380px] overflow-y-auto">
-              <table className="w-full text-left text-xs font-bold border-collapse">
+            <div className="border-2 border-[#121212] bg-white overflow-x-auto max-h-[380px] overflow-y-auto overscroll-x-contain">
+              <table className="min-w-[700px] w-full text-left text-xs font-bold border-collapse">
                 <thead className="bg-[#121212] text-white sticky top-0 z-10 text-[11px] font-black uppercase tracking-wider">
                   <tr>
                     <th className="p-2.5 w-8 text-center">

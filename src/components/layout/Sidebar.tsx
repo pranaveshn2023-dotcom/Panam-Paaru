@@ -29,7 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="hidden md:flex flex-col w-64 bg-white border-r-[3px] border-[#121212] p-4 shrink-0 min-h-[calc(100vh-65px)] justify-between select-none">
+    <aside className="hidden md:flex flex-col w-56 lg:w-64 bg-white border-r-[3px] border-[#121212] p-4 shrink-0 min-h-[calc(100vh-65px)] justify-between select-none">
       {/* Navigation Items */}
       <div className="flex flex-col gap-2">
         <span className="text-[10px] font-mono font-bold tracking-widest text-neutral-500 uppercase px-2 mb-1">
