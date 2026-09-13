@@ -185,17 +185,17 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             const live = await fetchLiveCryptoPrice(inv.name);
             if (live && live.price > 0) livePrice = live.price;
           } else if (at === 'gold') {
-            // Gold/Silver funds & ETFs publish NAVs on AMFI; SGB / bullion /
-            // digital gold must never take a gold-fund NAV.
-            if (/\b(fund|fof|etf|bees|amc|mutual)\b/i.test(inv.name)) {
-              const live = await fetchAmfiNav(inv.name, inv.notes);
-              if (live && live.nav > 0) {
-                livePrice = live.nav;
-              }
-            }
-            if (livePrice === null && /\b(etf|bees|ns|bo)\b/i.test(inv.name)) {
+            const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(inv.name);
+            if (!isSgbOrDigital) {
+              // 1. Try stock quote first for traded ETFs / tickers (e.g. GOLDBEES, SILVERBEES, AXISAMC-GOLDAXIS, ICICIPRAMC - ICICISILVE)
               const liveStock = await fetchLiveStockPrice(inv.name);
-              if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
+              if (liveStock && liveStock.price > 0) {
+                livePrice = liveStock.price;
+              } else {
+                // 2. Try AMFI NAV for Gold/Silver mutual funds
+                const live = await fetchAmfiNav(inv.name, inv.notes);
+                if (live && live.nav > 0) livePrice = live.nav;
+              }
             }
           } else {
             const live = await fetchLiveStockPrice(inv.name);

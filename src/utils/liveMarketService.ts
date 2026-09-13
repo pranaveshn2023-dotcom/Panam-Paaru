@@ -160,18 +160,24 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
   const stripped = stripBrokerSuffix(rawQuery);
   const qLower = stripped
     .toLowerCase()
-    .replace(/\bmidcap\b/gi, 'mid cap')
-    .replace(/\bsmallcap\b/gi, 'small cap')
-    .replace(/\blargecap\b/gi, 'large cap')
-    .replace(/\bflexicap\b/gi, 'flexi cap')
-    .replace(/\bmulticap\b/gi, 'multi cap');
+    .replace(/\bmid\s+cap\b/g, 'midcap')
+    .replace(/\bsmall\s+cap\b/g, 'smallcap')
+    .replace(/\blarge\s+cap\b/g, 'largecap')
+    .replace(/\bflexi\s+cap\b/g, 'flexicap')
+    .replace(/\bblue\s*chip\b/g, 'largecap');
 
   const sName = item.schemeName || '';
-  const sLower = sName.toLowerCase();
+  const sLower = sName
+    .toLowerCase()
+    .replace(/\bmid\s+cap\b/g, 'midcap')
+    .replace(/\bsmall\s+cap\b/g, 'smallcap')
+    .replace(/\blarge\s+cap\b/g, 'largecap')
+    .replace(/\bflexi\s+cap\b/g, 'flexicap')
+    .replace(/\bblue\s*chip\b/g, 'largecap');
 
-  const wantsDirect = /\bdirect\b/i.test(qLower);
-  const wantsRegular = /\bregular\b/i.test(qLower);
-  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(qLower);
+  const wantsDirect = /\bdirect\b/i.test(stripped);
+  const wantsRegular = /\bregular\b/i.test(stripped);
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(stripped);
 
   let score = 0;
 
@@ -200,7 +206,7 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
 
   // Penalize distinct category keywords absent from the query
   const categoryKeywords = [
-    'next', 'small', 'mid', 'large', 'flexi', 'multi', 'focused', 'elss',
+    'next', 'smallcap', 'midcap', 'largecap', 'flexicap', 'multicap', 'focused', 'elss',
     'hybrid', 'arbitrage', 'liquid', 'overnight', 'gilt', 'debt', 'index',
     'us', 'global', 'overseas', 'international', 'gold', 'silver', 'esg',
     'contra', 'pharma', 'tech', 'digital', 'infrastructure', 'banking',
@@ -208,7 +214,14 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
   ];
   for (const cat of categoryKeywords) {
     if (sTokens.has(cat) && !qTokens.some((qt) => qt.includes(cat) || cat.includes(qt))) {
-      score -= 35;
+      score -= 40;
+    }
+  }
+
+  // Heavy diverging category penalties (e.g. FoF / Asset Allocation / Conservative when user asked for Midcap)
+  if (!qTokens.some((t) => /asset|allocation|conservative|fof|fund of fund/i.test(t))) {
+    if (/asset\s*allocation|conservative|fund\s*of\s*fund|\bfof\b/i.test(sName)) {
+      score -= 80;
     }
   }
 
@@ -233,8 +246,8 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
   }
 
   // Direct vs Regular preference
-  const isDirect = sLower.includes('direct');
-  const isRegular = sLower.includes('regular');
+  const isDirect = sName.toLowerCase().includes('direct');
+  const isRegular = sName.toLowerCase().includes('regular');
   if (wantsDirect) {
     if (isDirect) score += 30;
     if (isRegular) score -= 30;
@@ -246,8 +259,8 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
   }
 
   // Growth vs IDCW preference (Default is ALWAYS Growth!)
-  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sLower);
-  const isGrowth = /\bgrowth\b/i.test(sLower);
+  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sName);
+  const isGrowth = /\bgrowth\b/i.test(sName);
   if (wantsIdcw) {
     if (isIdcw) score += 40;
     if (isGrowth) score -= 20;
@@ -256,7 +269,7 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
     if (isIdcw) score -= 60;
   }
 
-  if (/institutional|unclaimed|segregated|bonus/i.test(sLower)) score -= 50;
+  if (/institutional|unclaimed|segregated|bonus/i.test(sName)) score -= 50;
 
   return score;
 }
@@ -370,12 +383,28 @@ export async function fetchAmfiNav(
     const coreWords = clean.split(/\s+/).filter(Boolean);
     if (coreWords.length === 0) return null;
 
+    const baseQuery = coreWords.join(' ');
+    const compoundJoined = baseQuery
+      .replace(/\bmid\s+cap\b/gi, 'Midcap')
+      .replace(/\bsmall\s+cap\b/gi, 'Smallcap')
+      .replace(/\blarge\s+cap\b/gi, 'Largecap')
+      .replace(/\bflexi\s+cap\b/gi, 'Flexicap');
+    const compoundSpaced = baseQuery
+      .replace(/\bmidcap\b/gi, 'Mid Cap')
+      .replace(/\bsmallcap\b/gi, 'Small Cap')
+      .replace(/\blargecap\b/gi, 'Large Cap')
+      .replace(/\bflexicap\b/gi, 'Flexi Cap');
+    const largeCapAlt = baseQuery.replace(/\bblue\s*chip\b/gi, 'Large Cap');
+
     const queries: string[] = [
-      coreWords.join(' '),
+      baseQuery,
+      compoundJoined,
+      compoundSpaced,
+      largeCapAlt !== baseQuery ? largeCapAlt : null,
       coreWords.slice(0, 4).join(' '),
       coreWords.slice(0, 3).join(' '),
       coreWords.slice(0, 2).join(' '),
-    ].filter((q) => q.length >= 3);
+    ].filter((q): q is string => Boolean(q) && q.length >= 3);
 
     const uniqueQueries = [...new Set(queries)];
     const candidateMap = new Map<number, { schemeCode: number; schemeName: string; score: number }>();
@@ -397,9 +426,6 @@ export async function fetchAmfiNav(
           }
         }
       } catch {}
-      // Only stop probing when we already have enough HIGH-QUALITY candidates.
-      // A single fuzzy query returning poor matches must not prevent the correct
-      // scheme from being found via a shorter query (wrong-NAV source #1).
       const strongCandidates = [...candidateMap.values()].filter((c) => c.score >= 70).length;
       if (strongCandidates >= 3) break;
     }
@@ -408,8 +434,17 @@ export async function fetchAmfiNav(
     if (sortedCandidates.length === 0) return null;
 
     // 5. Inspect top candidates to find the active plan with the most recent NAV
-    const topCandidates = sortedCandidates.slice(0, 4);
+    const topCandidates = sortedCandidates.slice(0, 6);
     const now = Date.now();
+    const validResults: {
+      nav: number;
+      date: string;
+      schemeName: string;
+      schemeCode: number;
+      prevNav?: number;
+      score: number;
+      isDirect: boolean;
+    }[] = [];
 
     for (const cand of topCandidates) {
       try {
@@ -437,21 +472,37 @@ export async function fetchAmfiNav(
           continue;
         }
 
-        const result = {
+        validResults.push({
           nav: navNum,
           date: latest.date || '',
-          schemeName: details.meta?.scheme_name || cand.schemeName,
+          schemeName: resolvedName,
           schemeCode: cand.schemeCode,
           prevNav: details.data?.[1]?.nav ? parseFloat(details.data[1].nav) : undefined,
-        };
-
-        navCache.set(normKey, result);
-        savePersistentCache(normKey, result);
-        return result;
+          score: cand.score,
+          isDirect: /direct/i.test(resolvedName) || /direct/i.test(cand.schemeName),
+        });
       } catch {}
     }
 
-    return null;
+    if (validResults.length === 0) return null;
+
+    validResults.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.isDirect && !b.isDirect) return -1;
+      if (!a.isDirect && b.isDirect) return 1;
+      return b.nav - a.nav;
+    });
+
+    const result = {
+      nav: validResults[0].nav,
+      date: validResults[0].date,
+      schemeName: validResults[0].schemeName,
+      schemeCode: validResults[0].schemeCode,
+      prevNav: validResults[0].prevNav,
+    };
+    navCache.set(normKey, result);
+    savePersistentCache(normKey, result);
+    return result;
   } catch (err) {
     console.warn(`[LiveNAV] Failed to fetch live NAV for: ${fundName}`, err);
     return null;
@@ -521,6 +572,10 @@ export async function fetchLiveStockPrice(
   const clean = nameOrSymbol.trim().toUpperCase();
   const candidates: string[] = [];
 
+  const strippedCorporate = clean
+    .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, '')
+    .trim();
+
   const hasSuffix = clean.endsWith('.NS') || clean.endsWith('.BO') || clean.endsWith('-INR') || clean.endsWith('-USD');
   if (hasSuffix) {
     candidates.push(clean);
@@ -529,13 +584,25 @@ export async function fetchLiveStockPrice(
     if (/^[A-Z0-9]{1,14}$/.test(clean)) {
       candidates.push(`${clean}.NS`, `${clean}.BO`);
     }
+    const compact = strippedCorporate.replace(/[^A-Z0-9]/g, '');
+    if (compact.length >= 2 && compact.length <= 14 && !candidates.includes(`${compact}.NS`)) {
+      candidates.push(`${compact}.NS`, `${compact}.BO`);
+    }
   }
 
   // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
+  for (const t of tokens) {
+    if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
+      if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`, `${t}.BO`);
+    }
+  }
 
   // Dynamic Yahoo search for unhandled symbols
   const searchQueries = [clean];
+  if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
+    searchQueries.push(strippedCorporate);
+  }
   if (tokens.length > 1) {
     searchQueries.push(tokens.join(' '));
     for (const t of tokens) {

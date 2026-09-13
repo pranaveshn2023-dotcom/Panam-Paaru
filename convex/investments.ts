@@ -728,18 +728,29 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
   const clean = name.trim().toUpperCase();
   const candidates: string[] = [];
 
+  const strippedCorporate = clean
+    .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, '')
+    .trim();
+
   if (clean.endsWith('.NS') || clean.endsWith('.BO') || clean.endsWith('-INR') || clean.endsWith('-USD')) {
     candidates.push(clean);
   } else {
-    candidates.push(`${clean}.NS`, `${clean}.BO`);
+    if (/^[A-Z0-9]{1,14}$/.test(clean)) {
+      candidates.push(`${clean}.NS`, `${clean}.BO`);
+    }
+    const compact = strippedCorporate.replace(/[^A-Z0-9]/g, '');
+    if (compact.length >= 2 && compact.length <= 14 && !candidates.includes(`${compact}.NS`)) {
+      candidates.push(`${compact}.NS`, `${compact}.BO`);
+    }
   }
 
   // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
-
-  const strippedCorporate = clean
-    .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, '')
-    .trim();
+  for (const t of tokens) {
+    if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
+      if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`, `${t}.BO`);
+    }
+  }
 
   // Dynamic Yahoo Finance search queries with zero hardcoding
   const searchQueries = [clean];
@@ -960,18 +971,24 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
   const stripped = stripBrokerSuffix(rawQuery);
   const qLower = stripped
     .toLowerCase()
-    .replace(/\bmidcap\b/gi, 'mid cap')
-    .replace(/\bsmallcap\b/gi, 'small cap')
-    .replace(/\blargecap\b/gi, 'large cap')
-    .replace(/\bflexicap\b/gi, 'flexi cap')
-    .replace(/\bmulticap\b/gi, 'multi cap');
+    .replace(/\bmid\s+cap\b/g, 'midcap')
+    .replace(/\bsmall\s+cap\b/g, 'smallcap')
+    .replace(/\blarge\s+cap\b/g, 'largecap')
+    .replace(/\bflexi\s+cap\b/g, 'flexicap')
+    .replace(/\bblue\s*chip\b/g, 'largecap');
 
   const sName = item.schemeName || '';
-  const sLower = sName.toLowerCase();
+  const sLower = sName
+    .toLowerCase()
+    .replace(/\bmid\s+cap\b/g, 'midcap')
+    .replace(/\bsmall\s+cap\b/g, 'smallcap')
+    .replace(/\blarge\s+cap\b/g, 'largecap')
+    .replace(/\bflexi\s+cap\b/g, 'flexicap')
+    .replace(/\bblue\s*chip\b/g, 'largecap');
 
-  const wantsDirect = /\bdirect\b/i.test(qLower);
-  const wantsRegular = /\bregular\b/i.test(qLower);
-  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(qLower);
+  const wantsDirect = /\bdirect\b/i.test(stripped);
+  const wantsRegular = /\bregular\b/i.test(stripped);
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(stripped);
 
   let score = 0;
 
@@ -997,7 +1014,7 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
   }
 
   const categoryKeywords = [
-    'next', 'small', 'mid', 'large', 'flexi', 'multi', 'focused', 'elss',
+    'next', 'smallcap', 'midcap', 'largecap', 'flexicap', 'multicap', 'focused', 'elss',
     'hybrid', 'arbitrage', 'liquid', 'overnight', 'gilt', 'debt', 'index',
     'us', 'global', 'overseas', 'international', 'gold', 'silver', 'esg',
     'contra', 'pharma', 'tech', 'digital', 'infrastructure', 'banking',
@@ -1005,7 +1022,14 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
   ];
   for (const cat of categoryKeywords) {
     if (sTokens.has(cat) && !qTokens.some((qt) => qt.includes(cat) || cat.includes(qt))) {
-      score -= 35;
+      score -= 40;
+    }
+  }
+
+  // Heavy diverging category penalties (e.g. FoF / Asset Allocation / Conservative when user asked for Midcap)
+  if (!qTokens.some((t) => /asset|allocation|conservative|fof|fund of fund/i.test(t))) {
+    if (/asset\s*allocation|conservative|fund\s*of\s*fund|\bfof\b/i.test(sName)) {
+      score -= 80;
     }
   }
 
@@ -1030,8 +1054,8 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
     if (!found) score -= 12;
   }
 
-  const isDirect = sLower.includes('direct');
-  const isRegular = sLower.includes('regular');
+  const isDirect = sName.toLowerCase().includes('direct');
+  const isRegular = sName.toLowerCase().includes('regular');
   if (wantsDirect) {
     if (isDirect) score += 30;
     if (isRegular) score -= 30;
@@ -1042,8 +1066,8 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
     if (isDirect) score += 15;
   }
 
-  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sLower);
-  const isGrowth = /\bgrowth\b/i.test(sLower);
+  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sName);
+  const isGrowth = /\bgrowth\b/i.test(sName);
   if (wantsIdcw) {
     if (isIdcw) score += 40;
     if (isGrowth) score -= 20;
@@ -1052,7 +1076,7 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
     if (isIdcw) score -= 60;
   }
 
-  if (/institutional|unclaimed|segregated|bonus/i.test(sLower)) {
+  if (/institutional|unclaimed|segregated|bonus/i.test(sName)) {
     score -= 50;
   }
 
@@ -1139,27 +1163,39 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
 
   const strippedName = stripBrokerSuffix(name);
 
-  const cleanQuery = strippedName
+  const rawWords = strippedName
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
-    .replace(/\bmidcap\b/gi, 'mid cap')
-    .replace(/\bsmallcap\b/gi, 'small cap')
-    .replace(/\blargecap\b/gi, 'large cap')
-    .replace(/\bflexicap\b/gi, 'flexi cap')
-    .replace(/\bmulticap\b/gi, 'multi cap')
     .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
     .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
     .replace(/\s{2,}/g, ' ')
-    .trim();
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
 
-  const words = cleanQuery.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return null;
+  if (rawWords.length === 0) return null;
+
+  const baseQuery = rawWords.join(' ');
+  const compoundJoined = baseQuery
+    .replace(/\bmid\s+cap\b/gi, 'Midcap')
+    .replace(/\bsmall\s+cap\b/gi, 'Smallcap')
+    .replace(/\blarge\s+cap\b/gi, 'Largecap')
+    .replace(/\bflexi\s+cap\b/gi, 'Flexicap');
+  const compoundSpaced = baseQuery
+    .replace(/\bmidcap\b/gi, 'Mid Cap')
+    .replace(/\bsmallcap\b/gi, 'Small Cap')
+    .replace(/\blargecap\b/gi, 'Large Cap')
+    .replace(/\bflexicap\b/gi, 'Flexi Cap');
+  const largeCapAlt = baseQuery.replace(/\bblue\s*chip\b/gi, 'Large Cap');
 
   const queries: string[] = [
-    words.join(' '),
-    words.slice(0, 4).join(' '),
-    words.slice(0, 3).join(' '),
-    words.slice(0, 2).join(' '),
-  ].filter((q) => q.length >= 3);
+    baseQuery,
+    compoundJoined,
+    compoundSpaced,
+    largeCapAlt !== baseQuery ? largeCapAlt : null,
+    rawWords.slice(0, 4).join(' '),
+    rawWords.slice(0, 3).join(' '),
+    rawWords.slice(0, 2).join(' '),
+  ].filter((q): q is string => Boolean(q) && q.length >= 3);
 
   const uniqueQueries = [...new Set(queries)];
   const candidateMap = new Map<number, { schemeCode: number; schemeName: string; score: number }>();
@@ -1182,8 +1218,6 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
         }
       }
     } catch {}
-    // Only stop probing once the current query already surfaced enough HIGH-QUALITY
-    // candidates. One fuzzy query of poor matches must not block a shorter, correct query.
     const strong = [...candidateMap.values()].filter((c) => c.score >= 70).length;
     if (strong >= 3) break;
   }
@@ -1191,8 +1225,9 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
   const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
   if (sortedCandidates.length === 0) return null;
 
-  const topCandidates = sortedCandidates.slice(0, 4);
+  const topCandidates = sortedCandidates.slice(0, 6);
   const now = Date.now();
+  const validResults: { nav: number; date: string; schemeName: string; prevNav?: number; score: number; isDirect: boolean }[] = [];
 
   for (const candidate of topCandidates) {
     try {
@@ -1221,17 +1256,34 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
           continue;
         }
 
-        return {
+        validResults.push({
           nav: navNum,
           date: latest.date,
-          schemeName: details.meta?.scheme_name || candidate.schemeName,
+          schemeName: resolvedName,
           prevNav: prev ? parseFloat(prev.nav) : undefined,
-        };
+          score: candidate.score,
+          isDirect: /direct/i.test(resolvedName) || /direct/i.test(candidate.schemeName),
+        });
       }
     } catch {}
   }
 
-  return null;
+  if (validResults.length === 0) return null;
+
+  // Prefer Direct Plan and highest score, then highest NAV (growth plan)
+  validResults.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.isDirect && !b.isDirect) return -1;
+    if (!a.isDirect && b.isDirect) return 1;
+    return b.nav - a.nav;
+  });
+
+  return {
+    nav: validResults[0].nav,
+    date: validResults[0].date,
+    schemeName: validResults[0].schemeName,
+    prevNav: validResults[0].prevNav,
+  };
 }
 
 export const internalListInvestments = internalQuery({
@@ -1324,21 +1376,20 @@ export const syncLiveMarketPrices = action({
             livePrice = cry.price;
           }
         } else if (at === "gold") {
-          // Gold/Silver FUNDS and gold ETFs publish NAVs on AMFI — try that first,
-          // but ONLY when the holding name actually identifies a fund/ETF instrument.
-          // e.g. "Sovereign Gold Bond 2025" or "Digital Gold" must never be valued
-          // with a gold-fund NAV.
-          if (/\b(fund|fof|etf|bees|amc|mutual)\b/i.test(inv.name)) {
-            const mf = await fetchMfNav(inv.name, inv.notes);
-            if (mf && mf.nav > 0) {
-              livePrice = mf.nav;
-            } else if (/\b(etf|bees|ns|bo)\b/i.test(inv.name)) {
-              const stk = await fetchStockQuote(inv.name);
-              if (stk && stk.price > 0) livePrice = stk.price;
-            }
-          } else if (/\b(etf|bees|ns|bo)\b/i.test(inv.name)) {
+          // Exclude SGB (Sovereign Gold Bonds) and unlisted digital gold from taking live exchange/fund prices
+          const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(inv.name);
+          if (!isSgbOrDigital) {
+            // 1. Try stock quote first for traded ETFs / tickers (e.g. GOLDBEES, SILVERBEES, AXISAMC-GOLDAXIS, ICICIPRAMC - ICICISILVE)
             const stk = await fetchStockQuote(inv.name);
-            if (stk && stk.price > 0) livePrice = stk.price;
+            if (stk && stk.price > 0) {
+              livePrice = stk.price;
+            } else {
+              // 2. Try AMFI NAV for Gold/Silver mutual funds (e.g. SBI Gold Fund, HDFC Silver Fund)
+              const mf = await fetchMfNav(inv.name, inv.notes);
+              if (mf && mf.nav > 0) {
+                livePrice = mf.nav;
+              }
+            }
           }
         } else {
           // Stocks & listed equity-ish instruments
@@ -1412,16 +1463,17 @@ export const fetchLivePrice = action({
     }
 
     if (assetType === "gold") {
-      // Gold/Silver funds & ETFs publish NAVs on AMFI; exclude SGB / bullion /
-      // digital gold holdings, which must never be valued with a gold-fund NAV.
-      if (/\b(fund|fof|etf|bees|amc|mutual)\b/i.test(name)) {
+      const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(name);
+      if (!isSgbOrDigital) {
+        // 1. Try stock quote first for ETFs (GOLDBEES, SILVERBEES, GOLDAXIS, SILVERIETF, etc.)
+        const stk = await fetchStockQuote(name);
+        if (stk && stk.price > 0) return stk;
+
+        // 2. Try AMFI NAV for Gold/Silver mutual funds
         const mf = await fetchMfNav(name);
         if (mf && mf.nav > 0) {
           return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
         }
-      }
-      if (/\b(etf|bees|ns|bo)\b/i.test(name)) {
-        return await fetchStockQuote(name);
       }
       return null;
     }
