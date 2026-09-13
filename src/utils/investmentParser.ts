@@ -43,6 +43,10 @@ export interface ParsedHolding {
   units?: number;
   buyPrice?: number;
   currentPrice?: number;
+  statementPrice?: number;
+  statementValue?: number;
+  isLiveSynced?: boolean;
+  liveNavDate?: string;
   sipAmount?: number;
   sipDay?: number;
   notes?: string;
@@ -52,6 +56,11 @@ export interface ParsedHolding {
   xirr?: string;
   selected: boolean;
   isValid: boolean;
+}
+
+export function cleanNavPrice(val: number, isMf: boolean = false): number {
+  if (isNaN(val) || val <= 0) return 0;
+  return isMf ? Math.round(val * 10000) / 10000 : Math.round(val * 100) / 100;
 }
 
 export interface RawFileContent {
@@ -497,6 +506,8 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         units: cleanUnits(closingUnits),
         buyPrice,
         currentPrice: navValue > 0 ? cleanCurrency(navValue) : undefined,
+        statementPrice: navValue > 0 ? cleanCurrency(navValue) : undefined,
+        statementValue: cleanCurrency(marketValue),
         folioNo: folioNo || undefined,
         isin: isin || undefined,
         xirr: xirrValue,
@@ -977,6 +988,8 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             units: cleanUnits(units),
             buyPrice: buyPrice && buyPrice > 0 ? cleanCurrency(buyPrice) : undefined,
             currentPrice: currentPrice && currentPrice > 0 ? cleanCurrency(currentPrice) : undefined,
+            statementPrice: currentPrice && currentPrice > 0 ? cleanCurrency(currentPrice) : undefined,
+            statementValue: cleanCurrency(Math.abs(current)),
             xirr: rawXirr,
             notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
             selected: true,

@@ -8,11 +8,17 @@ import {
   parseCleanNumber,
   cleanCurrency,
   cleanUnits,
+  cleanNavPrice,
   ParsedHolding,
   RawFileContent,
   PasswordRequiredError,
 } from '../../utils/investmentParser';
-import { detectDetailedAssetType } from '../../utils/liveMarketService';
+import {
+  detectDetailedAssetType,
+  fetchAmfiNav,
+  fetchLiveStockPrice,
+  fetchLiveCryptoPrice,
+} from '../../utils/liveMarketService';
 import { AssetType, ImportBatch } from '../../types';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
@@ -120,6 +126,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [isRecentImportsOpen, setIsRecentImportsOpen] = useState(false);
 
+  // Live market quote enrichment state
+  const [isEnrichingLivePrices, setIsEnrichingLivePrices] = useState(false);
+  const [enrichedCount, setEnrichedCount] = useState(0);
+  const enrichmentRunId = useRef(0);
+
   // Password Protection State
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pdfPassword, setPdfPassword] = useState('');
@@ -134,6 +145,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const resetState = () => {
+    enrichmentRunId.current++;
+    setIsEnrichingLivePrices(false);
+    setEnrichedCount(0);
     setParsedHoldings([]);
     setRawGrid(null);
     setPastedText('');
@@ -148,6 +162,114 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     setShowPassword(false);
   };
 
+  /**
+   * Dynamically enriches parsed holdings with LIVE market rates:
+   * - Mutual Funds: Live AMFI NAV via api.mfapi.in (ISIN and scheme token lookup)
+   * - Stocks / ETFs: Live NSE/BSE quotes via Yahoo Finance
+   * - Crypto: Live Indian domestic spot prices via CoinDCX orderbook / TradingView
+   * Independent of whatever stale/historical date/NAV was in the statement document.
+   */
+  const enrichHoldingsWithLivePrices = async (holdingsToEnrich: ParsedHolding[]) => {
+    if (!holdingsToEnrich || holdingsToEnrich.length === 0) return;
+
+    const runId = ++enrichmentRunId.current;
+    setIsEnrichingLivePrices(true);
+    setEnrichedCount(0);
+
+    const updatedHoldings = holdingsToEnrich.map((h) => ({ ...h }));
+    const BATCH_SIZE = 4;
+    let count = 0;
+
+    for (let i = 0; i < updatedHoldings.length; i += BATCH_SIZE) {
+      if (enrichmentRunId.current !== runId) return;
+
+      const batch = updatedHoldings.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (holding) => {
+          const at = holding.assetType;
+          if (at === 'fd_rd' || at === 'ppf_epf' || at === 'real_estate' || at === 'other') {
+            return;
+          }
+
+          let livePrice: number | null = null;
+          let liveDate: string | undefined = undefined;
+
+          try {
+            if (at === 'mutual_fund') {
+              const isinLookup = holding.isin ? `ISIN: ${holding.isin}` : undefined;
+              const live = await fetchAmfiNav(holding.name, holding.notes || isinLookup);
+              if (live && live.nav > 0) {
+                livePrice = live.nav;
+                liveDate = live.date;
+              } else if (/\b(etf|bees)\b/i.test(holding.name)) {
+                const liveStock = await fetchLiveStockPrice(holding.name);
+                if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
+              }
+            } else if (at === 'crypto') {
+              const live = await fetchLiveCryptoPrice(holding.name);
+              if (live && live.price > 0) livePrice = live.price;
+            } else if (at === 'gold') {
+              const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(holding.name);
+              if (!isSgbOrDigital) {
+                const liveStock = await fetchLiveStockPrice(holding.name);
+                if (liveStock && liveStock.price > 0) {
+                  livePrice = liveStock.price;
+                } else {
+                  const isinLookup = holding.isin ? `ISIN: ${holding.isin}` : undefined;
+                  const live = await fetchAmfiNav(holding.name, holding.notes || isinLookup);
+                  if (live && live.nav > 0) {
+                    livePrice = live.nav;
+                    liveDate = live.date;
+                  }
+                }
+              }
+            } else {
+              // stocks & equities
+              const live = await fetchLiveStockPrice(holding.name);
+              if (live && live.price > 0) livePrice = live.price;
+            }
+          } catch (e) {
+            // Ignore individual fetch errors
+          }
+
+          if (livePrice !== null && livePrice > 0) {
+            const idx = updatedHoldings.findIndex((h) => h.id === holding.id);
+            if (idx !== -1) {
+              const h = { ...updatedHoldings[idx] };
+              const cleanPrice = cleanNavPrice(livePrice, at === 'mutual_fund');
+              h.currentPrice = cleanPrice;
+              h.isLiveSynced = true;
+              if (liveDate) h.liveNavDate = liveDate;
+
+              if (h.units && h.units > 0) {
+                h.currentValue = cleanCurrency(h.units * livePrice);
+              } else if (h.investedAmount > 0 && h.buyPrice && h.buyPrice > 0) {
+                const derivedUnits = cleanUnits(h.investedAmount / h.buyPrice);
+                h.units = derivedUnits;
+                h.currentValue = cleanCurrency(derivedUnits * livePrice);
+              } else if (h.currentPrice && h.currentPrice > 0 && h.currentValue > 0) {
+                const ratio = livePrice / h.currentPrice;
+                h.currentValue = cleanCurrency(h.currentValue * ratio);
+              }
+              h.returns = cleanCurrency(h.currentValue - h.investedAmount);
+              updatedHoldings[idx] = h;
+              count++;
+            }
+          }
+        })
+      );
+
+      if (enrichmentRunId.current !== runId) return;
+
+      setEnrichedCount(count);
+      setParsedHoldings([...updatedHoldings]);
+    }
+
+    if (enrichmentRunId.current === runId) {
+      setIsEnrichingLivePrices(false);
+    }
+  };
+
   const processFile = async (file: File) => {
     try {
       setIsParsing(true);
@@ -160,10 +282,12 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
       if (result.holdings.length > 0) {
         setParsedHoldings(result.holdings);
+        setIsParsing(false);
+        enrichHoldingsWithLivePrices(result.holdings);
       } else {
         setError('No holdings found in file. Please ensure it is a statement or copy-paste rows.');
+        setIsParsing(false);
       }
-      setIsParsing(false);
     } catch (err: any) {
       setIsParsing(false);
       if (
@@ -224,11 +348,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       if (result.holdings.length > 0) {
         setParsedHoldings(result.holdings);
         setIsPasswordPrompt(false);
+        setIsParsing(false);
+        enrichHoldingsWithLivePrices(result.holdings);
       } else {
         setError('Password accepted, but no asset rows were found.');
         setIsPasswordPrompt(false);
+        setIsParsing(false);
       }
-      setIsParsing(false);
     } catch (err: any) {
       setIsParsing(false);
       if (
@@ -261,6 +387,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       }
       setParsedHoldings(extracted);
       setError('');
+      enrichHoldingsWithLivePrices(extracted);
     } catch (err: any) {
       setError(err?.message || 'Failed to parse pasted text.');
     }
@@ -304,7 +431,26 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       prev.map((h) => {
         if (h.id !== id) return h;
         const updated = { ...h, [field]: val };
-        if (field === 'investedAmount' || field === 'currentValue') {
+        if (field === 'units') {
+          const unitsNum = val !== undefined && val !== '' ? parseFloat(val) : undefined;
+          updated.units = unitsNum;
+          if (unitsNum !== undefined && unitsNum > 0 && updated.currentPrice && updated.currentPrice > 0) {
+            updated.currentValue = cleanCurrency(unitsNum * updated.currentPrice);
+          }
+        }
+        if (field === 'currentPrice') {
+          const priceNum = val !== undefined && val !== '' ? parseFloat(val) : undefined;
+          updated.currentPrice = priceNum;
+          if (priceNum !== undefined && priceNum > 0 && updated.units && updated.units > 0) {
+            updated.currentValue = cleanCurrency(updated.units * priceNum);
+          }
+        }
+        if (
+          field === 'investedAmount' ||
+          field === 'currentValue' ||
+          field === 'units' ||
+          field === 'currentPrice'
+        ) {
           updated.returns = cleanCurrency(updated.currentValue - updated.investedAmount);
         }
         // Recalculate validity
@@ -378,7 +524,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           currentValue: cleanCurrency(h.currentValue),
           units: cleanUnits(h.units),
           buyPrice: h.buyPrice ? cleanCurrency(h.buyPrice) : undefined,
-          currentPrice: h.currentPrice ? cleanCurrency(h.currentPrice) : undefined,
+          currentPrice: h.currentPrice ? cleanNavPrice(h.currentPrice, h.assetType === 'mutual_fund') : undefined,
           xirr: h.xirr,
           notes: [
             h.notes || '',
@@ -659,8 +805,33 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         {parsedHoldings.length > 0 && (
           <div className="flex flex-col gap-3">
             
-            {/* Financial Totals Bar */}
-            <div className="flex flex-wrap items-center justify-end gap-3 bg-[#FFFDF5] p-2.5 border-2 border-[#121212] shadow-neo-sm">
+            {/* Financial Totals Bar with Live AMFI / Market Status */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-[#FFFDF5] p-2.5 border-2 border-[#121212] shadow-neo-sm">
+              <div className="flex items-center gap-2">
+                {isEnrichingLivePrices ? (
+                  <div className="flex items-center gap-1.5 text-xs text-amber-800 bg-amber-100/80 border border-amber-300 px-2 py-0.5 font-bold animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping inline-block shrink-0" />
+                    <span>Syncing live AMFI & Market NAVs ({enrichedCount}/{parsedHoldings.length})...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 text-xs text-[#0B6B38] bg-[#05DF72]/15 border border-[#05DF72]/40 px-2 py-0.5 font-black">
+                      <span className="w-2 h-2 rounded-full bg-[#05DF72] inline-block shrink-0" />
+                      <span>Live AMFI & Market NAVs Synced</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => enrichHoldingsWithLivePrices(parsedHoldings)}
+                      className="text-[10px] font-black uppercase tracking-wider text-neutral-600 hover:text-black hover:underline flex items-center gap-1 cursor-pointer"
+                      title="Re-fetch live AMFI NAVs and exchange prices"
+                    >
+                      <RotateCcw size={11} />
+                      Refresh
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center gap-3 text-xs font-mono">
                 <div>
                   <span className="text-neutral-500 font-bold uppercase text-[10px]">Invested: </span>
@@ -712,7 +883,12 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     <th className="p-2.5 text-right min-w-[105px]">CUR. VALUE</th>
                     <th className="p-2.5 text-right min-w-[95px]">RETURNS</th>
                     <th className="p-2.5 text-right min-w-[80px]">QTY</th>
-                    <th className="p-2.5 text-right min-w-[85px]">NAV / CP</th>
+                    <th className="p-2.5 text-right min-w-[100px]">
+                      <div className="flex items-center justify-end gap-1">
+                        <span>LIVE NAV / CP</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#05DF72]" title="Real-time live rate from AMFI & Exchanges" />
+                      </div>
+                    </th>
                     <th className="p-2.5 text-right min-w-[80px]">XIRR</th>
                     <th className="p-2.5 w-8 text-center">✕</th>
                   </tr>
@@ -854,9 +1030,32 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                   ? cleanCurrency(h.currentValue / h.units)
                                   : undefined;
                               return (
-                                <span className={eff ? 'text-neutral-900' : 'text-neutral-300'}>
-                                  {eff ? eff.toFixed(2) : '—'}
-                                </span>
+                                <div className="flex items-center justify-end gap-1">
+                                  {h.isLiveSynced && (
+                                    <span
+                                      className="w-1.5 h-1.5 rounded-full bg-[#05DF72] inline-block shrink-0"
+                                      title={`Live AMFI / Market NAV${h.liveNavDate ? ` (${h.liveNavDate})` : ''}`}
+                                    />
+                                  )}
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={eff !== undefined ? eff : ''}
+                                    placeholder="—"
+                                    onChange={(e) => {
+                                      const newPrice = e.target.value ? parseFloat(e.target.value) : undefined;
+                                      updateItemField(h.id, 'currentPrice', newPrice);
+                                    }}
+                                    className={`w-20 p-1 text-right font-mono text-xs border border-transparent hover:border-neutral-300 focus:border-[#121212] bg-transparent hover:bg-neutral-100 focus:bg-white font-bold ${
+                                      h.isLiveSynced ? 'text-[#0B6B38]' : 'text-[#121212]'
+                                    }`}
+                                    title={
+                                      h.isLiveSynced
+                                        ? `Live synced from AMFI/Market${h.liveNavDate ? ` (${h.liveNavDate})` : ''}`
+                                        : 'Document NAV / CP'
+                                    }
+                                  />
+                                </div>
                               );
                             })()}
                           </td>
