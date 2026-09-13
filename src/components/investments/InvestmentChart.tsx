@@ -253,44 +253,30 @@ export const PortfolioTrendChart: React.FC<TrendChartProps> = ({
   const isPositive = totalReturns >= 0;
   const totalSip = portfolioSummary?.totalMonthlySip ?? investments.reduce((s, i) => s + (i.sipAmount || 0), 0);
 
-  // Generate dynamic, realistic timeline data anchored to real current portfolio numbers
+  // Generate timeline data strictly anchored to real portfolio acquisition dates
   const now = new Date();
   const pointCount = timeframe === '3M' ? 3 : timeframe === '6M' ? 6 : 12;
 
-  // Realistic market variance benchmarks (monthly delta fluctuations)
-  const marketVariances = [-0.015, 0.022, -0.008, 0.019, -0.012, 0.025, -0.005, 0.014, -0.018, 0.009, -0.011, 0];
-  const varianceSlice = marketVariances.slice(-pointCount);
-  varianceSlice[varianceSlice.length - 1] = 0; // Final point is exactly 0 deviation from current value
-
   const trendData = Array.from({ length: pointCount }).map((_, idx) => {
     const monthsAgo = pointCount - 1 - idx;
-    const d = new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1);
-    const monthName = d.toLocaleDateString('en-IN', { month: 'short' });
-    const fullDate = d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+    const monthDate = new Date(now.getFullYear(), now.getMonth() - monthsAgo + 1, 0, 23, 59, 59, 999);
+    const monthTimestamp = monthDate.getTime();
+    const monthName = monthDate.toLocaleDateString('en-IN', { month: 'short' });
+    const fullDate = monthDate.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
     const isCurrentMonth = monthsAgo === 0;
 
-    let invPoint: number;
-    let curPoint: number;
+    // Filter real holdings that were acquired/created on or before this month
+    const activeAtMonth = investments.filter(
+      (inv) => (inv.createdAt || 0) <= monthTimestamp
+    );
 
-    if (isCurrentMonth) {
-      invPoint = Math.round(totalInvested);
-      curPoint = Math.round(totalCurrentValue);
-    } else {
-      if (totalSip > 0) {
-        invPoint = Math.round(Math.max(totalInvested * 0.6, totalInvested - monthsAgo * totalSip));
-      } else {
-        // Phased capital accumulation
-        const accumulationRate = 0.82 + 0.18 * (idx / (pointCount - 1));
-        invPoint = Math.round(totalInvested * accumulationRate);
-      }
+    const invPoint = isCurrentMonth
+      ? Math.round(totalInvested)
+      : Math.round(activeAtMonth.reduce((sum, h) => sum + h.investedAmount, 0));
 
-      // Realistic market trajectory ending precisely at totalCurrentValue
-      const overallReturnRate = totalInvested > 0 ? totalCurrentValue / totalInvested : 1;
-      const progressToReturn = (idx + 1) / pointCount;
-      const baseVal = invPoint * (1 + (overallReturnRate - 1) * progressToReturn);
-      const variance = varianceSlice[idx] || 0;
-      curPoint = Math.round(baseVal * (1 + variance));
-    }
+    const curPoint = isCurrentMonth
+      ? Math.round(totalCurrentValue)
+      : Math.round(activeAtMonth.reduce((sum, h) => sum + h.currentValue, 0));
 
     return {
       month: isCurrentMonth ? `${monthName} (Now)` : monthName,
