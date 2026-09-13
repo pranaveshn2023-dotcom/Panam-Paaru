@@ -120,11 +120,41 @@ export function cleanSearchQuery(raw: string): string {
 }
 
 /**
+ * Split an asset name into match tokens (lowercase, alnum only, stop words removed)
+ */
+const MATCH_STOP_WORDS = new Set(['fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular', 'idcw', 'dividend', 'amc', 'mutual', 'the', 'of', 'and', 'a', 'an', 'for', 'in', 'with']);
+
+export function normalizeMatchTokens(name: string): string[] {
+  return (name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 3 && !MATCH_STOP_WORDS.has(t));
+}
+
+/**
+ * Dice coefficient similarity between two scheme/fund names
+ * (0 = unrelated, 1 = identical token sets)
+ */
+export function schemeNameSimilarity(a: string, b: string): number {
+  const ta = normalizeMatchTokens(a);
+  const tb = normalizeMatchTokens(b);
+  if (ta.length === 0 || tb.length === 0) return 0;
+  let overlap = 0;
+  for (const t of ta) {
+    if (tb.includes(t)) overlap++;
+  }
+  for (const t of tb) {
+    if (ta.includes(t)) overlap++;
+  }
+  return (2 * overlap) / (ta.length + tb.length);
+}
+
+/**
  * Precision score matching for Indian Mutual Funds:
- * - Strictly defaults to Growth plans (95%+ of investor holdings) unless user explicitly specified IDCW / Dividend.
+ * - Defaults to Growth plans (95%+ of investor holdings) unless user explicitly specified IDCW.
  * - Prioritizes Direct plans unless Regular is explicitly specified.
- * - Heavily penalizes category mismatches (e.g., Nifty Next 50 when user asked for Nifty 50, or US/Global when not asked).
- * - Heavily penalizes discontinued, institutional, bonus, or segregated options.
+ * - Heavily penalizes category mismatches and extra unexplained words.
  */
 function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
   const stripped = stripBrokerSuffix(rawQuery);
@@ -145,11 +175,12 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
 
   let score = 0;
 
-  // Direct exact/substring match bonus
-  if (sLower === qLower) score += 100;
-  else if (sLower.includes(qLower)) score += 40;
+  // Exact / substring match bonus
+  if (sLower === qLower) score += 150;
+  else if (sLower.includes(qLower)) score += 60;
+  else if (qLower.includes(sLower) && sLower.length >= 8) score += 45;
 
-  // Stop words for token matching
+  // Token matching
   const stopWords = new Set(['fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular', 'idcw', 'dividend', 'amc', 'mutual', 'the', 'of', 'and', '&', '-']);
   const qTokens = qLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !stopWords.has(t));
   const sTokens = new Set(sLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2));
@@ -167,7 +198,7 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
     }
   }
 
-  // Penalize distinct category keywords if absent from query
+  // Penalize distinct category keywords absent from the query
   const categoryKeywords = [
     'next', 'small', 'mid', 'large', 'flexi', 'multi', 'focused', 'elss',
     'hybrid', 'arbitrage', 'liquid', 'overnight', 'gilt', 'debt', 'index',
@@ -181,6 +212,26 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
     }
   }
 
+  // Penalize every unexplained extra word in the candidate name so exact-name schemes win ties
+  const matched = new Set<string>();
+  for (const qt of qTokens) {
+    for (const st of sTokens) {
+      if (st.includes(qt) || qt.includes(st)) matched.add(st);
+    }
+  }
+  for (const st of sTokens) {
+    if (!matched.has(st)) score -= 15;
+  }
+
+  // Penalize every query token that could not be matched at all
+  for (const qt of qTokens) {
+    let found = false;
+    for (const st of sTokens) {
+      if (st.includes(qt) || qt.includes(st)) { found = true; break; }
+    }
+    if (!found) score -= 12;
+  }
+
   // Direct vs Regular preference
   const isDirect = sLower.includes('direct');
   const isRegular = sLower.includes('regular');
@@ -191,7 +242,6 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
     if (isRegular) score += 30;
     if (isDirect) score -= 30;
   } else {
-    // Default to Direct Plan
     if (isDirect) score += 15;
   }
 
@@ -203,13 +253,10 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
     if (isGrowth) score -= 20;
   } else {
     if (isGrowth) score += 40;
-    if (isIdcw) score -= 60; // Strong penalty against unintended IDCW
+    if (isIdcw) score -= 60;
   }
 
-  // Penalize institutional, bonus, or discontinued plans
-  if (/institutional|unclaimed|segregated|bonus/i.test(sLower)) {
-    score -= 50;
-  }
+  if (/institutional|unclaimed|segregated|bonus/i.test(sLower)) score -= 50;
 
   return score;
 }
@@ -217,9 +264,15 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
 /**
  * Fetch official AMFI live NAV dynamically for any Indian Mutual Fund.
  * Uses real-time feeds from api.mfapi.in with multi-tier search and Growth-default resolution.
+ *
+ * @param fundName  - Scheme/fund name (as stored in the holding).
+ * @param notes     - Optional notes string from the holding (may contain "ISIN: INF…" written
+ *                    by the parser). When present the ISIN is used as the primary lookup key —
+ *                    the most accurate path, matching what the Convex backend already does.
  */
 export async function fetchAmfiNav(
-  fundName: string
+  fundName: string,
+  notes?: string
 ): Promise<{ nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number } | null> {
   const normKey = fundName.toLowerCase().trim();
 
@@ -238,6 +291,8 @@ export async function fetchAmfiNav(
 
   try {
     // 3. Direct scheme code check (if 6-digit scheme code embedded in text or notes)
+    // ⚠️ Guard: a 6-digit FOLIO number (e.g. "123456") must never be mistaken for a scheme code.
+    // The resolved scheme's name is cross-validated against the fund name before trusting its NAV.
     const codeMatch = fundName.match(/\b\d{6}\b/);
     if (codeMatch) {
       const detailRes = await fetch(`https://api.mfapi.in/mf/${codeMatch[0]}/latest`, { signal: AbortSignal.timeout(4000) });
@@ -246,7 +301,10 @@ export async function fetchAmfiNav(
         const latest = details?.data?.[0];
         if (latest && latest.nav) {
           const navNum = parseFloat(latest.nav);
-          if (!isNaN(navNum) && navNum > 0) {
+          const resolvedName = String(details.meta?.scheme_name || '');
+          // Only accept when the resolved scheme plausibly matches the searched fund
+          const sim = resolvedName ? schemeNameSimilarity(fundName, resolvedName) : 0;
+          if (!isNaN(navNum) && navNum > 0 && sim >= 0.35) {
             const res = {
               nav: navNum,
               date: latest.date || '',
@@ -259,6 +317,51 @@ export async function fetchAmfiNav(
             return res;
           }
         }
+      }
+    }
+
+    // 3.5 ISIN-based lookup — highest-accuracy path.
+    // The parser writes "ISIN: INF200K01QV8" into holding.notes; the backend's
+    // fetchMfNav already uses this. Now the client-side fallback does too.
+    const combined = `${fundName} ${notes || ''}`;
+    const isinMatch = combined.match(/\b(INF[A-Z0-9]{9})\b/i);
+    if (isinMatch) {
+      try {
+        const isin = isinMatch[1].toUpperCase();
+        const masterRes = await fetch('https://api.mfapi.in/mf', { signal: AbortSignal.timeout(5000) });
+        if (masterRes.ok) {
+          const masterList: { schemeCode: number; schemeName: string; isinGrowth?: string; isinDivReinvestment?: string }[] =
+            await masterRes.json();
+          const found = masterList.find(
+            (x) => x.isinGrowth === isin || x.isinDivReinvestment === isin
+          );
+          if (found && found.schemeCode) {
+            const detailRes = await fetch(`https://api.mfapi.in/mf/${found.schemeCode}/latest`, {
+              signal: AbortSignal.timeout(4000),
+            });
+            if (detailRes.ok) {
+              const details = await detailRes.json();
+              const latest = details?.data?.[0];
+              if (latest && latest.nav) {
+                const navNum = parseFloat(latest.nav);
+                if (!isNaN(navNum) && navNum > 0) {
+                  const res = {
+                    nav: navNum,
+                    date: latest.date || '',
+                    schemeName: details.meta?.scheme_name || found.schemeName || fundName,
+                    schemeCode: found.schemeCode,
+                    prevNav: details.data?.[1]?.nav ? parseFloat(details.data[1].nav) : undefined,
+                  };
+                  navCache.set(normKey, res);
+                  savePersistentCache(normKey, res);
+                  return res;
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // ISIN lookup failed; fall through to name-search
       }
     }
 
@@ -294,8 +397,11 @@ export async function fetchAmfiNav(
           }
         }
       } catch {}
-      // If the primary query returned good candidates, no need to over-query
-      if (candidateMap.size > 0) break;
+      // Only stop probing when we already have enough HIGH-QUALITY candidates.
+      // A single fuzzy query returning poor matches must not prevent the correct
+      // scheme from being found via a shorter query (wrong-NAV source #1).
+      const strongCandidates = [...candidateMap.values()].filter((c) => c.score >= 70).length;
+      if (strongCandidates >= 3) break;
     }
 
     const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
@@ -325,6 +431,12 @@ export async function fetchAmfiNav(
           continue; // Discontinued scheme, skip to next candidate
         }
 
+        // Skip candidates whose resolved name diverges sharply from the searched fund
+        const resolvedName = String(details.meta?.scheme_name || cand.schemeName || '');
+        if (resolvedName && schemeNameSimilarity(fundName, resolvedName) < 0.25) {
+          continue;
+        }
+
         const result = {
           nav: navNum,
           date: latest.date || '',
@@ -347,6 +459,60 @@ export async function fetchAmfiNav(
 }
 
 /**
+ * Fetch a Yahoo Finance chart JSON — direct first (Yahoo serves CORS headers on
+ * /v8/finance/chart), falling back to the corsproxy.io mirror when the direct
+ * call is blocked or rate-limited. Avoids single-point-of-failure on the proxy.
+ */
+async function fetchYahooChart(symbol: string): Promise<any | null> {
+  const directUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`;
+  try {
+    const res = await fetch(directUrl, { signal: AbortSignal.timeout(4000) });
+    if (res.ok) return await res.json();
+  } catch {}
+  try {
+    const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
+    const res = await fetch(proxiedUrl, { signal: AbortSignal.timeout(4000) });
+    if (res.ok) return await res.json();
+  } catch {}
+  return null;
+}
+
+/**
+ * Fetch Yahoo Finance search results — direct first, corsproxy.io fallback.
+ */
+async function fetchYahooSearch(query: string, quotesCount = 5): Promise<any[] | null> {
+  const directUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=${quotesCount}`;
+  try {
+    const res = await fetch(directUrl, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data: any = await res.json();
+      return data?.quotes || null;
+    }
+  } catch {}
+  try {
+    const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
+    const res = await fetch(proxiedUrl, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data: any = await res.json();
+      return data?.quotes || null;
+    }
+  } catch {}
+  return null;
+}
+
+function parseYahooQuoteMeta(meta: any): { price: number; prevClose?: number } | null {
+  if (!meta || typeof meta.regularMarketPrice !== 'number' || meta.regularMarketPrice <= 0) return null;
+  const change =
+    typeof meta.fulldayChange === 'number'
+      ? meta.fulldayChange
+      : typeof meta.regularMarketChange === 'number'
+      ? meta.regularMarketChange
+      : undefined;
+  const prevClose = change !== undefined ? meta.regularMarketPrice - change : meta.previousClose || meta.chartPreviousClose;
+  return { price: meta.regularMarketPrice, prevClose: typeof prevClose === 'number' ? prevClose : undefined };
+}
+
+/**
  * Fetch live stock/ETF/commodity quote dynamically with ZERO hardcoding
  */
 export async function fetchLiveStockPrice(
@@ -355,8 +521,14 @@ export async function fetchLiveStockPrice(
   const clean = nameOrSymbol.trim().toUpperCase();
   const candidates: string[] = [];
 
-  if (clean.endsWith('.NS') || clean.endsWith('.BO') || clean.endsWith('-INR') || clean.endsWith('-USD')) {
+  const hasSuffix = clean.endsWith('.NS') || clean.endsWith('.BO') || clean.endsWith('-INR') || clean.endsWith('-USD');
+  if (hasSuffix) {
     candidates.push(clean);
+  } else {
+    // Direct NSE/BSE attempts for bare tickers (e.g. 'RELIANCE', 'INFY', 'NIFTYBEES')
+    if (/^[A-Z0-9]{1,14}$/.test(clean)) {
+      candidates.push(`${clean}.NS`, `${clean}.BO`);
+    }
   }
 
   // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
@@ -374,38 +546,32 @@ export async function fetchLiveStockPrice(
   }
 
   for (const sq of searchQueries) {
-    try {
-      const searchUrl = `https://corsproxy.io/?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=5`)}`;
-      const sRes = await fetch(searchUrl, { signal: AbortSignal.timeout(3000) });
-      if (sRes.ok) {
-        const sData: any = await sRes.json();
-        for (const q of sData?.quotes || []) {
-          if (q.symbol && !candidates.includes(q.symbol)) {
-            candidates.push(q.symbol);
-          }
+    const quotes = await fetchYahooSearch(sq);
+    if (quotes) {
+      for (const q of quotes) {
+        if (q.symbol && !candidates.includes(q.symbol)) {
+          candidates.push(q.symbol);
         }
       }
-    } catch {}
+    }
   }
 
+  // Prioritize Indian NSE/BSE & INR symbols so an American lookalike doesn't win
+  candidates.sort((a, b) => {
+    const aInr = a.endsWith('.NS') || a.endsWith('.BO') || a.endsWith('-INR');
+    const bInr = b.endsWith('.NS') || b.endsWith('.BO') || b.endsWith('-INR');
+    if (aInr && !bInr) return -1;
+    if (!aInr && bInr) return 1;
+    return 0;
+  });
+
   for (const sym of candidates) {
-    const url = `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}`)}`;
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
-      if (res.ok) {
-        const data: any = await res.json();
-        const meta = data?.chart?.result?.[0]?.meta;
-        if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
-          const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
-          const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
-          return {
-            price: meta.regularMarketPrice,
-            prevClose,
-            symbol: sym,
-          };
-        }
-      }
-    } catch {}
+    const data = await fetchYahooChart(sym);
+    const meta = data?.chart?.result?.[0]?.meta;
+    const parsed = meta ? parseYahooQuoteMeta(meta) : null;
+    if (parsed && parsed.price > 0) {
+      return { price: parsed.price, prevClose: parsed.prevClose, symbol: sym };
+    }
   }
 
   return null;
@@ -470,19 +636,12 @@ export async function fetchLiveCryptoPrice(
   }
 
   for (const sym of candidates) {
-    const url = `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}`)}`;
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
-      if (res.ok) {
-        const data: any = await res.json();
-        const meta = data?.chart?.result?.[0]?.meta;
-        if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
-          const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
-          const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
-          return { price: meta.regularMarketPrice, prevClose, symbol: sym };
-        }
-      }
-    } catch {}
+    const data = await fetchYahooChart(sym);
+    const meta = data?.chart?.result?.[0]?.meta;
+    const parsed = meta ? parseYahooQuoteMeta(meta) : null;
+    if (parsed && parsed.price > 0) {
+      return { price: parsed.price, prevClose: parsed.prevClose, symbol: sym };
+    }
   }
 
   return null;

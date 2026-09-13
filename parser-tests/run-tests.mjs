@@ -27,20 +27,42 @@ const files = fs.readdirSync(fixturesDir).filter((f) => !f.startsWith('.'));
 
 let failures = 0;
 const expectations = {
-  'cams-cas.pdf': (h) =>
-    h.length === 2 &&
-    h[0].name.includes('Axis Bluechip') &&
-    Math.abs(h[0].currentValue - 45678.9) < 1 &&
-    Math.abs(h[0].investedAmount - 44500) < 1 &&
-    h[1].name.includes('Parag Parikh'),
-  'kfin-cas.pdf': (h) =>
-    h.length === 2 &&
-    h[0].name.includes('Kotak Flexicap') &&
-    Math.abs(h[0].investedAmount - 10000) < 1 &&
-    Math.abs(h[0].currentValue - 11134) < 1 &&
-    h[1].name.includes('Nippon India Small Cap') &&
-    Math.abs(h[1].investedAmount - 150000) < 1 &&
-    Math.abs(h[1].currentValue - 180750) < 1,
+  'cams-cas.pdf': (h) => {
+    const axis = h.find((x) => x.name.includes('Axis Bluechip'));
+    const pp = h.find((x) => x.name.includes('Parag Parikh'));
+    return (
+      h.length === 2 &&
+      Boolean(axis) &&
+      Math.abs(axis.currentValue - 45678.9) < 1 &&
+      Math.abs(axis.investedAmount - 44500) < 1 &&
+      Math.abs(axis.buyPrice - 44.5) < 0.01 &&
+      Math.abs(axis.currentPrice - 45.68) < 0.01 &&
+      axis.isin === 'INF200K01QV8' &&
+      axis.folioNo === '1234567890 / 0' &&
+      (axis.notes || '').includes('ISIN: INF200K01QV8') &&
+      (axis.notes || '').includes('Folio: 1234567890 / 0') &&
+      Boolean(pp) &&
+      pp.isin === 'INF109K016L0' &&
+      Math.abs(pp.buyPrice - 70) < 0.01
+    );
+  },
+  'kfin-cas.pdf': (h) => {
+    const kotak = h.find((x) => x.name.includes('Kotak Flexicap'));
+    const nippon = h.find((x) => x.name.includes('Nippon India Small Cap'));
+    return (
+      h.length === 2 &&
+      Boolean(kotak) &&
+      Math.abs(kotak.investedAmount - 10000) < 1 &&
+      Math.abs(kotak.currentValue - 11134) < 1 &&
+      Math.abs(kotak.currentPrice - 55.67) < 0.01 &&
+      Math.abs(kotak.buyPrice - 50) < 0.01 &&
+      Boolean(nippon) &&
+      Math.abs(nippon.investedAmount - 150000) < 1 &&
+      Math.abs(nippon.currentValue - 180750) < 1 &&
+      Math.abs(nippon.currentPrice - 120.5) < 0.01 &&
+      Math.abs(nippon.buyPrice - 100) < 0.01
+    );
+  },
   'simple-portfolio.csv': (h) =>
     h.length === 4 &&
     Math.abs(h.find((x) => x.name.includes('Bitcoin'))?.currentValue - 62000) < 1,
@@ -48,16 +70,43 @@ const expectations = {
     h.length === 3 &&
     h.every((x) => x.units > 0) &&
     Math.abs(h.find((x) => x.name.includes('RELIANCE'))?.investedAmount - 25000) < 1,
-  'groww-portfolio.xlsx': (h) =>
-    h.length === 3 &&
-    Math.abs(h.find((x) => x.name.includes('Parag Parikh'))?.investedAmount - 5025) < 1 &&
-    Math.abs(h.find((x) => x.name.includes('Parag Parikh'))?.units - 100.5) < 0.01,
+  'groww-portfolio.xlsx': (h) => {
+    const pp = h.find((x) => x.name.includes('Parag Parikh'));
+    return (
+      h.length === 3 &&
+      Boolean(pp) &&
+      Math.abs(pp.investedAmount - 5025) < 1 &&
+      Math.abs(pp.units - 100.5) < 0.01 &&
+      pp.isin === 'INF332K01RS0' &&
+      (pp.notes || '').includes('ISIN: INF332K01RS0')
+    );
+  },
   'manual-no-header.csv': (h) =>
     h.length === 2 &&
     Math.abs(h[0].investedAmount - 12500) < 1,
   'title-row-report.csv': (h) =>
     h.length === 2 &&
     Math.abs(h.find((x) => x.name.includes('ITC'))?.currentValue - 25000) < 1,
+  'returns-pct.csv': (h) => {
+    const hdfc = h.find((x) => x.name.includes('HDFC Flexi Cap'));
+    const axis = h.find((x) => x.name.includes('Axis Midcap'));
+    return (
+      h.length === 2 &&
+      Boolean(hdfc) &&
+      Math.abs(hdfc.currentValue - 11250) < 0.01 &&
+      Math.abs(hdfc.returns - 1250) < 0.05 &&
+      Boolean(axis) &&
+      Math.abs(axis.currentValue - 21600) < 0.01 &&
+      Math.abs(axis.returns - 1600) < 0.05
+    );
+  },
+  'combined-folio-isin.csv': (h) =>
+    h.length === 1 &&
+    h[0].isin === 'INF200K01QV8' &&
+    h[0].folioNo === '123456' &&
+    (h[0].notes || '').includes('ISIN: INF200K01QV8') &&
+    Math.abs(h[0].investedAmount - 10000) < 0.01 &&
+    Math.abs(h[0].units - 100) < 0.01,
   'user-amc-template.xlsx': (h) => {
     const hdfc = h.find((x) => x.name.includes('HDFC') && x.name.includes('Mid Cap'));
     const axisDyn = h.find((x) => x.name.includes('Axis') && x.subType.includes('Dynamic'));

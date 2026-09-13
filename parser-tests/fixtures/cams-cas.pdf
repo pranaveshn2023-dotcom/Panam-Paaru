@@ -9,7 +9,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
 endobj
 4 0 obj
-<< /Length 2306 >>
+<< /Length 2423 >>
 stream
 BT /F1 9 Tf 1 0 0 1 40 750 Tm (Consolidated Account Statement) Tj ET
 BT /F1 9 Tf 1 0 0 1 400 750 Tm (Page 1 of 3) Tj ET
@@ -19,38 +19,40 @@ BT /F1 9 Tf 1 0 0 1 300 722 Tm (Mobile: 9876543210) Tj ET
 BT /F1 9 Tf 1 0 0 1 40 708 Tm (Email: user@example.com) Tj ET
 BT /F1 9 Tf 1 0 0 1 40 680 Tm (Folio No: 1234567890 / 0) Tj ET
 BT /F1 9 Tf 1 0 0 1 55 666 Tm (Axis Bluechip Fund - Direct Plan - Growth) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 652 Tm (Registrar: CAMS) Tj ET
-BT /F1 9 Tf 1 0 0 1 300 652 Tm (Advisor: TEST ADVISOR) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 638 Tm (Opening Unit Balance: 0.000) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 624 Tm (01-Jan-2025) Tj ET
-BT /F1 9 Tf 1 0 0 1 130 624 Tm (Purchase) Tj ET
-BT /F1 9 Tf 1 0 0 1 260 624 Tm (500.000) Tj ET
-BT /F1 9 Tf 1 0 0 1 360 624 Tm (45.0000) Tj ET
-BT /F1 9 Tf 1 0 0 1 480 624 Tm (22500.00) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 610 Tm (01-Feb-2025) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 652 Tm (ISIN: INF200K01QV8) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 638 Tm (Registrar: CAMS) Tj ET
+BT /F1 9 Tf 1 0 0 1 300 638 Tm (Advisor: TEST ADVISOR) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 624 Tm (Opening Unit Balance: 0.000) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 610 Tm (01-Jan-2025) Tj ET
 BT /F1 9 Tf 1 0 0 1 130 610 Tm (Purchase) Tj ET
 BT /F1 9 Tf 1 0 0 1 260 610 Tm (500.000) Tj ET
-BT /F1 9 Tf 1 0 0 1 360 610 Tm (44.0000) Tj ET
-BT /F1 9 Tf 1 0 0 1 480 610 Tm (22000.00) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 596 Tm (Closing Unit Balance: 1000.000) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 582 Tm (NAV on 31-Mar-2026: 45.6789) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 568 Tm (Market Value: 45678.90) Tj ET
-BT /F1 9 Tf 1 0 0 1 300 568 Tm (Cost Value: 44500.00) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 554 Tm (Weight: 12.30%) Tj ET
-BT /F1 9 Tf 1 0 0 1 40 526 Tm (Folio No: 9876543210 / 0) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 512 Tm (Parag Parikh Flexi Cap Fund - Direct Plan - Growth) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 498 Tm (Registrar: CAMS) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 484 Tm (Opening Unit Balance: 0.000) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 470 Tm (01-Mar-2025) Tj ET
-BT /F1 9 Tf 1 0 0 1 130 470 Tm (Purchase) Tj ET
-BT /F1 9 Tf 1 0 0 1 260 470 Tm (100.000) Tj ET
-BT /F1 9 Tf 1 0 0 1 360 470 Tm (70.0000) Tj ET
-BT /F1 9 Tf 1 0 0 1 480 470 Tm (7000.00) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 456 Tm (Closing Unit Balance: 100.000) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 442 Tm (NAV on 31-Mar-2026: 80.1234) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 428 Tm (Market Value: 8012.34) Tj ET
-BT /F1 9 Tf 1 0 0 1 300 428 Tm (Cost Value: 7000.00) Tj ET
-BT /F1 9 Tf 1 0 0 1 55 414 Tm (Weight: 2.20%) Tj ET
+BT /F1 9 Tf 1 0 0 1 360 610 Tm (45.0000) Tj ET
+BT /F1 9 Tf 1 0 0 1 480 610 Tm (22500.00) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 596 Tm (01-Feb-2025) Tj ET
+BT /F1 9 Tf 1 0 0 1 130 596 Tm (Purchase) Tj ET
+BT /F1 9 Tf 1 0 0 1 260 596 Tm (500.000) Tj ET
+BT /F1 9 Tf 1 0 0 1 360 596 Tm (44.0000) Tj ET
+BT /F1 9 Tf 1 0 0 1 480 596 Tm (22000.00) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 582 Tm (Closing Unit Balance: 1000.000) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 568 Tm (NAV as on 31-Mar-2026: 45.6789) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 554 Tm (Market Value: 45678.90) Tj ET
+BT /F1 9 Tf 1 0 0 1 300 554 Tm (Cost Value: 44500.00) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 540 Tm (Weight: 12.30%) Tj ET
+BT /F1 9 Tf 1 0 0 1 40 512 Tm (Folio No: 9876543210 / 0) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 498 Tm (Parag Parikh Flexi Cap Fund - Direct Plan - Growth) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 484 Tm (ISIN: INF109K016L0) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 470 Tm (Registrar: CAMS) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 456 Tm (Opening Unit Balance: 0.000) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 442 Tm (01-Mar-2025) Tj ET
+BT /F1 9 Tf 1 0 0 1 130 442 Tm (Purchase) Tj ET
+BT /F1 9 Tf 1 0 0 1 260 442 Tm (100.000) Tj ET
+BT /F1 9 Tf 1 0 0 1 360 442 Tm (70.0000) Tj ET
+BT /F1 9 Tf 1 0 0 1 480 442 Tm (7000.00) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 428 Tm (Closing Unit Balance: 100.000) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 414 Tm (NAV on 31-Mar-2026: 80.1234) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 400 Tm (Market Value: 8012.34) Tj ET
+BT /F1 9 Tf 1 0 0 1 300 400 Tm (Cost Value: 7000.00) Tj ET
+BT /F1 9 Tf 1 0 0 1 55 386 Tm (Weight: 2.20%) Tj ET
 
 endstream
 endobj
@@ -64,9 +66,9 @@ xref
 0000000058 00000 n 
 0000000115 00000 n 
 0000000241 00000 n 
-0000002599 00000 n 
+0000002716 00000 n 
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-2669
+2786
 %%EOF

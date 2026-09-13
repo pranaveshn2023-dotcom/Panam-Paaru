@@ -215,7 +215,7 @@ export function isValidHoldingName(text: string): boolean {
 
 export function cleanSchemeName(line: string): string {
   return line
-    .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme|scrip\s*name|instrument|particulars?)\s*[:：]\s*/i, '')
+    .replace(/^(name\s+of\s+(the\s+)?(scheme|instrument|security)|scheme\s*name|scheme|scrip\s*name|instrument|particulars?)\s*[:：]\s*/i, '')
     .replace(/\bfolio\s*(no|number)?\s*[:.]\s*[\w\d/ -]+/i, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -328,7 +328,7 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
   const holdings: ParsedHolding[] = [];
   let idCounter = 0;
 
-  // Identify all entity block start indices (Folio lines, "Name of the Scheme:", or recognized fund names)
+  // Identify all entity block start indices (Folio lines, "Name of the Scheme:", ISIN-grouped demat holdings)
   const blockIndices: number[] = [];
   for (let i = 0; i < sortedLines.length; i++) {
     const line = sortedLines[i];
@@ -336,10 +336,17 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
 
     if (
       /\bfolio\s*(no|number)?\s*[:.]/i.test(line) ||
-      /^name\s+of\s+the\s+scheme\s*[:.]/i.test(line) ||
-      /\bisin\s*[:.]\s*INF/i.test(line)
+      /^name\s+of\s+the\s+scheme\s*[:.]/i.test(line)
     ) {
       blockIndices.push(i);
+    } else if (/\bisin\s*[:.]\s*INF/i.test(line)) {
+      // CAMS/KFin print "ISIN: INF..." under every scheme name — that is scheme
+      // metadata, NOT a new holding. Only ISIN lines introducing demat/depository
+      // holdings (followed by "Name of the Instrument / Security") start a block.
+      const nextLine = sortedLines[i + 1] || '';
+      if (/name\s+of\s+the\s+(instrument|security)|^\s*instrument\s*[:]/i.test(nextLine)) {
+        blockIndices.push(i);
+      }
     }
   }
 
@@ -371,6 +378,7 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         isValidHoldingName(cleaned) &&
         !isCASMetadata(cleaned) &&
         !/\bfolio\s*(no|number)?\s*[:.]/i.test(candidate) &&
+        !/\bisin\s*[:.]\s*IN[A-Z0-9]/i.test(candidate) &&
         !/^(registrar|advisor|distributor|opening|closing|statement|weight|allocation|ratio)/i.test(cleaned) &&
         !/(?:market|cost|nav|closing|unit|balance)\s*val/i.test(cleaned)
       ) {
@@ -386,8 +394,9 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
     let closingUnits = 0;
     let navValue = 0;
     let xirrValue: string | undefined = undefined;
+    let isin = '';
 
-    // 2. Scan block for Units, Cost Value, Market Value, and NAV
+    // 2. Scan block for Units, Cost Value, Market Value, NAV, and ISIN
     for (let k = startIdx; k < endIdx; k++) {
       const line = sortedLines[k];
       if (isPersonalInfo(line)) continue;
@@ -418,8 +427,12 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         }
       }
 
-      // Extract Closing Units
-      if (/(?:closing|balance)\s*(?:unit\s*)?(?:balance|units)?/i.test(line) || /unit\s*balance/i.test(line)) {
+      // Extract Closing Units (supports "Closing Unit Balance:", "Closing Units",
+      // "Total Units:", "Unit Balance:", and KFin "Closing Balance:" formats)
+      if (
+        /(?:closing|total)\s*(?:unit\s*)?(?:balance|units?)/i.test(line) ||
+        /unit\s*balance/i.test(line)
+      ) {
         const nums = line.match(/[\d,]+(?:\.\d+)?/g);
         if (nums) {
           const parsed = nums.map(parseCleanNumber).filter((n) => n > 0);
@@ -427,13 +440,20 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         }
       }
 
-      // Extract NAV
-      if (/^nav\s|nav\s*on|nav\s*[:(]/i.test(line)) {
+      // Extract NAV — supports "NAV: ...", "NAV on <date>: ...", "NAV as on <date>: ...",
+      // "NAV as at <date>: ...", "NAV dated <date>: ..." from CAMS / KFintech statements
+      if (/^nav\s|nav\s*(?:on|as\s*on|as\s*at|dated|\s*[:.])/i.test(line)) {
         const nums = line.match(/[\d,]+(?:\.\d+)?/g);
         if (nums) {
           const parsed = nums.map(parseCleanNumber).filter((n) => n > 0);
           if (parsed.length > 0) navValue = parsed[parsed.length - 1];
         }
+      }
+
+      // Extract ISIN (12-character Indian security identifier, e.g. INF200K01QV8)
+      if (/\bisin\s*[:.]\s*IN[A-Z0-9]{9,11}\b/i.test(line)) {
+        const im = line.match(/\bisin\s*[:.]\s*(IN[A-Z0-9]{9,11})\b/i);
+        if (im) isin = im[1].toUpperCase();
       }
 
       // Extract XIRR / IRR / CAGR
@@ -454,8 +474,18 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
       marketValue = costValue;
     }
 
+    // Average cost per unit (buy price) from statement cost basis
+    let buyPrice: number | undefined;
+    if (costValue > 0 && closingUnits > 0) {
+      buyPrice = cleanCurrency(costValue / closingUnits);
+    }
+
     if (costValue > 0 || marketValue > 0) {
       const detailed = detectDetailedAssetType(schemeName);
+      const notesParts = [
+        folioNo ? `Folio: ${folioNo}` : '',
+        isin ? `ISIN: ${isin}` : '',
+      ].filter(Boolean);
       holdings.push({
         id: `cas_${idCounter++}`,
         name: schemeName,
@@ -465,9 +495,12 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         investedAmount: cleanCurrency(costValue),
         currentValue: cleanCurrency(marketValue),
         units: cleanUnits(closingUnits),
+        buyPrice,
         currentPrice: navValue > 0 ? cleanCurrency(navValue) : undefined,
         folioNo: folioNo || undefined,
+        isin: isin || undefined,
         xirr: xirrValue,
+        notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
         selected: true,
         isValid: true,
       });
@@ -659,6 +692,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
     let subCatCol = -1;
     let sectorCol = -1;
     let folioCol = -1;
+    let isinCol = -1;
     let brokerCol = -1;
     let xirrCol = -1;
 
@@ -684,6 +718,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
       let tempSubCat = -1;
       let tempSector = -1;
       let tempFolio = -1;
+      let tempIsin = -1;
       let tempBroker = -1;
       let tempXirr = -1;
       let tempName = -1;
@@ -749,17 +784,22 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
           tempSector = cIdx;
         }
 
-        // 10. Folio / ISIN
-        else if (tempFolio === -1 && /\b(folio|isin|dp\s*id|demat|scrip\s*code)\b/i.test(colName)) {
+        // 10. ISIN column (exact — Indian security identifier, must not be confused with folio)
+        else if (tempIsin === -1 && /^\s*isin\s*$/i.test(colName)) {
+          tempIsin = cIdx;
+        }
+
+        // 11. Folio / Demat
+        else if (tempFolio === -1 && /\b(folio|dp\s*id|demat|scrip\s*code)\b/i.test(colName)) {
           tempFolio = cIdx;
         }
 
-        // 11. Broker / Platform / Source
+        // 12. Broker / Platform / Source
         else if (tempBroker === -1 && /\b(broker|platform|depository|source)\b/i.test(colName)) {
           tempBroker = cIdx;
         }
 
-        // 12. XIRR / IRR / CAGR
+        // 13. XIRR / IRR / CAGR
         else if (tempXirr === -1 && /\b(xirr|irr|cagr|annualized\s*returns?|annualised\s*returns?|annualized|annualised)\b/i.test(colName)) {
           tempXirr = cIdx;
         }
@@ -785,6 +825,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             idx === tempSubCat ||
             idx === tempSector ||
             idx === tempFolio ||
+            idx === tempIsin ||
             idx === tempBroker ||
             idx === tempXirr
           ) {
@@ -811,6 +852,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         subCatCol = tempSubCat;
         sectorCol = tempSector;
         folioCol = tempFolio;
+        isinCol = tempIsin;
         brokerCol = tempBroker;
         xirrCol = tempXirr;
         break;
@@ -836,9 +878,25 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         const rawSubCat = subCatCol !== -1 ? String(row[subCatCol] || '').trim() : undefined;
         const rawType = typeCol !== -1 ? String(row[typeCol] || '').trim() : undefined;
         const rawSector = sectorCol !== -1 ? String(row[sectorCol] || '').trim() : undefined;
-        const rawFolio = folioCol !== -1 ? String(row[folioCol] || '').trim() : undefined;
+        const folioVal = folioCol !== -1 ? String(row[folioCol] || '').trim() : undefined;
+        const isinVal = isinCol !== -1 ? String(row[isinCol] || '').trim() : undefined;
         const rawBroker = brokerCol !== -1 ? String(row[brokerCol] || '').trim() : undefined;
         const rawXirr = xirrCol !== -1 ? cleanXirr(row[xirrCol]) : undefined;
+
+        // Split folio vs ISIN: a dedicated ISIN column wins; otherwise detect an ISIN
+        // pattern (12-char Indian security identifier) inside the folio cell
+        let rawIsin = isinVal || '';
+        if (!rawIsin && folioVal) {
+          const isinMatch = folioVal.match(/\b(IN[A-Z0-9]{9,11})\b/i);
+          if (isinMatch) rawIsin = isinMatch[1].toUpperCase();
+        }
+        let rawFolio = folioVal;
+        if (rawIsin && rawFolio) {
+          // Remove the ISIN portion from the folio cell if they were combined
+          const cleaned = rawFolio.replace(/\bIN[A-Z0-9]{9,11}\b/i, '').replace(/[\/\s|,]+/g, ' ').trim();
+          rawFolio = cleaned || undefined;
+        }
+        rawIsin = rawIsin.toUpperCase();
 
         // Build composite holding name if AMC + Sub-category exist (e.g. "HDFC Mutual Fund - Mid Cap")
         let fullName = rawName;
@@ -851,11 +909,34 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         let currentPrice = curPriceCol !== -1 ? parseCleanNumber(row[curPriceCol]) : undefined;
         let invested = invCol !== -1 ? parseCleanNumber(row[invCol]) : 0;
         let current = curCol !== -1 ? parseCleanNumber(row[curCol]) : 0;
-        let pnl = pnlCol !== -1 ? parseCleanNumber(row[pnlCol]) : undefined;
+
+        // Detect whether the P&L / Returns column holds a PERCENTAGE (e.g. "Returns (%)",
+        // "Return %", "1Y Returns") instead of an absolute ₹ figure, and convert it to an
+        // amount so the derived current/invested values never get corrupted.
+        const pnlHeader = pnlCol !== -1 ? String(safeMatrix[headerIdx][pnlCol] || '').trim().toLowerCase() : '';
+        const rawPnlCell = pnlCol !== -1 ? String(row[pnlCol] || '').trim() : '';
+        const pnlRaw = pnlCol !== -1 ? parseCleanNumber(row[pnlCol]) : undefined;
+        const pnlIsPercent =
+          pnlCol !== -1 &&
+          (/%\s*$/.test(rawPnlCell) ||
+            (/%|per\s*cent|annual|yld|yield/i.test(pnlHeader) && !/p\s*l|profit|loss|gain|amount|rs|inr|value/i.test(pnlHeader)));
+
+        let pnl: number | undefined = pnlRaw;
+        if (pnlIsPercent) {
+          // Convert after invested/current are known
+          pnl = undefined;
+        }
 
         // Derive missing financial numbers from existing row data if needed
         if (invested === 0 && units && buyPrice) invested = units * buyPrice;
         if (current === 0 && units && currentPrice) current = units * currentPrice;
+
+        // Percentage P&L → absolute amount
+        if (pnlIsPercent && pnlRaw !== undefined) {
+          const basis = invested > 0 ? invested : current > 0 ? current : 0;
+          if (basis > 0) pnl = cleanCurrency((basis * pnlRaw) / 100);
+        }
+
         if (current === 0 && invested > 0 && pnl !== undefined) current = invested + pnl;
         if (invested === 0 && current > 0 && pnl !== undefined) invested = current - pnl;
 
@@ -877,6 +958,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
           const detailed = detectDetailedAssetType(fullName, rawType || rawSubCat, rawSector);
           const notesParts = [
             rawFolio ? `Folio: ${rawFolio}` : '',
+            rawIsin ? `ISIN: ${rawIsin}` : '',
             rawXirr ? `XIRR: ${rawXirr}` : '',
           ].filter(Boolean);
 
@@ -888,6 +970,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             sector: rawSector || detailed.sector || undefined,
             broker: rawBroker || undefined,
             folioNo: rawFolio || undefined,
+            isin: rawIsin || undefined,
             investedAmount: cleanCurrency(Math.abs(invested)),
             currentValue: cleanCurrency(Math.abs(current)),
             returns: pnl !== undefined ? cleanCurrency(pnl) : cleanCurrency(current - invested),

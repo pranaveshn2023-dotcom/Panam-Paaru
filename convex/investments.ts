@@ -975,8 +975,9 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
 
   let score = 0;
 
-  if (sLower === qLower) score += 100;
-  else if (sLower.includes(qLower)) score += 40;
+  if (sLower === qLower) score += 150;
+  else if (sLower.includes(qLower)) score += 60;
+  else if (qLower.includes(sLower) && sLower.length >= 8) score += 45;
 
   const stopWords = new Set(['fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular', 'idcw', 'dividend', 'amc', 'mutual', 'the', 'of', 'and', '&', '-']);
   const qTokens = qLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !stopWords.has(t));
@@ -1008,6 +1009,27 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
     }
   }
 
+  // Penalize every unexplained extra word (e.g. "Opportunities", "Series", "XL")
+  // so the exact-name scheme always beats a fuzzy sibling with the same tokens.
+  const matched = new Set<string>();
+  for (const qt of qTokens) {
+    for (const st of sTokens) {
+      if (st.includes(qt) || qt.includes(st)) matched.add(st);
+    }
+  }
+  for (const st of sTokens) {
+    if (!matched.has(st)) score -= 15;
+  }
+
+  // Penalize query tokens that could not be matched at all
+  for (const qt of qTokens) {
+    let found = false;
+    for (const st of sTokens) {
+      if (st.includes(qt) || qt.includes(st)) { found = true; break; }
+    }
+    if (!found) score -= 12;
+  }
+
   const isDirect = sLower.includes('direct');
   const isRegular = sLower.includes('regular');
   if (wantsDirect) {
@@ -1037,10 +1059,29 @@ function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQ
   return score;
 }
 
+function schemeNameSimilarity(a: string, b: string): number {
+  const stop = new Set(['fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular', 'idcw', 'dividend', 'amc', 'mutual', 'the', 'of', 'and']);
+  const tok = (s: string): string[] =>
+    (s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((t) => t.length >= 3 && !stop.has(t));
+  const ta = tok(a);
+  const tb = tok(b);
+  if (ta.length === 0 || tb.length === 0) return 0;
+  let overlap = 0;
+  for (const t of ta) if (tb.includes(t)) overlap++;
+  for (const t of tb) if (ta.includes(t)) overlap++;
+  return (2 * overlap) / (ta.length + tb.length);
+}
+
 async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string } | null> {
   const combined = `${name} ${notes || ''}`;
 
   // 1. Direct scheme code check (if 6-digit scheme code embedded in text or notes)
+  // ⚠️ Guard: a 6-digit FOLIO number must never be mistaken for a scheme code —
+  // the resolved scheme's name is cross-validated before trusting its NAV.
   const codeMatch = combined.match(/\b\d{6}\b/);
   if (codeMatch) {
     try {
@@ -1050,7 +1091,9 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
         const latest = details?.data?.[0];
         if (latest && latest.nav) {
           const navNum = parseFloat(latest.nav);
-          if (!isNaN(navNum) && navNum > 0) {
+          const resolvedName = String(details.meta?.scheme_name || '');
+          const sim = resolvedName ? schemeNameSimilarity(name, resolvedName) : 0;
+          if (!isNaN(navNum) && navNum > 0 && sim >= 0.35) {
             return {
               nav: navNum,
               date: latest.date || '',
@@ -1139,7 +1182,10 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
         }
       }
     } catch {}
-    if (candidateMap.size > 0) break;
+    // Only stop probing once the current query already surfaced enough HIGH-QUALITY
+    // candidates. One fuzzy query of poor matches must not block a shorter, correct query.
+    const strong = [...candidateMap.values()].filter((c) => c.score >= 70).length;
+    if (strong >= 3) break;
   }
 
   const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
@@ -1166,6 +1212,12 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
         // Skip discontinued dead schemes older than 60 days
         const navDate = parseMfNavDate(latest.date);
         if (navDate && now - navDate.getTime() > 60 * 24 * 60 * 60 * 1000) {
+          continue;
+        }
+
+        // Skip candidates whose resolved name diverges sharply from the searched fund
+        const resolvedName = String(details.meta?.scheme_name || candidate.schemeName || '');
+        if (resolvedName && schemeNameSimilarity(name, resolvedName) < 0.25) {
           continue;
         }
 
@@ -1246,9 +1298,18 @@ export const syncLiveMarketPrices = action({
 
     for (const inv of allInvestments) {
       try {
+        // ── Asset types with a real, tradable per-unit market price ──
+        // FD/RD, PPF/EPF, Real Estate and unlisted "Other" assets have NO live
+        // ticker — running a Yahoo/AMFI lookup on their names can return a
+        // random unrelated quote and corrupt their stored current value.
+        const at = inv.assetType || "";
+        if (at === "fd_rd" || at === "ppf_epf" || at === "real_estate" || at === "other") {
+          continue;
+        }
+
         let livePrice: number | null = null;
 
-        if (inv.assetType === "mutual_fund") {
+        if (at === "mutual_fund") {
           const mf = await fetchMfNav(inv.name, inv.notes);
           if (mf && mf.nav > 0) {
             livePrice = mf.nav;
@@ -1257,30 +1318,54 @@ export const syncLiveMarketPrices = action({
             const stk = await fetchStockQuote(inv.name);
             if (stk && stk.price > 0) livePrice = stk.price;
           }
-        } else if (inv.assetType === "crypto") {
+        } else if (at === "crypto") {
           const cry = await fetchCryptoPrice(inv.name);
           if (cry && cry.price > 0) {
             livePrice = cry.price;
           }
+        } else if (at === "gold") {
+          // Gold/Silver FUNDS and gold ETFs publish NAVs on AMFI — try that first,
+          // but ONLY when the holding name actually identifies a fund/ETF instrument.
+          // e.g. "Sovereign Gold Bond 2025" or "Digital Gold" must never be valued
+          // with a gold-fund NAV.
+          if (/\b(fund|fof|etf|bees|amc|mutual)\b/i.test(inv.name)) {
+            const mf = await fetchMfNav(inv.name, inv.notes);
+            if (mf && mf.nav > 0) {
+              livePrice = mf.nav;
+            } else if (/\b(etf|bees|ns|bo)\b/i.test(inv.name)) {
+              const stk = await fetchStockQuote(inv.name);
+              if (stk && stk.price > 0) livePrice = stk.price;
+            }
+          } else if (/\b(etf|bees|ns|bo)\b/i.test(inv.name)) {
+            const stk = await fetchStockQuote(inv.name);
+            if (stk && stk.price > 0) livePrice = stk.price;
+          }
         } else {
-          // Stocks, Gold ETFs, Silver ETFs, SGBs, Commodities, REITs
+          // Stocks & listed equity-ish instruments
           const stk = await fetchStockQuote(inv.name);
           if (stk && stk.price > 0) livePrice = stk.price;
         }
 
         if (livePrice !== null && livePrice > 0) {
+          // A price alone is useless without a quantity/price basis — never write
+          // the raw per-unit price directly as the holding's total current value.
+          const hasQty = inv.units && inv.units > 0;
+          const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
+          const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
+          if (!hasQty && !hasBuyBasis && !hasPriceRatio) {
+            continue;
+          }
+
           let updatedVal = inv.currentValue;
 
-          if (inv.units && inv.units > 0) {
+          if (hasQty) {
             updatedVal = Math.round(inv.units * livePrice * 100) / 100;
-          } else if (inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0) {
+          } else if (hasBuyBasis) {
             const derivedUnits = inv.investedAmount / inv.buyPrice;
             updatedVal = Math.round(derivedUnits * livePrice * 100) / 100;
-          } else if (inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0) {
+          } else if (hasPriceRatio) {
             const ratio = livePrice / inv.currentPrice;
             updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
-          } else {
-            updatedVal = livePrice;
           }
 
           updates.push({
@@ -1326,7 +1411,22 @@ export const fetchLivePrice = action({
       return await fetchCryptoPrice(name);
     }
 
-    // Stocks, Gold, Silver, SGB, Commodities
+    if (assetType === "gold") {
+      // Gold/Silver funds & ETFs publish NAVs on AMFI; exclude SGB / bullion /
+      // digital gold holdings, which must never be valued with a gold-fund NAV.
+      if (/\b(fund|fof|etf|bees|amc|mutual)\b/i.test(name)) {
+        const mf = await fetchMfNav(name);
+        if (mf && mf.nav > 0) {
+          return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
+        }
+      }
+      if (/\b(etf|bees|ns|bo)\b/i.test(name)) {
+        return await fetchStockQuote(name);
+      }
+      return null;
+    }
+
+    // Stocks, SGBs, Commodities
     return await fetchStockQuote(name);
   },
 });

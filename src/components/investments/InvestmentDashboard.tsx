@@ -164,34 +164,59 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
         updatedCount = res.count || 0;
       } catch (actionErr) {
         console.warn('Backend sync action failed, falling back to client-side sync:', actionErr);
-        // Client-side fallback sync
+        // Client-side fallback sync (mirrors the backend action's guardrails)
         const updates: { id: any; currentValue: number; currentPrice?: number }[] = [];
         for (const inv of investments) {
+          const at = inv.assetType;
+          // FD/RD, PPF/EPF, Real Estate and "Other" have no live ticker — never
+          // run a quote lookup on their names (it can overwrite values with garbage).
+          if (at === 'fd_rd' || at === 'ppf_epf' || at === 'real_estate' || at === 'other') continue;
+
           let livePrice: number | null = null;
-          if (inv.assetType === 'mutual_fund') {
-            const live = await fetchAmfiNav(inv.name);
+          if (at === 'mutual_fund') {
+            const live = await fetchAmfiNav(inv.name, inv.notes);
             if (live && live.nav > 0) {
               livePrice = live.nav;
             } else if (/\b(etf|bees)\b/i.test(inv.name)) {
               const liveStock = await fetchLiveStockPrice(inv.name);
               if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
             }
-          } else if (inv.assetType === 'crypto') {
+          } else if (at === 'crypto') {
             const live = await fetchLiveCryptoPrice(inv.name);
             if (live && live.price > 0) livePrice = live.price;
+          } else if (at === 'gold') {
+            // Gold/Silver funds & ETFs publish NAVs on AMFI; SGB / bullion /
+            // digital gold must never take a gold-fund NAV.
+            if (/\b(fund|fof|etf|bees|amc|mutual)\b/i.test(inv.name)) {
+              const live = await fetchAmfiNav(inv.name, inv.notes);
+              if (live && live.nav > 0) {
+                livePrice = live.nav;
+              }
+            }
+            if (livePrice === null && /\b(etf|bees|ns|bo)\b/i.test(inv.name)) {
+              const liveStock = await fetchLiveStockPrice(inv.name);
+              if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
+            }
           } else {
             const live = await fetchLiveStockPrice(inv.name);
             if (live && live.price > 0) livePrice = live.price;
           }
 
           if (livePrice !== null && livePrice > 0) {
+            // A raw per-unit price must never be written as the total value
+            // without a quantity / price basis to convert it through.
+            const hasQty = inv.units && inv.units > 0;
+            const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
+            const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
+            if (!hasQty && !hasBuyBasis && !hasPriceRatio) continue;
+
             let updatedVal = inv.currentValue;
-            if (inv.units && inv.units > 0) {
+            if (hasQty) {
               updatedVal = Math.round(inv.units * livePrice * 100) / 100;
-            } else if (inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0) {
+            } else if (hasBuyBasis) {
               const derived = inv.investedAmount / inv.buyPrice;
               updatedVal = Math.round(derived * livePrice * 100) / 100;
-            } else if (inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0) {
+            } else if (hasPriceRatio) {
               const ratio = livePrice / inv.currentPrice;
               updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
             }

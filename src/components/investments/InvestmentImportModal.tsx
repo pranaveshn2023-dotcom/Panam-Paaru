@@ -380,9 +380,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           buyPrice: h.buyPrice ? cleanCurrency(h.buyPrice) : undefined,
           currentPrice: h.currentPrice ? cleanCurrency(h.currentPrice) : undefined,
           xirr: h.xirr,
-          notes: h.notes
-            ? (h.folioNo && !h.notes.includes(h.folioNo) ? `${h.notes} | Folio: ${h.folioNo}` : h.notes)
-            : (h.folioNo ? `Folio: ${h.folioNo}` : 'Statement Import'),
+          notes: [
+            h.notes || '',
+            h.folioNo && !(h.notes || '').includes(h.folioNo) ? `Folio: ${h.folioNo}` : '',
+            h.isin && !(h.notes || '').includes(h.isin) ? `ISIN: ${h.isin}` : '',
+          ]
+            .filter(Boolean)
+            .join(' | ') || 'Statement Import',
         })),
         fileName,
         brokerTag
@@ -708,6 +712,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     <th className="p-2.5 text-right min-w-[105px]">CUR. VALUE</th>
                     <th className="p-2.5 text-right min-w-[95px]">RETURNS</th>
                     <th className="p-2.5 text-right min-w-[80px]">QTY</th>
+                    <th className="p-2.5 text-right min-w-[85px]">NAV / CP</th>
                     <th className="p-2.5 text-right min-w-[80px]">XIRR</th>
                     <th className="p-2.5 w-8 text-center">✕</th>
                   </tr>
@@ -839,6 +844,23 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                             />
                           </td>
 
+                          {/* NAV / CP cell (effective per-unit price) */}
+                          <td className="p-2.5 text-right font-mono text-xs font-bold text-neutral-700">
+                            {(() => {
+                              const eff =
+                                h.currentPrice && h.currentPrice > 0
+                                  ? h.currentPrice
+                                  : h.units && h.units > 0 && h.currentValue > 0
+                                  ? cleanCurrency(h.currentValue / h.units)
+                                  : undefined;
+                              return (
+                                <span className={eff ? 'text-neutral-900' : 'text-neutral-300'}>
+                                  {eff ? eff.toFixed(2) : '—'}
+                                </span>
+                              );
+                            })()}
+                          </td>
+
                           {/* XIRR cell (editable) */}
                           <td className="p-2.5 text-right font-mono font-bold text-xs text-[#121212]">
                             <input
@@ -868,8 +890,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                         {/* Collapsible Row Details */}
                         {isExpanded && (
                           <tr className="bg-[#FFFDF5] border-b border-neutral-300 text-[11px]">
-                            <td colSpan={11} className="p-3 pl-12">
-                              <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
+                            <td colSpan={12} className="p-3 pl-12">
+                              <div className="grid grid-cols-1 sm:grid-cols-4 xl:grid-cols-8 gap-3">
                                 <div>
                                   <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
                                     Invested Cost ({currencySymbol})
@@ -880,6 +902,26 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                     value={h.investedAmount}
                                     onChange={(e) =>
                                       updateItemField(h.id, 'investedAmount', parseFloat(e.target.value) || 0)
+                                    }
+                                    className="w-full p-1 border border-neutral-300 font-mono text-xs bg-white"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
+                                    Avg Buy Price ({currencySymbol})
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={h.buyPrice ?? ''}
+                                    placeholder="—"
+                                    onChange={(e) =>
+                                      updateItemField(
+                                        h.id,
+                                        'buyPrice',
+                                        e.target.value ? parseFloat(e.target.value) : undefined
+                                      )
                                     }
                                     className="w-full p-1 border border-neutral-300 font-mono text-xs bg-white"
                                   />
@@ -933,13 +975,26 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
                                 <div>
                                   <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
-                                    Folio / ISIN
+                                    Folio No
                                   </label>
                                   <input
                                     type="text"
                                     value={h.folioNo || ''}
                                     placeholder="e.g. Folio / Demat No."
                                     onChange={(e) => updateItemField(h.id, 'folioNo', e.target.value || undefined)}
+                                    className="w-full p-1 border border-neutral-300 text-xs bg-white"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
+                                    ISIN (for NAV accuracy)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={h.isin || ''}
+                                    placeholder="e.g. INF200K01QV8"
+                                    onChange={(e) => updateItemField(h.id, 'isin', e.target.value || undefined)}
                                     className="w-full p-1 border border-neutral-300 text-xs bg-white"
                                   />
                                 </div>

@@ -87,17 +87,19 @@ const camsPage1 = pageLines([
   [],
   [{ x: 40, t: 'Folio No: 1234567890 / 0' }],
   [{ x: 55, t: 'Axis Bluechip Fund - Direct Plan - Growth' }],
+  [{ x: 55, t: 'ISIN: INF200K01QV8' }],
   [{ x: 55, t: 'Registrar: CAMS' }, { x: 300, t: 'Advisor: TEST ADVISOR' }],
   [{ x: 55, t: 'Opening Unit Balance: 0.000' }],
   [{ x: 55, t: '01-Jan-2025' }, { x: 130, t: 'Purchase' }, { x: 260, t: '500.000' }, { x: 360, t: '45.0000' }, { x: 480, t: '22500.00' }],
   [{ x: 55, t: '01-Feb-2025' }, { x: 130, t: 'Purchase' }, { x: 260, t: '500.000' }, { x: 360, t: '44.0000' }, { x: 480, t: '22000.00' }],
   [{ x: 55, t: 'Closing Unit Balance: 1000.000' }],
-  [{ x: 55, t: 'NAV on 31-Mar-2026: 45.6789' }],
+  [{ x: 55, t: 'NAV as on 31-Mar-2026: 45.6789' }],
   [{ x: 55, t: 'Market Value: 45678.90' }, { x: 300, t: 'Cost Value: 44500.00' }],
   [{ x: 55, t: 'Weight: 12.30%' }],
   [],
   [{ x: 40, t: 'Folio No: 9876543210 / 0' }],
   [{ x: 55, t: 'Parag Parikh Flexi Cap Fund - Direct Plan - Growth' }],
+  [{ x: 55, t: 'ISIN: INF109K016L0' }],
   [{ x: 55, t: 'Registrar: CAMS' }],
   [{ x: 55, t: 'Opening Unit Balance: 0.000' }],
   [{ x: 55, t: '01-Mar-2025' }, { x: 130, t: 'Purchase' }, { x: 260, t: '100.000' }, { x: 360, t: '70.0000' }, { x: 480, t: '7000.00' }],
@@ -123,7 +125,7 @@ const kfinPage1 = pageLines([
   [{ x: 55, t: '01-Jan-2026' }, { x: 130, t: 'Purchase' }, { x: 260, t: '100.000' }, { x: 360, t: '50.00' }, { x: 480, t: '5000.00' }],
   [{ x: 55, t: '05-Feb-2026' }, { x: 130, t: 'Purchase' }, { x: 260, t: '100.000' }, { x: 360, t: '50.00' }, { x: 480, t: '5000.00' }],
   [{ x: 55, t: 'Closing Balance: 200.000' }],
-  [{ x: 55, t: 'NAV: 55.6700' }],
+  [{ x: 55, t: 'Nav as at 31-Mar-2026: 55.6700' }],
   [{ x: 55, t: 'Market Value: 11134.00' }],
   [{ x: 55, t: 'Total Cost Value: 10000.00' }],
   [],
@@ -170,10 +172,10 @@ fs.writeFileSync(
 const growwRows = [
   ['Groww Portfolio Report'],
   [],
-  ['Scheme Name', 'Units Invested', 'Average Cost (INR)', 'Current Value (INR)', 'Invested Amount (INR)'],
-  ['Parag Parikh Flexi Cap Fund Direct Growth', 100.5, 50, 8023.45, 5025],
-  ['HDFC Index Fund Nifty 50 Direct Growth', 250, 180, 47500, 45000],
-  ['Quant Small Cap Fund Direct Growth', 500, 120, 58000, 60000],
+  ['Scheme Name', 'Units Invested', 'Average Cost (INR)', 'Current Value (INR)', 'Invested Amount (INR)', 'ISIN'],
+  ['Parag Parikh Flexi Cap Fund Direct Growth', 100.5, 50, 8023.45, 5025, 'INF332K01RS0'],
+  ['HDFC Index Fund Nifty 50 Direct Growth', 250, 180, 47500, 45000, 'INF179KC1000'],
+  ['Quant Small Cap Fund Direct Growth', 500, 120, 58000, 60000, 'INF200K01VA0'],
 ];
 const wb = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(growwRows), 'Portfolio');
@@ -226,6 +228,29 @@ const amcWs = XLSX.utils.aoa_to_sheet(amcRows);
 const amcWb = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(amcWb, amcWs, 'Holdings');
 XLSX.writeFile(amcWb, path.join(outDir, 'user-amc-template.xlsx'));
+
+// ────────────────────────────────────────────────
+// Fixture 9: Returns column containing PERCENTAGES (must not corrupt current value)
+// ────────────────────────────────────────────────
+fs.writeFileSync(
+  path.join(outDir, 'returns-pct.csv'),
+  [
+    'Fund Name,Invested Amount,Returns (%),Units',
+    'HDFC Flexi Cap Fund,10000,12.5,100',
+    'Axis Midcap Fund,20000,8,50',
+  ].join('\n')
+);
+
+// ────────────────────────────────────────────────
+// Fixture 10: Combined "Folio / ISIN" column (short 6-digit folio + ISIN in one cell)
+// ────────────────────────────────────────────────
+fs.writeFileSync(
+  path.join(outDir, 'combined-folio-isin.csv'),
+  [
+    'Scheme Name,Folio No,Invested Amount,Units',
+    'Fund A,123456 / INF200K01QV8,10000,100',
+  ].join('\n')
+);
 
 console.log('Fixtures written to', outDir);
 
