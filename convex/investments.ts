@@ -821,43 +821,155 @@ async function fetchStockQuote(name: string): Promise<{ price: number; prevClose
 // ──────────────────────────────────────────
 
 /**
- * Dynamically resolves a crypto name/ticker to a CoinGecko coin ID.
+ * Dynamically resolves a crypto name/ticker to its CoinGecko ID and ticker symbol.
  * Uses CoinGecko's search API — zero hardcoded coin maps.
  */
-async function resolveCoinGeckoId(nameOrTicker: string): Promise<string | null> {
-  const clean = nameOrTicker.trim().toLowerCase()
+async function resolveCryptoMeta(
+  nameOrTicker: string
+): Promise<{ coinId: string | null; symbol: string | null }> {
+  const COMMON_CRYPTO_TYPOS: Record<string, string> = {
+    etherimem: 'ethereum',
+    etherium: 'ethereum',
+    ethreum: 'ethereum',
+    etherum: 'ethereum',
+    bitcion: 'bitcoin',
+    btcoin: 'bitcoin',
+    bitoin: 'bitcoin',
+    solanna: 'solana',
+    solna: 'solana',
+    cardanno: 'cardano',
+    dogcoin: 'dogecoin',
+    riple: 'ripple',
+    theter: 'tether',
+    poligon: 'polygon',
+    shiba: 'shiba-inu',
+  };
+
+  let clean = nameOrTicker.trim().toLowerCase()
     .replace(/\s*(coin|token|crypto|currency|inr|usd|usdt)\s*/gi, '')
     .trim();
 
-  if (!clean || clean.length < 2) return null;
+  if (COMMON_CRYPTO_TYPOS[clean]) {
+    clean = COMMON_CRYPTO_TYPOS[clean];
+  }
+
+  if (!clean || clean.length < 2) return { coinId: null, symbol: null };
 
   try {
     const searchRes = await fetch(
       `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(clean)}`,
       { signal: AbortSignal.timeout(4000) }
     );
-    if (!searchRes.ok) return null;
+    if (!searchRes.ok) return { coinId: null, symbol: clean.toUpperCase() };
     const data: any = await searchRes.json();
     const coins = data?.coins;
-    if (!coins || coins.length === 0) return null;
+    if (!coins || coins.length === 0) return { coinId: null, symbol: clean.toUpperCase() };
 
-    // Find best match: exact symbol or name match first
     const upperClean = clean.toUpperCase();
     const exact = coins.find((c: any) =>
       c.symbol?.toUpperCase() === upperClean ||
       c.name?.toLowerCase() === clean
     );
-    return exact?.id || coins[0]?.id || null;
+    const chosen = exact || coins[0];
+    return {
+      coinId: chosen?.id || null,
+      symbol: chosen?.symbol ? chosen.symbol.toUpperCase() : upperClean,
+    };
   } catch {
-    return null;
+    return { coinId: null, symbol: clean.toUpperCase() };
   }
+}
+
+async function fetchLiveUsdInrRate(): Promise<number> {
+  try {
+    const res = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/USDINR=X', {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (typeof rate === 'number' && rate > 0) return rate;
+    }
+  } catch {}
+  return 88;
 }
 
 async function fetchCryptoPrice(
   name: string
 ): Promise<{ price: number; prevClose?: number; symbol?: string } | null> {
-  // 1. Try CoinGecko (most reliable for crypto INR prices)
-  const coinId = await resolveCoinGeckoId(name);
+  const { coinId, symbol } = await resolveCryptoMeta(name);
+  const targetSymbol = (symbol || name).trim().toUpperCase();
+
+  // 1. Primary: TradingView Scanner API (Direct INR Pair, e.g. COINBASE:BTCINR, COINBASE:ETHINR, COINBASE:SOLINR)
+  // Zero API keys required, free real-time live market feed from TradingView
+  if (targetSymbol) {
+    try {
+      const tvRes = await fetch('https://scanner.tradingview.com/crypto/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbols: {
+            tickers: [
+              `COINBASE:${targetSymbol}INR`,
+              `COINDCX:${targetSymbol}INR`,
+              `WAZIRX:${targetSymbol}INR`,
+            ],
+          },
+          columns: ['close', 'change', 'description', 'currency'],
+        }),
+        signal: AbortSignal.timeout(4000),
+      });
+      if (tvRes.ok) {
+        const tvData: any = await tvRes.json();
+        const rows: any[] = tvData?.data || [];
+        const inrRow = rows.find(
+          (r) => r.s && r.s.endsWith('INR') && typeof r.d?.[0] === 'number' && r.d[0] > 0
+        );
+        if (inrRow) {
+          const price = inrRow.d[0];
+          const changePct = inrRow.d[1] || 0;
+          const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
+          return { price, prevClose, symbol: inrRow.s };
+        }
+      }
+    } catch {}
+
+    // 2. Secondary: Real-time Indian Crypto Exchange (CoinDCX public ticker)
+    // Reflects the exact domestic INR spot price seen on Indian apps (CoinSwitch, CoinDCX, WazirX)
+    try {
+      const dcxRes = await fetch('https://api.coindcx.com/exchange/ticker', {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (dcxRes.ok) {
+        const list: any[] = await dcxRes.json();
+        const match = list.find((t: any) => t.market === `${targetSymbol}INR`);
+        if (match && typeof match.last_price === 'string' && parseFloat(match.last_price) > 0) {
+          const price = parseFloat(match.last_price);
+          const changePct = parseFloat(match.change_24_hour || '0');
+          const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
+          return { price, prevClose, symbol: match.market };
+        }
+      }
+    } catch {}
+
+    // 3. Tertiary Indian exchange ticker (WazirX public ticker)
+    try {
+      const wzRes = await fetch('https://api.wazirx.com/sapi/v1/tickers/24hr', {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (wzRes.ok) {
+        const list: any[] = await wzRes.json();
+        const lowerSym = targetSymbol.toLowerCase();
+        const match = list.find((t: any) => t.symbol === `${lowerSym}inr`);
+        if (match && typeof match.lastPrice === 'string' && parseFloat(match.lastPrice) > 0) {
+          const price = parseFloat(match.lastPrice);
+          return { price, symbol: match.symbol.toUpperCase() };
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Global Spot Fallback: CoinGecko INR conversion
   if (coinId) {
     try {
       const res = await fetch(
@@ -877,26 +989,19 @@ async function fetchCryptoPrice(
     } catch {}
   }
 
-  // 2. Fallback: Yahoo Finance with explicit crypto pair symbols
+  // 5. Fallback: Yahoo Finance with explicit crypto pair symbols
   const clean = name.trim().toUpperCase().replace(/\s*\b(COIN|TOKEN|CRYPTO|CURRENCY)\b\s*/gi, '').trim();
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 10);
 
-  const CRYPTO_ALIASES: Record<string, string> = {
-    BITCOIN: 'BTC',
-    ETHEREUM: 'ETH',
-    SOLANA: 'SOL',
-    RIPPLE: 'XRP',
-    CARDANO: 'ADA',
-    DOGECOIN: 'DOGE',
-  };
-
-  // Build Yahoo-style crypto candidates
   const candidates: string[] = [];
+  if (targetSymbol) {
+    candidates.push(`${targetSymbol}-INR`);
+    candidates.push(`${targetSymbol}-USD`);
+  }
   for (const t of tokens) {
     if (t === 'INR' || t === 'USD' || t === 'USDT') continue;
-    const ticker = CRYPTO_ALIASES[t] || t;
-    if (!candidates.includes(`${ticker}-INR`)) candidates.push(`${ticker}-INR`);
-    if (!candidates.includes(`${ticker}-USD`)) candidates.push(`${ticker}-USD`);
+    if (!candidates.includes(`${t}-INR`)) candidates.push(`${t}-INR`);
+    if (!candidates.includes(`${t}-USD`)) candidates.push(`${t}-USD`);
   }
 
   for (const sym of candidates) {
@@ -911,7 +1016,8 @@ async function fetchCryptoPrice(
       if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
         let price = meta.regularMarketPrice;
         if (sym.endsWith('-USD')) {
-          price = price * 87.5; // Approximate conversion if only USD pair is available
+          const usdInr = await fetchLiveUsdInrRate();
+          price = price * usdInr;
         }
         const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
         const prevClose = change !== undefined ? price - change : (meta.previousClose || meta.chartPreviousClose);
