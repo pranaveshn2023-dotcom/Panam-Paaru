@@ -7,14 +7,14 @@
 ---
 
 <<<<<<< HEAD
-## 🧒 What is Panam Paaru? (Explain Like I'm 5)
+## What is Panam Paaru?
 
-> Imagine you have money in different places: some cash in your pocket, some coins in your piggy bank, and some savings in the bank. Sometimes you spend money on snacks, and sometimes your money grows like seeds in a garden.
+> Imagine you have money in different places: some cash in your pocket, some cash in your bank account, and some savings in your investments. Sometimes you spend money on snacks, and sometimes your money grows like seeds in a garden.
 >
 > Usually, it's hard to remember where every coin went.  
 > **Panam Paaru is like a magic see-through glass box.** You open it, and you instantly see:
-> 1. **How much money you have right now** (in every pocket and piggy bank).
-> 2. **Where your money went** (so you don't overspend on candy!).
+> 1. **How much money you have right now** (in every fund or stock).
+> 2. **Where your money went** (so you don't overspend on unnecessary things).
 =======
 ##  What is Panam Paaru?
 
@@ -31,10 +31,10 @@
 
 ---
 
-## ⚡ The Difference: Typical Apps vs. Panam Paaru
+##  The Difference: Typical Apps vs. Panam Paaru
 
 <<<<<<< HEAD
-| What happens? | Typical Finance Apps 🥱 | Panam Paaru ⚡ |
+| What happens? | Typical Finance Apps  | Panam Paaru ⚡ |
 =======
 | What happens? | Typical Finance Apps  | Panam Paaru ⚡ |
 >>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
@@ -49,20 +49,20 @@
 ---
 
 <<<<<<< HEAD
-## 🌟 Core Features (Explained Simply & Professionally)
+##  Core Features
 
-### 1. 📱 The 4 Command Hubs — Zero Dock Clutter
+### 1.  The 4 Command Hubs — Zero Dock Clutter
 Instead of 10 confusing menus, Panam Paaru organizes your entire financial life into **4 clean hubs**:
-- **🏠 Home / Overview**: Your financial speedometer. Shows your total net balance, your portfolio valuation, quick action buttons (`+ Income`, `- Expense`, `Transfer`), and your active budgets.
-- **💸 Expenses & Cashflow**: Your daily money journal. Switch smoothly between your **Transactions Ledger**, **Accounts & Wallets**, **Budgets & Pockets**, and **Spending Flow** analysis.
-- **📈 Investments & Wealth**: Your money growth tracker. Live prices for Indian stocks, mutual funds, gold, and crypto with visual profit/loss and allocation charts.
-- **⚙️ Settings & Security**: Set your security PIN, adjust auto-lock timers, pick your display currency, and monitor live cloud sync.
+- **Home / Overview**: Your financial speedometer. Shows your total net balance, your portfolio valuation, quick action buttons (`+ Income`, `- Expense`, `Transfer`), and your active budgets.
+- **Expenses & Cashflow**: Your daily money journal. Switch smoothly between your **Transactions Ledger**, **Accounts & Wallets**, **Budgets & Pockets**, and **Spending Flow** analysis.
+- **Investments & Wealth**: Your money growth tracker. Live prices for Indian stocks, mutual funds, gold, and crypto with visual profit/loss and allocation charts.
+- **Settings & Security**: Set your security PIN, adjust auto-lock timers, pick your display currency, and monitor live cloud sync.
 
 ---
 
-### 2. 👛 Smart Piggy Banks (Atomic Multi-Wallet System)
+### 2.  Smart Wallets
 =======
-## 🌟 Core Features of Panam Paaru
+##  Core Features of Panam Paaru
 
 ### 1.  The 4 Command Hubs 
 Instead of 10 confusing menus, Panam Paaru organizes your entire financial life into **4 clean hubs**:
@@ -83,7 +83,7 @@ Keep every rupee organized by where it actually lives:
 ---
 
 <<<<<<< HEAD
-### 3. 🔄 Pocket Money Rules (Calendar-Smart Recurring Budgets)
+### 3.  Pocket Money Rules (Calendar-Smart Recurring Budgets)
 =======
 ### 3.  Pocket Money Rules (Calendar-Smart Recurring Budgets)
 >>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
@@ -96,7 +96,7 @@ Set spending boundaries that adapt to the real calendar:
 ---
 
 <<<<<<< HEAD
-### 4. 📈 The Live Money Radar (Real-Time Investment Valuation)
+### 4.  The Live Money Radar (Real-Time Investment Valuation)
 =======
 ### 4.  The Live Money Radar (Real-Time Investment Valuation)
 >>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
@@ -110,7 +110,7 @@ Stop manually looking up today's stock price or mutual fund NAV. Panam Paaru fet
 ---
 
 <<<<<<< HEAD
-### 5. 📄 The Magic Paper Reader (Universal Statement Importer)
+### 5. The Magic Paper Reader (Universal Statement Importer)
 =======
 ### 5.  The Magic Paper Reader (Universal Statement Importer)
 >>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
@@ -122,7 +122,7 @@ Got a statement from your bank, Zerodha, Groww, CAMS, or KFintech? Don't type it
 ---
 
 <<<<<<< HEAD
-### 6. 🔒 Secret Lock & Privacy Glasses (Bank-Grade Protection)
+### 6.  Secret Lock & Privacy Glasses (Bank-Grade Protection)
 =======
 ### 6.  Secret Lock & Privacy Glasses (Bank-Grade Protection)
 >>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
@@ -134,8 +134,8 @@ Your financial life is private. Panam Paaru keeps it that way:
 ---
 
 <<<<<<< HEAD
-### 7. 🛡️ Rock-Solid Cloud Sync (Zero Lost Data)
-- **Direct Database Persistence**: Every transaction, wallet, budget, and investment is synchronized immediately with the cloud database.
+### 7. Convex Cloud sync
+- **Direct Database Persistence**: Every transaction, wallet, budget, and investment is synchronized immediately with the convex cloud database.
 =======
 ### 7.  24/7 active Cloud Sync (Zero Lost Data)
 - **Direct Database Persistence**: Every transaction, wallet, budget, and investment is synchronized immediately with convex cloud database.
@@ -146,7 +146,7 @@ Your financial life is private. Panam Paaru keeps it that way:
 ---
 
 <<<<<<< HEAD
-### 8. 🎨 Tactile Neo-Brutalist Design (Buttons You Can Feel)
+### 8.  Tactile Neo-Brutalist Design (Buttons You Can Feel)
 =======
 ### 8.  Tactile Neo-Brutalist Design (Buttons You Can Feel)
 >>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
@@ -167,7 +167,7 @@ Panam Paaru rejects dull corporate gray interfaces in favor of high-contrast, en
 | **Backend & Real-Time DB** | Convex Reactive Cloud Backend |
 | **Styling & Aesthetics** | TailwindCSS + Neo-Brutalist Design Tokens |
 | **Market Data APIs** | AMFI India NAV API, Yahoo Finance, CoinGecko |
-| **Document Ingestion** | PDF.js, XLSX, PapaParse |
+| **Document Ingestion** | PDF.js, XLSX, CSV |
 =======
 | **Backend & Real-Time DB** | Convex Reactive & Cloud Backend |
 | **Styling & Aesthetics** | TailwindCSS + Neo-Brutalist Design Tokens |
@@ -213,23 +213,20 @@ Visit `http://localhost:5173` in your browser.
 =======
 ### v1.0 (Current)
 >>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-- 📱 **4-Hub Native Navigation**: Streamlined layout into 4 high-focus hubs (`Home`, `Expenses`, `Invest`, `Settings`).
-- 💸 **Unified Cashflow Center**: Switch between ledger, wallets, budgets, and spending breakdown seamlessly without page reloads.
-- ⚡ **Universal Live Price Auto-Fetch**: Add any stock, mutual fund, or crypto asset and watch current price and value calculate in real time.
-- 🧹 **Clean Zero Baseline**: All newly created accounts initialize at clean ₹0.00 with zero dummy placeholder clutter.
-
-<<<<<<< HEAD
-### v2.0
+**4-Hub Native Navigation**: Streamlined layout into 4 high-focus hubs (`Home`, `Expenses`, `Invest`, `Settings`).
+**Unified Cashflow Center**: Switch between ledger, wallets, budgets, and spending breakdown seamlessly without page reloads.
+**Universal Live Price Auto-Fetch**: Add any stock, mutual fund, or crypto asset and watch current price and value calculate in real time.
+**Clean Zero Baseline**: All newly created accounts initialize at clean ₹0.00 with zero dummy placeholder clutter.
 =======
 ### v0.0
 >>>>>>> d4130d6825c91d541d791fc368385bfd80203be4
-- 📄 **Universal Statement Ingestion**: Instant drag-and-drop parsing for CAMS/KFintech PDFs, Zerodha CSVs, and Groww Excel files.
-- ⌨️ **Quick Ingestion Shortcut**: Global <kbd>Ctrl</kbd> + <kbd>U</kbd> launch shortcut.
-- 📈 **Live Index Ticker**: Live background ticker for NIFTY 50 and BSE SENSEX benchmark indices.
+**Universal Statement Ingestion**: Instant drag-and-drop parsing for CAMS/KFintech PDFs, Zerodha CSVs, and Groww Excel files.
+**Quick Ingestion Shortcut**: Global <kbd>Ctrl</kbd> + <kbd>U</kbd> launch shortcut.
+**Live Index Ticker**: Live background ticker for NIFTY 50 and BSE SENSEX benchmark indices.
 
 ---
 
 ## 📄 License & Integrity
 
 Built with ❤️ for financial clarity and independence.  
-**See your money. Know your worth. Panam Paaru.**
+**See your money. Know your worth with Panam Paaru.**
