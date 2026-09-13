@@ -894,13 +894,30 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
 
   if (cleanQuery.length < 3) return null;
 
-  const queries = [cleanQuery];
+  // Build multiple search query variations for better matching
+  const queries: string[] = [cleanQuery];
   const words = cleanQuery.split(' ').filter(Boolean);
+  if (words.length >= 2) {
+    queries.push(words.slice(0, 2).join(' '));
+  }
   if (words.length > 3) {
     queries.push(words.slice(0, 3).join(' '));
   }
+  // Also try last 2-3 words (often the scheme name part)
+  if (words.length >= 2) {
+    queries.push(words.slice(-2).join(' '));
+    queries.push(words.slice(-3).join(' '));
+  }
+  // Deduplicate
+  const uniqueQueries = [...new Set(queries)];
 
-  for (const query of queries) {
+  const isDirect = /direct/i.test(name);
+  const isGrowth = /growth/i.test(name);
+
+  let bestMatch: { nav: number; date?: string; prevNav?: number; score: number; schemeCode: number } | null = null;
+  const candidateDetails: { schemeCode: number; score: number }[] = [];
+
+  for (const query of uniqueQueries) {
     try {
       const searchRes = await fetch(
         `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
@@ -910,25 +927,41 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
       const list: any[] = await searchRes.json();
       if (!list || list.length === 0) continue;
 
-      const isDirect = /direct/i.test(name);
-      const isGrowth = /growth/i.test(name);
-
-      let best = list[0];
+      // Score-based matching instead of first-match
       for (const item of list) {
-        const itemLower = String(item.schemeName || '').toLowerCase();
+        const schemeName = String(item.schemeName || '');
+        const itemLower = schemeName.toLowerCase();
         const itemDirect = itemLower.includes('direct');
         const itemGrowth = itemLower.includes('growth');
 
-        if (isDirect === itemDirect && isGrowth === itemGrowth) {
-          best = item;
-          break;
-        } else if (isDirect && itemDirect) {
-          best = item;
+        let score = 0;
+        if (isDirect === itemDirect) score += 3;
+        if (isGrowth === itemGrowth) score += 2;
+        const queryWords = query.toLowerCase().split(/\s+/).filter(Boolean);
+        for (const qw of queryWords) {
+          if (qw.length >= 2 && itemLower.includes(qw)) score += 2;
+        }
+        if (itemLower === cleanQuery.toLowerCase()) score += 10;
+        else if (itemLower.includes(cleanQuery.toLowerCase())) score += 5;
+
+        if (score >= 3) {
+          candidateDetails.push({ schemeCode: item.schemeCode, score });
         }
       }
+    } catch { /* skip this query */ }
+  }
 
+  // Sort candidates by score descending, take top 5
+  candidateDetails.sort((a, b) => b.score - a.score);
+  const topCandidates = candidateDetails.slice(0, 5);
+
+  for (const candidate of topCandidates) {
+    // Skip if we already have a better match
+    if (bestMatch && candidate.score <= bestMatch.score) continue;
+
+    try {
       const detailRes = await fetch(
-        `https://api.mfapi.in/mf/${best.schemeCode}`,
+        `https://api.mfapi.in/mf/${candidate.schemeCode}`,
         { signal: AbortSignal.timeout(4000) }
       );
       if (!detailRes.ok) continue;
@@ -938,15 +971,34 @@ async function fetchMfNav(name: string): Promise<{ nav: number; date?: string; p
 
       if (latest && latest.nav) {
         const navNum = parseFloat(latest.nav);
-        if (!isNaN(navNum) && navNum > 0) {
-          return {
+        if (isNaN(navNum) || navNum <= 0) continue;
+
+        // Validate NAV date — reject if older than 2 days
+        const navDate = latest.date || '';
+        const navDateObj = new Date(navDate);
+        const now = new Date();
+        const daysDiff = (now.getTime() - navDateObj.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysDiff > 2) continue; // Stale NAV, skip
+
+        if (candidate.score > (bestMatch?.score ?? 0)) {
+          bestMatch = {
             nav: navNum,
-            date: latest.date,
+            date: navDate,
             prevNav: prev ? parseFloat(prev.nav) : undefined,
+            score: candidate.score,
+            schemeCode: candidate.schemeCode,
           };
         }
       }
-    } catch {}
+    } catch { /* skip this candidate */ }
+  }
+
+  if (bestMatch) {
+    return {
+      nav: bestMatch.nav,
+      date: bestMatch.date,
+      prevNav: bestMatch.prevNav,
+    };
   }
 
   return null;

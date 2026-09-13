@@ -4,7 +4,10 @@ import { AssetType } from '../types';
 const navCache = new Map<string, { nav: number; date: string; schemeName: string }>();
 
 // Persistent localStorage cache key
-const LS_CACHE_KEY = 'paanam_mf_nav_cache_v1';
+const LS_CACHE_KEY = 'paanam_mf_nav_cache_v2';
+
+// Cache TTL: 5 minutes for real-time NAV data (was 6 hours)
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 function getPersistentCache(): Record<string, { nav: number; date: string; schemeName: string; timestamp: number }> {
   try {
@@ -23,6 +26,28 @@ function savePersistentCache(key: string, data: { nav: number; date: string; sch
   } catch {
     // ignore localStorage errors
   }
+}
+
+/** Clear stale NAV cache entries older than 24h and outdated entries */
+function cleanupPersistentCache() {
+  try {
+    const cache = getPersistentCache();
+    const now = Date.now();
+    let changed = false;
+    for (const key of Object.keys(cache)) {
+      if (now - (cache[key].timestamp || 0) > 24 * 60 * 60 * 1000) {
+        delete cache[key];
+        changed = true;
+      }
+    }
+    if (changed) localStorage.setItem(LS_CACHE_KEY, JSON.stringify(cache));
+  } catch {}
+}
+
+// Run cleanup occasionally
+if (typeof window !== 'undefined') {
+  cleanupPersistentCache();
+  setInterval(cleanupPersistentCache, 60 * 60 * 1000); // every hour
 }
 
 /**
@@ -50,10 +75,10 @@ export async function fetchAmfiNav(
     return navCache.get(normKey)!;
   }
 
-  // 2. Check persistent localStorage cache (valid for 6 hours)
+  // 2. Check persistent localStorage cache (valid for 5 minutes)
   const pCache = getPersistentCache();
   const cached = pCache[normKey];
-  if (cached && Date.now() - cached.timestamp < 6 * 60 * 60 * 1000) {
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     navCache.set(normKey, cached);
     return cached;
   }
@@ -69,26 +94,40 @@ export async function fetchAmfiNav(
     const list: { schemeCode: number; schemeName: string }[] = await searchRes.json();
     if (!list || list.length === 0) return null;
 
-    // Pick best match: prioritize Direct & Growth if specified in original fundName
+    // Pick best match: score-based matching instead of first-match
     const isDirect = /direct/i.test(fundName);
     const isGrowth = /growth/i.test(fundName);
+    const cleanLower = query.toLowerCase();
 
-    let best = list[0];
+    let bestItem: { schemeCode: number; schemeName: string } | null = null;
+    let bestScore = 0;
+
     for (const item of list) {
       const itemLower = item.schemeName.toLowerCase();
       const itemDirect = itemLower.includes('direct');
       const itemGrowth = itemLower.includes('growth');
 
-      if (isDirect === itemDirect && isGrowth === itemGrowth) {
-        best = item;
-        break;
-      } else if (isDirect && itemDirect) {
-        best = item;
+      let score = 0;
+      if (isDirect === itemDirect) score += 3;
+      if (isGrowth === itemGrowth) score += 2;
+      // Name similarity
+      const queryWords = cleanLower.split(/\s+/).filter(Boolean);
+      for (const qw of queryWords) {
+        if (qw.length >= 2 && itemLower.includes(qw)) score += 2;
+      }
+      if (itemLower === cleanLower) score += 10;
+      else if (itemLower.includes(cleanLower)) score += 5;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestItem = item;
       }
     }
 
+    if (!bestItem || bestScore < 3) return null;
+
     // 4. Fetch latest NAV data for chosen schemeCode
-    const detailRes = await fetch(`https://api.mfapi.in/mf/${best.schemeCode}`);
+    const detailRes = await fetch(`https://api.mfapi.in/mf/${bestItem.schemeCode}`);
     if (!detailRes.ok) return null;
 
     const details = await detailRes.json();
@@ -98,11 +137,17 @@ export async function fetchAmfiNav(
     const navNum = parseFloat(latest.nav);
     if (isNaN(navNum) || navNum <= 0) return null;
 
+    // Validate NAV date — reject stale NAVs older than 2 days
+    const navDate = latest.date || '';
+    const navDateObj = new Date(navDate);
+    const daysDiff = (Date.now() - navDateObj.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysDiff > 2) return null;
+
     const result = {
       nav: navNum,
-      date: latest.date,
-      schemeName: details.meta?.scheme_name || best.schemeName,
-      schemeCode: best.schemeCode,
+      date: navDate,
+      schemeName: details.meta?.scheme_name || bestItem.schemeName,
+      schemeCode: bestItem.schemeCode,
     };
 
     navCache.set(normKey, result);
