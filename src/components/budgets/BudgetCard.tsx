@@ -239,42 +239,57 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
         </div>
       ) : null}
 
-      {/* Warning Pill if Near/Over Limit */}
       {isOver ? (
-        <div className="bg-[#FF4343] text-white p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center gap-1.5">
-          <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
-          <span>BUDGET EXCEEDED BY {formatPrivateAmount(spent - total, currencySymbol)}</span>
-        </div>
-      ) : budget.isLowAmount ? (
-        <div className="bg-[#FF8800] text-[#121212] p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
+        <div className="bg-[#FF4343] text-white p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
-            <span>Low Balance: Below {formatPrivateAmount(budget.lowBalanceThresholdAmount ?? 0, currencySymbol)} ({formatPrivateAmount(remaining, currencySymbol)} left)</span>
+            <span>Budget Exceeded by {formatPrivateAmount(spent - total, currencySymbol)} • Add Money</span>
           </div>
           <button
             onClick={() => setIsTopUpOpen(true)}
             className="px-2 py-0.5 bg-[#121212] text-white text-[10px] font-mono uppercase cursor-pointer"
           >
-            + Top-up
+            + Add Money
+          </button>
+        </div>
+      ) : budget.isLowAmount ? (
+        <div className="bg-[#FF8800] text-[#121212] p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
+            <span>Alert Reached: Below {formatPrivateAmount(budget.lowBalanceThresholdAmount ?? 0, currencySymbol)} ({formatPrivateAmount(remaining, currencySymbol)} left)</span>
+          </div>
+          <button
+            onClick={() => setIsTopUpOpen(true)}
+            className="px-2 py-0.5 bg-[#121212] text-white text-[10px] font-mono uppercase cursor-pointer"
+          >
+            + Add Money
           </button>
         </div>
       ) : budget.isLowPercent ? (
         <div className="bg-[#FF8800] text-[#121212] p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
-            <span>Low Balance: Under {budget.lowBalanceThresholdPercent}% remaining ({formatPrivateAmount(remaining, currencySymbol)} left)</span>
+            <span>Alert Reached: Under {budget.lowBalanceThresholdPercent}% remaining ({formatPrivateAmount(remaining, currencySymbol)} left)</span>
           </div>
           <button
             onClick={() => setIsTopUpOpen(true)}
             className="px-2 py-0.5 bg-[#121212] text-white text-[10px] font-mono uppercase cursor-pointer"
           >
-            + Top-up
+            + Add Money
           </button>
         </div>
       ) : isWarning ? (
-        <div className="bg-[#FFE600] text-[#121212] p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center gap-1.5">
-          <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
-          <span>Approaching Limit ({percent}% used)</span>
+        <div className="bg-[#FFE600] text-[#121212] p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
+            <span>Alert Reached ({percent}% used)</span>
+          </div>
+          <button
+            onClick={() => setIsTopUpOpen(true)}
+            className="px-2 py-0.5 bg-[#121212] text-white text-[10px] font-mono uppercase cursor-pointer"
+          >
+            + Add Money
+          </button>
         </div>
       ) : null}
 

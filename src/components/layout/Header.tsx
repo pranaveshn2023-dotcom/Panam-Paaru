@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, LogOut, User, Eye, EyeOff, RefreshCw, Settings, WifiOff, CloudUpload } from 'lucide-react';
+import { Plus, LogOut, User, Eye, EyeOff, RefreshCw, Settings, WifiOff, CloudUpload, Bell } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { NeoButton } from '../ui/NeoButton';
 import { useAuthActions } from '@convex-dev/auth/react';
@@ -10,6 +10,8 @@ import { UserProfile } from '../../types';
 
 interface HeaderProps {
   user?: UserProfile | null;
+  alertCount?: number;
+  onOpenNotifications?: () => void;
   onOpenTransactionModal: () => void;
   onOpenPinSetup: () => void;
   onRefresh?: () => void;
@@ -17,6 +19,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   user,
+  alertCount = 0,
+  onOpenNotifications,
   onOpenTransactionModal,
   onOpenPinSetup,
   onRefresh,
@@ -85,6 +89,25 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {isPrivacyMode ? <EyeOff size={15} strokeWidth={2.5} /> : <Eye size={15} strokeWidth={2.5} />}
           </button>
+
+          {onOpenNotifications && (
+            <button
+              onClick={onOpenNotifications}
+              title={alertCount > 0 ? `${alertCount} budget alert(s) reached! Tap to add money.` : 'Notifications & Alerts'}
+              className={`relative w-8 h-8 sm:w-10 sm:h-10 border-2 border-[#121212] transition-all cursor-pointer rounded-xl flex items-center justify-center shrink-0 ${
+                alertCount > 0
+                  ? 'bg-[#FF8800] text-[#121212] shadow-neo-sm hover:bg-[#FFA333]'
+                  : 'bg-white hover:bg-neutral-100 text-[#121212] shadow-neo-sm'
+              }`}
+            >
+              <Bell size={15} strokeWidth={2.5} className={alertCount > 0 ? 'animate-bounce' : ''} />
+              {alertCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-[#FF4343] text-white text-[10px] font-mono font-black rounded-full min-w-4 h-4 px-1 flex items-center justify-center border border-[#121212] shadow-neo-sm">
+                  {alertCount}
+                </span>
+              )}
+            </button>
+          )}
 
           <NeoButton variant="secondary" size="sm" onClick={onOpenTransactionModal} className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 shrink-0">
             <Plus size={16} strokeWidth={3} />

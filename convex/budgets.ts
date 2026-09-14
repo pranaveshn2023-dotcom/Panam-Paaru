@@ -38,9 +38,33 @@ export const listWithProgress = query({
         now
       );
 
-      // Sum expenses for this budget category in the active period
+      // Sum actual expenses for this budget in the active cycle
       const matchingTxs = transactions.filter((tx) => {
-        if (tx.category !== budget.category) return false;
+        // 1. Exclude internal budget funding / allocation / reload / renewal transactions
+        if (
+          tx.title?.startsWith("Budget Allocated:") ||
+          tx.title?.startsWith("Budget Top-up:") ||
+          tx.title?.startsWith("Recurring Budget Renewed:") ||
+          tx.notes?.includes("Auto-allocated from wallet") ||
+          tx.notes?.includes("Top-up loaded into budget pocket") ||
+          tx.notes?.includes("Auto-renewed for cycle") ||
+          tx.budgetId === budget._id
+        ) {
+          return false;
+        }
+
+        // 2. Account Tracking: If budget is configured for a specific wallet / account,
+        // it MUST track transactions made from that specific account!
+        if (budget.sourceWalletId && tx.walletId !== budget.sourceWalletId) {
+          return false;
+        }
+
+        // 3. Category matching
+        if (budget.category && budget.category !== "All Categories" && tx.category !== budget.category) {
+          return false;
+        }
+
+        // 4. Cycle tracking: only count expenses falling in the current active cycle
         return tx.date >= activePeriod.startDate && tx.date <= activePeriod.endDate;
       });
 
@@ -52,21 +76,31 @@ export const listWithProgress = query({
       const isOverBudget = spentAmount > effectiveTotalPool;
 
       // Low balance warning triggers: Amount limit OR Percentage limit
-      const isLowAmount =
+      // Only active if spending has started and threshold is strictly below the total pool
+      const validLowAmountThreshold =
         budget.lowBalanceThresholdAmount !== undefined &&
         budget.lowBalanceThresholdAmount > 0 &&
-        remainingAmount <= budget.lowBalanceThresholdAmount;
+        budget.lowBalanceThresholdAmount < effectiveTotalPool
+          ? budget.lowBalanceThresholdAmount
+          : undefined;
+
+      const isLowAmount =
+        validLowAmountThreshold !== undefined &&
+        remainingAmount <= validLowAmountThreshold &&
+        spentAmount > 0;
 
       const isLowPercent =
         budget.lowBalanceThresholdPercent !== undefined &&
         budget.lowBalanceThresholdPercent > 0 &&
-        remainingPercent <= budget.lowBalanceThresholdPercent;
+        budget.lowBalanceThresholdPercent < 100 &&
+        remainingPercent <= budget.lowBalanceThresholdPercent &&
+        spentAmount > 0;
 
       const hasCustomAlert =
-        (budget.lowBalanceThresholdAmount !== undefined && budget.lowBalanceThresholdAmount > 0) ||
+        validLowAmountThreshold !== undefined ||
         (budget.lowBalanceThresholdPercent !== undefined && budget.lowBalanceThresholdPercent > 0);
 
-      const defaultWarning = !hasCustomAlert && progressPercent >= (budget.alertThreshold ?? 80);
+      const defaultWarning = !hasCustomAlert && progressPercent >= (budget.alertThreshold ?? 80) && spentAmount > 0;
       const isWarning = (isLowAmount || isLowPercent || defaultWarning) && !isOverBudget;
 
       const sourceWallet = budget.sourceWalletId ? walletMap.get(budget.sourceWalletId) : undefined;

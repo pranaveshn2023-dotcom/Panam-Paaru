@@ -98,7 +98,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setAutoDeductFromWallet(true);
       setAlertThreshold('80');
       setAlertMode('amount');
-      setLowAmount('1000');
+      setLowAmount('');
       setLowPercent('20');
     }
     setError('');
@@ -123,6 +123,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
     }
     if (isNaN(numAmount) || numAmount <= 0) {
       setError('Please enter a valid budget amount');
+      return;
+    }
+    if (numLowAmount !== undefined && numLowAmount >= numAmount) {
+      setError(`Alert threshold amount (${currencySymbol}${numLowAmount}) must be less than the budget pool (${currencySymbol}${numAmount})`);
       return;
     }
     if (!category) {
@@ -211,7 +215,17 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               step="0.01"
               min="0.01"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setAmount(val);
+                const parsed = parseFloat(val);
+                if (!isNaN(parsed) && parsed > 0) {
+                  const currentLow = parseFloat(lowAmount);
+                  if (isNaN(currentLow) || currentLow >= parsed || lowAmount === '1000' || !lowAmount) {
+                    setLowAmount(String(Math.max(1, Math.round(parsed * 0.2))));
+                  }
+                }
+              }}
               placeholder="5000.00"
               className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black text-[#121212]"
               required

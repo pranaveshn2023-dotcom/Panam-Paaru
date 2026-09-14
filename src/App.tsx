@@ -42,6 +42,7 @@ import { TransferModal } from './components/wallets/TransferModal';
 import { InvestmentModal } from './components/investments/InvestmentModal';
 import { InvestmentImportModal } from './components/investments/InvestmentImportModal';
 import { InvestmentDashboard } from './components/investments/InvestmentDashboard';
+import { NotificationModal } from './components/notifications/NotificationModal';
 
 // Pages
 import { OverviewPage } from './pages/OverviewPage';
@@ -90,6 +91,7 @@ export function AppContent() {
   const directUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
   const [isPinSetupModalOpen, setIsPinSetupModalOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [editingWallet, setEditingWallet] = useState<Wallet | null>(null);
@@ -352,6 +354,54 @@ export function AppContent() {
       );
       triggerLocalUpdate();
       toast.warning('Network issue: Transaction saved offline • Queued for sync');
+    }
+
+    // Simple, direct notification when an expense causes a budget alert limit to be reached
+    if (data.type === 'expense') {
+      const matchedBudget = budgets.find((b) => {
+        const matchCategory = b.category === data.category || b.category === 'All Categories';
+        if (!matchCategory) return false;
+        // If budget is linked to an account, it only tracks expenses from that account
+        if (b.sourceWalletId && data.walletId && b.sourceWalletId !== data.walletId) {
+          return false;
+        }
+        return true;
+      });
+      if (matchedBudget) {
+        const currentSpent = (matchedBudget.spentAmount ?? 0) + data.amount;
+        const total = (matchedBudget.currentLoadedAmount ?? matchedBudget.initialLoadedAmount) ?? matchedBudget.amount;
+        const remaining = Math.max(0, total - currentSpent);
+        const hasLowAmt = matchedBudget.lowBalanceThresholdAmount !== undefined &&
+          matchedBudget.lowBalanceThresholdAmount > 0 &&
+          matchedBudget.lowBalanceThresholdAmount < total
+          ? remaining <= matchedBudget.lowBalanceThresholdAmount
+          : false;
+        const hasLowPct = matchedBudget.lowBalanceThresholdPercent !== undefined && matchedBudget.lowBalanceThresholdPercent > 0
+          ? (total > 0 && (remaining / total) * 100 <= matchedBudget.lowBalanceThresholdPercent)
+          : false;
+        const isOver = currentSpent >= total;
+
+        if (isOver || hasLowAmt || hasLowPct) {
+          setTimeout(() => {
+            toast.warning(`⚠️ Budget alert reached: Add money to ${matchedBudget.name}!`, {
+              action: {
+                label: '+ Add Money',
+                onClick: () => setIsNotificationsOpen(true),
+              },
+              duration: 6000,
+            });
+
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              try {
+                new Notification(`⚠️ Budget Alert: ${matchedBudget.name}`, {
+                  body: `Budget alert reached — add money to top up!`,
+                  icon: '/favicon.ico',
+                });
+              } catch {}
+            }
+          }, 350);
+        }
+      }
     }
   };
 
@@ -745,6 +795,8 @@ export function AppContent() {
     <div className="min-h-screen bg-[#FFFDF5] text-[#121212] flex flex-col font-sans selection:bg-[#FFE600] selection:text-[#121212]">
       <Header
         user={user}
+        alertCount={budgets.filter((b) => b.isOverBudget || b.isLowAmount || b.isLowPercent || b.isWarning).length}
+        onOpenNotifications={() => setIsNotificationsOpen(true)}
         onOpenTransactionModal={() => {
           setEditingTransaction(null);
           setIsTransactionModalOpen(true);
@@ -904,6 +956,16 @@ export function AppContent() {
       <PinSetupModal
         isOpen={isPinSetupModalOpen}
         onClose={() => setIsPinSetupModalOpen(false)}
+      />
+
+      <NotificationModal
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        budgets={budgets}
+        wallets={wallets}
+        currencySymbol={currencySymbol}
+        onTopUpBudget={handleTopUpBudget}
+        onNavigateToBudgets={() => handleNavigate('budgets')}
       />
     </div>
   );
