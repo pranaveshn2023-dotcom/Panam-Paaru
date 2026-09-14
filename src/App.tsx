@@ -104,7 +104,7 @@ export function AppContent() {
   };
   const cloudWalletsData = useQuery(api.wallets.list, undefined);
   const cloudBudgets = useQuery(api.budgets.listWithProgress, undefined) ?? [];
-  const cloudCategories = useQuery(api.categories.listWithStats, undefined) ?? useQuery(api.transactions.getCategories, undefined) ?? [];
+  const cloudCategories = useQuery(api.categories.listWithStats, undefined) ?? [];
   const cloudAnalytics = useQuery(api.insights.getSpendingAnalytics, undefined) ?? {
     categoryBreakdown: [], monthlyTrends: [], dailyAverageExpense: 0,
     highestExpenseCategory: null, totalExpensesThisMonth: 0, totalIncomeThisMonth: 0,
@@ -268,34 +268,34 @@ export function AppContent() {
   }, [isOnline, pendingCount, syncOfflineQueue]);
 
   // --- DATA RESOLUTION: Cloud first with instant offline fallback ---
-  const transactions: Transaction[] = (isOnline && cloudTransactions && cloudTransactions.length > 0)
+  const transactions: Transaction[] = (isOnline && (cloudTransactions?.length ?? 0) > 0)
     ? cloudTransactions
-    : (offlineStorage.getTransactions().length > 0 ? offlineStorage.getTransactions() : (cloudTransactions ?? []));
+    : ((offlineStorage.getTransactions()?.length ?? 0) > 0 ? offlineStorage.getTransactions() : (cloudTransactions ?? []));
 
-  const budgets: Budget[] = (isOnline && cloudBudgets && cloudBudgets.length > 0)
+  const budgets: Budget[] = (isOnline && (cloudBudgets?.length ?? 0) > 0)
     ? cloudBudgets
-    : (offlineStorage.getBudgets().length > 0 ? offlineStorage.getBudgets() : (cloudBudgets ?? []));
+    : ((offlineStorage.getBudgets()?.length ?? 0) > 0 ? offlineStorage.getBudgets() : (cloudBudgets ?? []));
 
-  const wallets: Wallet[] = (isOnline && cloudWalletsData?.wallets && cloudWalletsData.wallets.length > 0)
+  const wallets: Wallet[] = (isOnline && (cloudWalletsData?.wallets?.length ?? 0) > 0)
     ? (cloudWalletsData.wallets as Wallet[])
-    : (offlineStorage.getWallets().length > 0 ? offlineStorage.getWallets() : ((cloudWalletsData?.wallets as Wallet[]) ?? []));
+    : ((offlineStorage.getWallets()?.length ?? 0) > 0 ? offlineStorage.getWallets() : ((cloudWalletsData?.wallets as Wallet[]) ?? []));
 
   const walletSummary: WalletSummary = (cloudWalletsData?.wallets && cloudWalletsData.wallets.length > 0)
     ? cloudWalletsData
     : {
-        wallets,
-        totalBalance: wallets.reduce((acc, w) => acc + (w.balance || 0), 0),
+        wallets: wallets || [],
+        totalBalance: (wallets || []).reduce((acc, w) => acc + (w.balance || 0), 0),
         expenseSoFar: 0,
         incomeSoFar: 0,
       };
 
-  const categories: Category[] = (isOnline && cloudCategories && cloudCategories.length > 0)
+  const categories: Category[] = (isOnline && (cloudCategories?.length ?? 0) > 0)
     ? cloudCategories
-    : (offlineStorage.getCategories().length > 0 ? offlineStorage.getCategories() : DEFAULT_CATEGORIES);
+    : ((offlineStorage.getCategories()?.length ?? 0) > 0 ? offlineStorage.getCategories() : DEFAULT_CATEGORIES);
 
-  const investments: Investment[] = (isOnline && cloudInvestments && cloudInvestments.length > 0)
+  const investments: Investment[] = (isOnline && (cloudInvestments?.length ?? 0) > 0)
     ? cloudInvestments
-    : (offlineStorage.getInvestments().length > 0 ? offlineStorage.getInvestments() : (cloudInvestments ?? []));
+    : ((offlineStorage.getInvestments()?.length ?? 0) > 0 ? offlineStorage.getInvestments() : (cloudInvestments ?? []));
 
   const portfolioSummary: PortfolioSummary | null = cloudPortfolioSummary ?? null;
   const user: UserProfile | null = cloudUser ?? offlineStorage.getUser();

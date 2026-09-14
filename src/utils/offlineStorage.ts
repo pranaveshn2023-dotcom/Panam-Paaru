@@ -70,7 +70,8 @@ const KEYS = {
 function getStorageItem<T>(key: string, fallback: T): T {
   const storeKey = getStorageKey(key);
   if (memoryStore.has(storeKey)) {
-    return memoryStore.get(storeKey);
+    const val = memoryStore.get(storeKey);
+    return val !== undefined && val !== null ? val : fallback;
   }
   return fallback;
 }

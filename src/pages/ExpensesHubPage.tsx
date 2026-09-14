@@ -71,19 +71,19 @@ interface ExpensesHubPageProps {
 export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
   activeSubTab,
   onSelectSubTab,
-  transactions,
-  categories,
+  transactions = [],
+  categories = [],
   user,
   onOpenAddTransactionModal,
   onEditTransaction,
   onDeleteTransaction,
-  wallets,
+  wallets = [],
   walletSummary,
   onOpenWalletModal,
   onOpenTransferModal,
   onEditWallet,
   onDeleteWallet,
-  budgets,
+  budgets = [],
   onOpenBudgetModal,
   onEditBudget,
   onDeleteBudget,
@@ -94,12 +94,17 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
   analytics,
   currencySymbol = '₹',
 }) => {
+  const safeTransactions = transactions || [];
+  const safeWallets = wallets || [];
+  const safeBudgets = budgets || [];
+  const safeCategories = categories || [];
+
   const subTabs = [
     {
       id: 'transactions' as ExpenseSubTab,
       label: 'Transactions',
       shortLabel: 'Ledger',
-      badge: transactions.length,
+      badge: safeTransactions.length,
       icon: ArrowLeftRight,
       color: '#00F0FF',
     },
@@ -107,7 +112,7 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
       id: 'wallets' as ExpenseSubTab,
       label: 'Accounts & Wallets',
       shortLabel: 'Accounts',
-      badge: wallets.length,
+      badge: safeWallets.length,
       icon: WalletIcon,
       color: '#FFD700',
     },
@@ -115,7 +120,7 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
       id: 'budgets' as ExpenseSubTab,
       label: 'Budgets & Pockets',
       shortLabel: 'Budgets',
-      badge: budgets.length,
+      badge: safeBudgets.length,
       icon: CalendarSync,
       color: '#05DF72',
     },
@@ -123,7 +128,7 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
       id: 'categories' as ExpenseSubTab,
       label: 'Categories (CRUD)',
       shortLabel: 'Categories',
-      badge: categories.length,
+      badge: safeCategories.length,
       icon: Tag,
       color: '#FFE600',
     },

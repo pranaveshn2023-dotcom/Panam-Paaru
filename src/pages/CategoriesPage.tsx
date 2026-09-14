@@ -27,12 +27,13 @@ interface CategoriesPageProps {
 }
 
 export const CategoriesPage: React.FC<CategoriesPageProps> = ({
-  categories,
+  categories = [],
   onCreateCategory,
   onUpdateCategory,
   onDeleteCategory,
   currencySymbol = '₹',
 }) => {
+  const safeCategories = categories || [];
   const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
@@ -43,20 +44,21 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
 
   const expenseCount = useMemo(
-    () => categories.filter((c) => c.type === 'expense').length,
-    [categories]
+    () => safeCategories.filter((c) => c && c.type === 'expense').length,
+    [safeCategories]
   );
   const incomeCount = useMemo(
-    () => categories.filter((c) => c.type === 'income').length,
-    [categories]
+    () => safeCategories.filter((c) => c && c.type === 'income').length,
+    [safeCategories]
   );
   const customCount = useMemo(
-    () => categories.filter((c) => c.isCustom).length,
-    [categories]
+    () => safeCategories.filter((c) => c && c.isCustom).length,
+    [safeCategories]
   );
 
   const filteredCategories = useMemo(() => {
-    return categories.filter((c) => {
+    return safeCategories.filter((c) => {
+      if (!c) return false;
       const matchesType = filterType === 'all' || c.type === filterType;
       const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase());
       return matchesType && matchesSearch;
