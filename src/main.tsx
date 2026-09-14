@@ -4,6 +4,7 @@ import App from './App';
 import './index.css';
 import { ConvexClientProvider } from './context/ConvexClientProvider';
 import { PinLockProvider } from './context/PinLockContext';
+import { OfflineProvider } from './context/OfflineContext';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -11,7 +12,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <ConvexClientProvider>
         <PinLockProvider>
-          <App />
+          <OfflineProvider>
+            <App />
+          </OfflineProvider>
         </PinLockProvider>
       </ConvexClientProvider>
     </ErrorBoundary>

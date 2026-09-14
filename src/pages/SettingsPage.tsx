@@ -7,6 +7,7 @@ import { usePinLock } from '../context/PinLockContext';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
+import { offlineStorage } from '../utils/offlineStorage';
 import {
   Lock,
   Globe,
@@ -15,12 +16,14 @@ import {
   User,
   KeyRound,
   Edit2,
+  Tag,
 } from 'lucide-react';
 
 interface SettingsPageProps {
   user?: UserProfile | null;
   onOpenPinSetup: (isChange?: boolean) => void;
   onUpdateCurrency: (currency: string, symbol: string) => Promise<void>;
+  onNavigateToCategories?: () => void;
   currencySymbol?: string;
   currentCurrency?: string;
 }
@@ -29,6 +32,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   user,
   onOpenPinSetup,
   onUpdateCurrency,
+  onNavigateToCategories,
   currencySymbol = '₹',
   currentCurrency = 'INR',
 }) => {
@@ -88,8 +92,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     900000: '15 Minutes of inactivity',
   };
 
-  const displayName = user?.name || 'Pranavesh Nandakumar';
-  const displayEmail = user?.email || 'pranaveshnandakumar@gmail.com';
+  const displayName = user?.name || (user?.email ? user.email.split('@')[0] : 'User');
+  const displayEmail = user?.email || 'No email registered';
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-4xl animate-in fade-in duration-150">
@@ -223,6 +227,32 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       </div>
 
+      {/* Categories Management Tile */}
+      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm flex items-center justify-center shrink-0">
+            <Tag size={20} className="text-[#121212]" strokeWidth={2.5} />
+          </div>
+          <div>
+            <h3 className="text-sm font-black uppercase text-[#121212]">Category Manager</h3>
+            <p className="text-xs font-bold text-neutral-600 mt-0.5">
+              Customize income & expense categories, icons, and colors.
+            </p>
+          </div>
+        </div>
+        {onNavigateToCategories && (
+          <NeoButton
+            variant="secondary"
+            size="sm"
+            onClick={onNavigateToCategories}
+            className="flex items-center gap-1.5 self-start sm:self-auto"
+          >
+            <Tag size={13} />
+            <span>Manage Categories</span>
+          </NeoButton>
+        )}
+      </div>
+
       {/* 3. Account Details Section */}
       <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 sm:p-6 flex flex-col gap-4">
         <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3">
@@ -275,6 +305,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             size="sm"
             onClick={() => {
               sessionStorage.removeItem('panam_welcome_celebrated');
+              offlineStorage.clearActiveSession();
               void signOut();
             }}
             className="flex items-center gap-1.5"

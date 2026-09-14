@@ -12,16 +12,18 @@ import { TransactionsPage } from './TransactionsPage';
 import { WalletsPage } from './WalletsPage';
 import { BudgetsPage } from './BudgetsPage';
 import { InsightsPage } from './InsightsPage';
+import { CategoriesPage } from './CategoriesPage';
 import {
   ArrowLeftRight,
   Wallet as WalletIcon,
   CalendarSync,
   PieChart,
   Layers,
+  Tag,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
-export type ExpenseSubTab = 'transactions' | 'wallets' | 'budgets' | 'insights';
+export type ExpenseSubTab = 'transactions' | 'wallets' | 'budgets' | 'categories' | 'insights';
 
 interface ExpensesHubPageProps {
   activeSubTab: ExpenseSubTab;
@@ -46,6 +48,21 @@ interface ExpensesHubPageProps {
   onEditBudget: (b: Budget) => void;
   onDeleteBudget: (id: string) => void;
   onTopUpBudget: (id: string, amount: number, walletId?: string) => Promise<void>;
+  // Categories CRUD
+  onCreateCategory: (data: {
+    name: string;
+    type: 'income' | 'expense';
+    color: string;
+    icon: string;
+  }) => Promise<void>;
+  onUpdateCategory: (data: {
+    id: string;
+    name: string;
+    type: 'income' | 'expense';
+    color: string;
+    icon: string;
+  }) => Promise<void>;
+  onDeleteCategory: (id: string, reassignTo?: string) => Promise<void>;
   // Analytics
   analytics: SpendingAnalytics | null;
   currencySymbol?: string;
@@ -71,6 +88,9 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
   onEditBudget,
   onDeleteBudget,
   onTopUpBudget,
+  onCreateCategory,
+  onUpdateCategory,
+  onDeleteCategory,
   analytics,
   currencySymbol = '₹',
 }) => {
@@ -98,6 +118,14 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
       badge: budgets.length,
       icon: CalendarSync,
       color: '#05DF72',
+    },
+    {
+      id: 'categories' as ExpenseSubTab,
+      label: 'Categories (CRUD)',
+      shortLabel: 'Categories',
+      badge: categories.length,
+      icon: Tag,
+      color: '#FFE600',
     },
     {
       id: 'insights' as ExpenseSubTab,
@@ -186,6 +214,16 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
             onEdit={onEditBudget}
             onDelete={onDeleteBudget}
             onTopUp={onTopUpBudget}
+            currencySymbol={currencySymbol}
+          />
+        )}
+
+        {activeSubTab === 'categories' && (
+          <CategoriesPage
+            categories={categories}
+            onCreateCategory={onCreateCategory}
+            onUpdateCategory={onUpdateCategory}
+            onDeleteCategory={onDeleteCategory}
             currencySymbol={currencySymbol}
           />
         )}

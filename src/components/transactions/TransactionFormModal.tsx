@@ -3,7 +3,23 @@ import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
 import { Transaction, TransactionType, Category, Wallet } from '../../types';
-import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Calendar, Tag, FileText, Wallet as WalletIcon } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Calendar, Tag, FileText, Wallet as WalletIcon, Plus, Calculator, Delete } from 'lucide-react';
+import { CategoryFormModal } from '../categories/CategoryFormModal';
+
+function evaluateMath(expr: string): number | null {
+  try {
+    if (!/^[0-9+\-*/().\s]+$/.test(expr)) return null;
+    const sanitized = expr.replace(/\s+/g, '');
+    // eslint-disable-next-line no-new-func
+    const result = Function(`'use strict'; return (${sanitized})`)();
+    if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
+      return Math.round(result * 100) / 100;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 interface TransactionFormModalProps {
   isOpen: boolean;
@@ -22,6 +38,12 @@ interface TransactionFormModalProps {
   categories: Category[];
   wallets?: Wallet[];
   currencySymbol?: string;
+  onCreateCategory?: (data: {
+    name: string;
+    type: 'income' | 'expense';
+    color: string;
+    icon: string;
+  }) => Promise<void>;
 }
 
 export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
@@ -32,6 +54,7 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
   categories,
   wallets = [],
   currencySymbol = '₹',
+  onCreateCategory,
 }) => {
   const [type, setType] = useState<TransactionType>('expense');
   const [title, setTitle] = useState('');
@@ -43,6 +66,9 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
   const [transferToWalletId, setTransferToWalletId] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [calcExpression, setCalcExpression] = useState('');
 
   useEffect(() => {
     const defaultWallet = wallets.find((w) => w.isDefault) || wallets[0];
@@ -52,6 +78,7 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
       setType(initialData.type);
       setTitle(initialData.title);
       setAmount(String(initialData.amount));
+      setCalcExpression(String(initialData.amount));
       setCategory(initialData.category);
       setDate(initialData.date.slice(0, 10));
       setNotes(initialData.notes || '');
@@ -61,14 +88,42 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
       setType('expense');
       setTitle('');
       setAmount('');
+      setCalcExpression('');
       setCategory(categories.find((c) => c.type === 'expense')?.name || 'Food & Dining');
       setDate(new Date().toISOString().slice(0, 10));
       setNotes('');
       setWalletId(defaultWallet?._id || '');
       setTransferToWalletId(secondWallet?._id || '');
     }
+    setShowCalculator(false);
     setError('');
   }, [initialData, isOpen, categories, wallets]);
+
+  const handleKeypadPress = (btn: string) => {
+    if (btn === 'C') {
+      setCalcExpression('');
+      setAmount('');
+    } else if (btn === '⌫') {
+      const next = calcExpression.slice(0, -1);
+      setCalcExpression(next);
+      const val = evaluateMath(next);
+      if (val !== null) setAmount(String(val));
+      else if (!next) setAmount('');
+    } else if (btn === '=') {
+      const val = evaluateMath(calcExpression);
+      if (val !== null) {
+        setAmount(String(val));
+        setCalcExpression(String(val));
+      }
+    } else {
+      const opMap: Record<string, string> = { '×': '*', '÷': '/' };
+      const char = opMap[btn] || btn;
+      const next = calcExpression + char;
+      setCalcExpression(next);
+      const val = evaluateMath(next);
+      if (val !== null) setAmount(String(val));
+    }
+  };
 
   const filteredCategories = categories.filter((c) => c.type === (type === 'transfer' ? 'expense' : type));
 
@@ -194,27 +249,102 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
           </button>
         </div>
 
-        {/* Amount Input */}
+        {/* Amount Input with Built-in Calculator */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
-            Amount ({currencySymbol}) *
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
+              Amount ({currencySymbol}) *
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCalculator((prev) => !prev);
+                if (!calcExpression && amount) setCalcExpression(amount);
+              }}
+              className={`text-[11px] font-black uppercase flex items-center gap-1 px-2 py-0.5 border border-[#121212] transition-all cursor-pointer ${
+                showCalculator
+                  ? 'bg-[#FFE600] text-[#121212] shadow-neo-sm'
+                  : 'bg-neutral-100 text-neutral-700 hover:bg-[#FFE600]'
+              }`}
+            >
+              <Calculator size={12} strokeWidth={2.5} />
+              <span>{showCalculator ? 'Close Calc' : 'Calculator'}</span>
+            </button>
+          </div>
+
           <div className="relative flex items-center">
             <span className="absolute left-3.5 text-lg font-mono font-black text-neutral-500 pointer-events-none">
               {currencySymbol}
             </span>
             <input
-              type="number"
+              type={showCalculator ? 'text' : 'number'}
               step="0.01"
               min="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              value={showCalculator ? (calcExpression || amount) : amount}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (showCalculator) {
+                  setCalcExpression(val);
+                  const parsed = evaluateMath(val);
+                  if (parsed !== null) setAmount(String(parsed));
+                } else {
+                  setAmount(val);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (showCalculator && e.key === 'Enter') {
+                  e.preventDefault();
+                  const parsed = evaluateMath(calcExpression);
+                  if (parsed !== null) {
+                    setAmount(String(parsed));
+                    setCalcExpression(String(parsed));
+                  }
+                }
+              }}
               placeholder="0.00"
               className="neo-input pl-9 pr-3.5 py-3 text-xl font-mono font-black text-[#121212]"
               required
               autoFocus
             />
           </div>
+
+          {/* Built-in Keypad (MyMoney Style) */}
+          {showCalculator && (
+            <div className="p-2.5 bg-neutral-100 border-2 border-[#121212] shadow-neo-sm flex flex-col gap-1.5 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between text-xs font-mono font-black text-neutral-600 px-1">
+                <span>Calc: {calcExpression || '0'}</span>
+                <span className="text-[#121212] font-black">
+                  = {currencySymbol}{amount || '0'}
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  ['C', '(', ')', '÷'],
+                  ['7', '8', '9', '×'],
+                  ['4', '5', '6', '-'],
+                  ['1', '2', '3', '+'],
+                  ['0', '.', '⌫', '='],
+                ].flat().map((btn) => (
+                  <button
+                    key={btn}
+                    type="button"
+                    onClick={() => handleKeypadPress(btn)}
+                    className={`py-2 text-xs font-mono font-black border-2 transition-all cursor-pointer ${
+                      btn === '='
+                        ? 'bg-[#05DF72] text-[#121212] border-[#121212] shadow-neo-sm font-black'
+                        : btn === 'C'
+                        ? 'bg-[#FF4343] text-white border-[#121212]'
+                        : ['+', '-', '×', '÷'].includes(btn)
+                        ? 'bg-[#FFE600] text-[#121212] border-[#121212]'
+                        : 'bg-white text-[#121212] border-neutral-300 hover:border-black'
+                    }`}
+                  >
+                    {btn}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Wallets / Accounts Selection */}
@@ -295,10 +425,22 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
         {/* Category Selector (hidden for Transfer) */}
         {type !== 'transfer' && (
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center gap-1">
-              <Tag size={13} />
-              Category *
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center gap-1">
+                <Tag size={13} />
+                Category *
+              </label>
+              {onCreateCategory && (
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(true)}
+                  className="text-[11px] font-black uppercase text-[#121212] hover:text-[#05DF72] underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus size={11} strokeWidth={3} />
+                  New Category
+                </button>
+              )}
+            </div>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
@@ -329,20 +471,13 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
           />
         </div>
 
-        {/* Optional Notes */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center gap-1">
-            <FileText size={13} />
-            Notes (Optional)
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Add any additional context..."
-            rows={2}
-            className="neo-input p-2.5 text-xs font-semibold resize-none"
-          />
-        </div>
+        {/* Notes (Optional) */}
+        <NeoInput
+          label="Notes (Optional)"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Add tags, bill refs, context..."
+        />
 
         {error && (
           <div className="bg-[#FF4343] text-white text-xs font-bold p-2.5 border-2 border-[#121212] shadow-neo-sm">
@@ -369,6 +504,25 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
           </NeoButton>
         </div>
       </form>
+
+      {/* Quick Add Category Modal */}
+      {onCreateCategory && (
+        <CategoryFormModal
+          isOpen={isCategoryModalOpen}
+          onClose={() => setIsCategoryModalOpen(false)}
+          defaultType={type === 'income' ? 'income' : 'expense'}
+          onSubmit={async (catData) => {
+            await onCreateCategory({
+              name: catData.name,
+              type: catData.type,
+              color: catData.color,
+              icon: catData.icon,
+            });
+            setCategory(catData.name);
+            setIsCategoryModalOpen(false);
+          }}
+        />
+      )}
     </NeoModal>
   );
 };

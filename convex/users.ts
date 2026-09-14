@@ -69,8 +69,8 @@ export const currentUser = query({
 
     return {
       ...user,
-      name: name.trim() ? name : "Pranavesh Nandakumar",
-      email: email.trim() ? email : "pranaveshnandakumar@gmail.com",
+      name: name.trim() ? name : (email ? email.split("@")[0] : "User"),
+      email: email.trim() ? email : "",
       image: image,
       settings: settings || {
         currency: "INR",

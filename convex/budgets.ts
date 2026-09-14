@@ -38,12 +38,9 @@ export const listWithProgress = query({
         now
       );
 
-      // Sum expenses for this budget category
+      // Sum expenses for this budget category in the active period
       const matchingTxs = transactions.filter((tx) => {
         if (tx.category !== budget.category) return false;
-        if (budget.recurrence === 'one_time') {
-          return tx.date >= activePeriod.startDate;
-        }
         return tx.date >= activePeriod.startDate && tx.date <= activePeriod.endDate;
       });
 
@@ -300,9 +297,6 @@ export const checkAndRenewRecurringBudgets = mutation({
     const nowTimestamp = Date.now();
 
     for (const budget of budgets) {
-      if (budget.recurrence === 'one_time' || budget.isRecurring === false) continue;
-      if (!budget.sourceWalletId || !budget.autoDeductFromWallet) continue;
-
       const activePeriod = getActiveBudgetPeriod(
         budget.startDate,
         budget.recurrence as RecurrenceFrequency,
@@ -311,36 +305,44 @@ export const checkAndRenewRecurringBudgets = mutation({
 
       const lastDeducted = budget.lastDeductedPeriodIndex ?? 0;
       if (activePeriod.periodIndex > lastDeducted) {
-        const wallet = await ctx.db.get(budget.sourceWalletId);
-        if (wallet && wallet.userId === userId) {
-          // Deduct recurring cycle amount from wallet
-          await ctx.db.patch(budget.sourceWalletId, {
-            balance: wallet.balance - budget.amount,
-            updatedAt: nowTimestamp,
-          });
+        // If recurring auto-deduction is enabled on a linked wallet, deduct for the new cycle
+        if (
+          budget.recurrence !== 'one_time' &&
+          budget.isRecurring !== false &&
+          budget.sourceWalletId &&
+          budget.autoDeductFromWallet
+        ) {
+          const wallet = await ctx.db.get(budget.sourceWalletId);
+          if (wallet && wallet.userId === userId) {
+            // Deduct recurring cycle amount from wallet
+            await ctx.db.patch(budget.sourceWalletId, {
+              balance: wallet.balance - budget.amount,
+              updatedAt: nowTimestamp,
+            });
 
-          // Record cycle deduction transaction
-          await ctx.db.insert("transactions", {
-            userId,
-            title: `Recurring Budget Renewed: ${budget.name}`,
-            amount: budget.amount,
-            type: "expense",
-            category: budget.category,
-            date: activePeriod.startDate,
-            notes: `Auto-renewed for cycle (${activePeriod.startDate} - ${activePeriod.endDate}) from ${wallet.name}`,
-            walletId: budget.sourceWalletId,
-            budgetId: budget._id,
-            createdAt: nowTimestamp,
-          });
-
-          // Reset budget pool for the new cycle
-          await ctx.db.patch(budget._id, {
-            currentLoadedAmount: budget.amount,
-            lastDeductedPeriodIndex: activePeriod.periodIndex,
-          });
-
-          renewedCount++;
+            // Record cycle deduction transaction
+            await ctx.db.insert("transactions", {
+              userId,
+              title: `Recurring Budget Renewed: ${budget.name}`,
+              amount: budget.amount,
+              type: "expense",
+              category: budget.category,
+              date: activePeriod.startDate,
+              notes: `Auto-renewed for cycle (${activePeriod.startDate} - ${activePeriod.endDate}) from ${wallet.name}`,
+              walletId: budget.sourceWalletId,
+              budgetId: budget._id,
+              createdAt: nowTimestamp,
+            });
+          }
         }
+
+        // Reset budget pool for the new cycle / month
+        await ctx.db.patch(budget._id, {
+          currentLoadedAmount: budget.initialLoadedAmount ?? budget.amount,
+          lastDeductedPeriodIndex: activePeriod.periodIndex,
+        });
+
+        renewedCount++;
       }
     }
 

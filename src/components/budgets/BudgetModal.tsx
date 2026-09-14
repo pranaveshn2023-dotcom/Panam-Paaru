@@ -3,7 +3,8 @@ import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
 import { Budget, Category, RecurrenceType, Wallet } from '../../types';
-import { CalendarSync, Tag, AlertTriangle, ShieldAlert, Coins, Sparkles, RefreshCw, Layers } from 'lucide-react';
+import { CalendarSync, Tag, AlertTriangle, ShieldAlert, Coins, Sparkles, RefreshCw, Layers, Plus } from 'lucide-react';
+import { CategoryFormModal } from '../categories/CategoryFormModal';
 
 interface BudgetModalProps {
   isOpen: boolean;
@@ -26,6 +27,12 @@ interface BudgetModalProps {
   categories: Category[];
   wallets?: Wallet[];
   currencySymbol?: string;
+  onCreateCategory?: (data: {
+    name: string;
+    type: 'income' | 'expense';
+    color: string;
+    icon: string;
+  }) => Promise<void>;
 }
 
 export const BudgetModal: React.FC<BudgetModalProps> = ({
@@ -36,10 +43,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   categories,
   wallets = [],
   currencySymbol = '₹',
+  onCreateCategory,
 }) => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
-  const [initialLoadedAmount, setInitialLoadedAmount] = useState('');
   const [category, setCategory] = useState('');
   const [isRecurring, setIsRecurring] = useState(true);
   const [recurrence, setRecurrence] = useState<RecurrenceType>('monthly');
@@ -51,6 +58,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   const [lowPercent, setLowPercent] = useState('20');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
 
   const expenseCategories = categories.filter((c) => c.type === 'expense');
 
@@ -58,7 +66,6 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
     if (initialData) {
       setName(initialData.name);
       setAmount(String(initialData.amount));
-      setInitialLoadedAmount(String(initialData.currentLoadedAmount ?? initialData.initialLoadedAmount ?? initialData.amount));
       setCategory(initialData.category);
       const isRec = initialData.recurrence !== 'one_time' && initialData.isRecurring !== false;
       setIsRecurring(isRec);
@@ -71,8 +78,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setLowPercent(initialData.lowBalanceThresholdPercent ? String(initialData.lowBalanceThresholdPercent) : '20');
     } else {
       setName('');
-      setAmount('5000');
-      setInitialLoadedAmount('5000');
+      setAmount('');
       setCategory(expenseCategories[0]?.name || 'Food & Dining');
       setIsRecurring(true);
       setRecurrence('monthly');
@@ -81,7 +87,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setSourceWalletId(defaultW?._id || '');
       setAutoDeductFromWallet(true);
       setAlertThreshold('80');
-      setLowAmount('1000');
+      setLowAmount('');
       setLowPercent('20');
     }
     setError('');
@@ -90,7 +96,6 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const numAmount = parseFloat(amount);
-    const numLoaded = initialLoadedAmount ? parseFloat(initialLoadedAmount) : numAmount;
     const numThreshold = parseInt(alertThreshold, 10);
     const numLowAmount = lowAmount ? parseFloat(lowAmount) : undefined;
     const numLowPercent = lowPercent ? parseInt(lowPercent, 10) : undefined;
@@ -100,7 +105,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       return;
     }
     if (isNaN(numAmount) || numAmount <= 0) {
-      setError('Please enter a valid budget limit');
+      setError('Please enter a valid budget amount');
       return;
     }
     if (!category) {
@@ -122,7 +127,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
         onSubmit({
           name: name.trim(),
           amount: numAmount,
-          initialLoadedAmount: !isNaN(numLoaded) && numLoaded > 0 ? numLoaded : numAmount,
+          initialLoadedAmount: numAmount,
           category,
           recurrence: effectiveRecurrence,
           isRecurring,
@@ -175,50 +180,25 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           required
         />
 
-        {/* Dual Amounts: Target Limit & Initial Loaded Money */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Target Limit */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
-              {isRecurring ? 'Cycle Budget Limit' : 'Total Setup Budget'} ({currencySymbol}) *
-            </label>
-            <div className="relative flex items-center">
-              <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
-                {currencySymbol}
-              </span>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="5000.00"
-                className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black text-[#121212]"
-                required
-              />
-            </div>
-          </div>
-
-          {/* Initial Loaded Money */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center gap-1">
-              <Coins size={13} className="text-[#05DF72]" />
-              Initial Loaded Capital ({currencySymbol})
-            </label>
-            <div className="relative flex items-center">
-              <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
-                {currencySymbol}
-              </span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={initialLoadedAmount}
-                onChange={(e) => setInitialLoadedAmount(e.target.value)}
-                placeholder="5000.00"
-                className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black text-[#05DF72]"
-              />
-            </div>
+        {/* Single Budget Amount Field */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
+            {isRecurring ? 'Cycle Budget Amount' : 'Budget Amount'} ({currencySymbol}) *
+          </label>
+          <div className="relative flex items-center">
+            <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
+              {currencySymbol}
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="5000.00"
+              className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black text-[#121212]"
+              required
+            />
           </div>
         </div>
 
@@ -254,7 +234,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
                 <span className="text-[11px] font-bold text-[#0B6B38]">
                   {isRecurring
                     ? `Auto-deduct ${currencySymbol}${amount || '0'} from this wallet every ${recurrence} renewal cycle`
-                    : `Auto-deduct initial setup amount (${currencySymbol}${initialLoadedAmount || amount || '0'}) from this wallet on creation`}
+                    : `Auto-deduct budget amount (${currencySymbol}${amount || '0'}) from this wallet on creation`}
                 </span>
               </label>
             )}
@@ -265,10 +245,22 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Category Selector */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center gap-1">
-              <Tag size={13} />
-              Target Category *
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center gap-1">
+                <Tag size={13} />
+                Target Category *
+              </label>
+              {onCreateCategory && (
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(true)}
+                  className="text-[11px] font-black uppercase text-[#121212] hover:text-[#05DF72] underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus size={11} strokeWidth={3} />
+                  New Category
+                </button>
+              )}
+            </div>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
@@ -308,7 +300,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             <span className="text-[11px] font-bold text-neutral-600 mt-0.5">
               {isRecurring
                 ? 'Budget automatically renews periodically (Daily, Weekly, Monthly, etc.)'
-                : 'One-time setup budget with a fixed amount tracking category expenses'}
+                : 'Setup budget that auto-resets monthly without recurring wallet deductions'}
             </span>
           </div>
 
@@ -324,7 +316,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               }`}
             >
               <Layers size={13} />
-              <span>OFF (One-Time)</span>
+              <span>OFF (Auto-Resets Monthly)</span>
             </button>
             <button
               type="button"
@@ -371,10 +363,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             <Sparkles size={16} className="text-[#121212] shrink-0 mt-0.5" />
             <div className="text-xs">
               <span className="font-black uppercase text-[#121212] block">
-                One-Time Setup Budget Mode Active
+                One-Time Setup Budget (Auto-Resets Monthly)
               </span>
               <p className="font-bold text-neutral-800 mt-0.5 leading-relaxed">
-                This budget uses a fixed setup pool of <span className="font-mono font-black text-[#121212]">{currencySymbol}{amount || '0'}</span>. All transactions in category <span className="underline font-black text-[#121212]">{category || 'selected'}</span> starting from <span className="font-mono font-black">{startDate}</span> will deduct against this pool without periodic cycle resets.
+                This budget starts with a setup pool of <span className="font-mono font-black text-[#121212]">{currencySymbol}{amount || '0'}</span>. Transactions in category <span className="underline font-black text-[#121212]">{category || 'selected'}</span> will track against this pool and automatically reset on the 1st of every month without recurring wallet deductions.
               </p>
             </div>
           </div>
@@ -444,6 +436,25 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           </NeoButton>
         </div>
       </form>
+
+      {/* Quick Add Category Modal */}
+      {onCreateCategory && (
+        <CategoryFormModal
+          isOpen={isCategoryModalOpen}
+          onClose={() => setIsCategoryModalOpen(false)}
+          defaultType="expense"
+          onSubmit={async (catData) => {
+            await onCreateCategory({
+              name: catData.name,
+              type: catData.type,
+              color: catData.color,
+              icon: catData.icon,
+            });
+            setCategory(catData.name);
+            setIsCategoryModalOpen(false);
+          }}
+        />
+      )}
     </NeoModal>
   );
 };

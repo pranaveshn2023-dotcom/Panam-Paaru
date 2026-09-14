@@ -173,7 +173,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
       <div className="flex items-baseline justify-between pt-1">
         <div>
           <span className="text-[10px] font-black uppercase text-neutral-500 block">
-            {budget.recurrence === 'one_time' ? 'TOTAL SPENT' : 'SPENT THIS CYCLE'}
+            {budget.recurrence === 'one_time' ? 'SPENT THIS MONTH' : 'SPENT THIS CYCLE'}
           </span>
           <span
             className={`text-xl font-mono font-black ${
@@ -217,10 +217,12 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
         <div className="pt-3 border-t-2 border-neutral-100 flex items-center justify-between text-[10px] font-mono font-bold text-neutral-600">
           <div className="flex items-center gap-1">
             <Clock size={12} className="text-neutral-500" />
-            <span>Active from: {budget.startDate}</span>
+            <span>
+              {budget.activePeriod?.startDate} → {budget.activePeriod?.endDate}
+            </span>
           </div>
           <div className="bg-[#FFE600] text-[#121212] px-2 py-0.5 border border-[#121212] font-black uppercase shadow-neo-sm">
-            ONE-TIME SETUP
+            Auto-resets: {budget.activePeriod?.nextOccurrenceDate}
           </div>
         </div>
       ) : budget.activePeriod ? (

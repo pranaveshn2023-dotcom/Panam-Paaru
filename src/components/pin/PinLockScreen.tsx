@@ -6,6 +6,7 @@ import { NeoButton } from '../ui/NeoButton';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
+import { offlineStorage } from '../../utils/offlineStorage';
 
 export const PinLockScreen: React.FC = () => {
   const { isLocked, unlockWithPin } = usePinLock();
@@ -134,7 +135,7 @@ export const PinLockScreen: React.FC = () => {
       <div className="absolute inset-0 neo-pattern-stripes opacity-40 pointer-events-none" />
 
       {/* Main Lock Card */}
-      <div className="relative w-full max-w-sm bg-white border-[3px] border-[#121212] shadow-neo-xl p-6 sm:p-8 flex flex-col items-center z-10">
+      <div className="relative w-full max-w-sm bg-white border-[3px] border-[#121212] shadow-neo-xl p-4 sm:p-8 flex flex-col items-center z-10">
         
         {/* Brand Header */}
         <div className="mb-4">
@@ -154,20 +155,20 @@ export const PinLockScreen: React.FC = () => {
         </p>
 
         {/* 6-Digit Indicator Bubbles */}
-        <div className={`flex gap-3 mb-5 ${isShaking ? 'animate-shake' : ''}`}>
+        <div className={`flex gap-1.5 sm:gap-3 mb-5 ${isShaking ? 'animate-shake' : ''}`}>
           {[0, 1, 2, 3, 4, 5].map((index) => {
             const isFilled = pin.length > index;
             return (
               <div
                 key={index}
-                className={`w-9 h-11 border-[3px] border-[#121212] flex items-center justify-center transition-all duration-100 ${
+                className={`w-7 h-9 sm:w-9 sm:h-11 border-[2.5px] sm:border-[3px] border-[#121212] flex items-center justify-center transition-all duration-100 ${
                   isFilled
                     ? 'bg-[#05DF72] shadow-neo-sm scale-105'
                     : 'bg-[#FFFDF5] shadow-none'
                 }`}
               >
                 {isFilled && (
-                  <div className="w-3.5 h-3.5 bg-[#121212] rounded-full" />
+                  <div className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-[#121212] rounded-full" />
                 )}
               </div>
             );
@@ -217,6 +218,7 @@ export const PinLockScreen: React.FC = () => {
                 onClick={() => {
                   sessionStorage.removeItem('panam_pin_configured');
                   sessionStorage.removeItem('panam_welcome_celebrated');
+                  offlineStorage.clearActiveSession();
                   void signOut();
                 }}
                 className="flex items-center justify-center gap-1.5 flex-1 text-xs font-black"
@@ -285,6 +287,7 @@ export const PinLockScreen: React.FC = () => {
             onClick={() => {
               sessionStorage.removeItem('panam_pin_configured');
               sessionStorage.removeItem('panam_welcome_celebrated');
+              offlineStorage.clearActiveSession();
               void signOut();
             }}
             className="text-xs font-bold text-neutral-500 hover:text-[#FF4343] flex items-center gap-1.5 cursor-pointer underline transition-colors"

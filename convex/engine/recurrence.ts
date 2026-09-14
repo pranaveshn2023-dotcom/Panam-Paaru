@@ -175,11 +175,31 @@ export function getActiveBudgetPeriod(
     }
 
     case 'one_time': {
+      // One-time setup budget with automatic monthly reset
+      const monthOffset =
+        (target.getFullYear() - anchorDate.getFullYear()) * 12 +
+        (target.getMonth() - anchorDate.getMonth());
+
+      const isAnchorMonth =
+        target.getFullYear() === anchorDate.getFullYear() &&
+        target.getMonth() === anchorDate.getMonth();
+
+      // In the initial anchor month, starts from anchorDate; in subsequent months, starts from 1st of month
+      const currentStart = isAnchorMonth
+        ? anchorDate
+        : new Date(target.getFullYear(), target.getMonth(), 1, 0, 0, 0, 0);
+
+      // Current month ends on the last day of target month
+      const currentEnd = new Date(target.getFullYear(), target.getMonth() + 1, 0, 0, 0, 0, 0);
+
+      // Automatically resets on the 1st of next month
+      const nextReset = new Date(target.getFullYear(), target.getMonth() + 1, 1, 0, 0, 0, 0);
+
       return {
-        startDate: formatISODate(anchorDate),
-        endDate: '9999-12-31',
-        nextOccurrenceDate: 'None (One-time)',
-        periodIndex: 0,
+        startDate: formatISODate(currentStart),
+        endDate: formatISODate(currentEnd),
+        nextOccurrenceDate: formatISODate(nextReset),
+        periodIndex: Math.max(0, monthOffset),
       };
     }
   }
@@ -217,6 +237,6 @@ function getNextPeriodStartDate(startDate: Date, anchorDay: number, recurrence: 
     case 'yearly':
       return computeYearlyDate(startDate.getFullYear() + offset, startDate.getMonth(), anchorDay);
     case 'one_time':
-      return new Date(8640000000000000);
+      return computeMonthlyDate(startDate.getFullYear(), startDate.getMonth(), offset, anchorDay);
   }
 }

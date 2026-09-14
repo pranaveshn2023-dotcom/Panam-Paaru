@@ -1407,6 +1407,7 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
 
 export const internalListInvestments = internalQuery({
   args: {
+    userId: v.optional(v.id("users")),
     investmentIds: v.optional(v.array(v.id("investments"))),
   },
   handler: async (ctx, args) => {
@@ -1414,16 +1415,25 @@ export const internalListInvestments = internalQuery({
       const results = [];
       for (const id of args.investmentIds) {
         const item = await ctx.db.get(id);
-        if (item) results.push(item);
+        if (item && (!args.userId || item.userId === args.userId)) {
+          results.push(item);
+        }
       }
       return results;
     }
-    return await ctx.db.query("investments").collect();
+    if (args.userId) {
+      return await ctx.db
+        .query("investments")
+        .withIndex("by_user", (q) => q.eq("userId", args.userId!))
+        .collect();
+    }
+    return [];
   },
 });
 
 export const internalBatchUpdatePrices = internalMutation({
   args: {
+    userId: v.optional(v.id("users")),
     updates: v.array(
       v.object({
         id: v.id("investments"),
@@ -1436,7 +1446,7 @@ export const internalBatchUpdatePrices = internalMutation({
     const now = Date.now();
     for (const u of args.updates) {
       const inv = await ctx.db.get(u.id);
-      if (inv) {
+      if (inv && (!args.userId || inv.userId === args.userId)) {
         await ctx.db.patch(u.id, {
           currentValue: Math.max(0, u.currentValue),
           currentPrice: u.currentPrice ?? inv.currentPrice,
@@ -1453,9 +1463,14 @@ export const syncLiveMarketPrices = action({
     investmentIds: v.optional(v.array(v.id("investments"))),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
+      return { success: false, count: 0, updates: [] };
+    }
+
     const allInvestments: any[] = await ctx.runQuery(
       internal.investments.internalListInvestments,
-      { investmentIds: args.investmentIds }
+      { userId, investmentIds: args.investmentIds }
     );
     if (!allInvestments || allInvestments.length === 0) {
       return { success: true, count: 0, updates: [] };
@@ -1552,7 +1567,7 @@ export const syncLiveMarketPrices = action({
     }
 
     if (updates.length > 0) {
-      await ctx.runMutation(internal.investments.internalBatchUpdatePrices, { updates });
+      await ctx.runMutation(internal.investments.internalBatchUpdatePrices, { userId, updates });
     }
 
     return { success: true, count: updates.length, updates };

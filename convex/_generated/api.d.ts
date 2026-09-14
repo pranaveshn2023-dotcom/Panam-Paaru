@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as budgets from "../budgets.js";
+import type * as categories from "../categories.js";
 import type * as engine_recurrence from "../engine/recurrence.js";
 import type * as http from "../http.js";
 import type * as insights from "../insights.js";
@@ -28,6 +29,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   budgets: typeof budgets;
+  categories: typeof categories;
   "engine/recurrence": typeof engine_recurrence;
   http: typeof http;
   insights: typeof insights;

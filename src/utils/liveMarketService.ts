@@ -1,58 +1,23 @@
 import { AssetType } from '../types';
 
-// In-memory cache for live NAVs to prevent duplicate network calls
-const navCache = new Map<string, { nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number }>();
-
-// Persistent localStorage cache key (v4 ensures stale/IDCW cached NAVs from prior versions are purged)
-const LS_CACHE_KEY = 'paanam_mf_nav_cache_v4';
+// 100% In-Memory RAM cache for live NAVs (Zero browser localStorage persistence)
+const navCache = new Map<string, { nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number; timestamp?: number }>();
 
 // Cache TTL: 10 minutes for real-time NAV data
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
-function getPersistentCache(): Record<string, { nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number; timestamp: number }> {
-  try {
-    const raw = localStorage.getItem(LS_CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
 function savePersistentCache(key: string, data: { nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number }) {
-  try {
-    const cache = getPersistentCache();
-    cache[key.toLowerCase().trim()] = { ...data, timestamp: Date.now() };
-    localStorage.setItem(LS_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // ignore localStorage errors
-  }
+  navCache.set(key.toLowerCase().trim(), { ...data, timestamp: Date.now() });
 }
 
-/** Clear stale NAV cache entries older than 24h and purge legacy buggy cache keys */
-function cleanupPersistentCache() {
+// Purge any legacy localStorage cache keys from prior builds
+if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
   try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('paanam_mf_nav_cache_v1');
-      localStorage.removeItem('paanam_mf_nav_cache_v2');
-      localStorage.removeItem('paanam_mf_nav_cache_v3');
-    }
-    const cache = getPersistentCache();
-    const now = Date.now();
-    let changed = false;
-    for (const key of Object.keys(cache)) {
-      if (now - (cache[key].timestamp || 0) > 24 * 60 * 60 * 1000) {
-        delete cache[key];
-        changed = true;
-      }
-    }
-    if (changed) localStorage.setItem(LS_CACHE_KEY, JSON.stringify(cache));
+    localStorage.removeItem('paanam_mf_nav_cache_v1');
+    localStorage.removeItem('paanam_mf_nav_cache_v2');
+    localStorage.removeItem('paanam_mf_nav_cache_v3');
+    localStorage.removeItem('paanam_mf_nav_cache_v4');
   } catch {}
-}
-
-// Run cleanup immediately
-if (typeof window !== 'undefined') {
-  cleanupPersistentCache();
-  setInterval(cleanupPersistentCache, 60 * 60 * 1000);
 }
 
 /**
@@ -289,17 +254,15 @@ export async function fetchAmfiNav(
 ): Promise<{ nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number } | null> {
   const normKey = fundName.toLowerCase().trim();
 
-  // 1. Check in-memory cache
-  if (navCache.has(normKey)) {
-    return navCache.get(normKey)!;
+  // 1. Check in-memory cache (valid for 10 minutes)
+  const cached = navCache.get(normKey);
+  if (cached && (!cached.timestamp || Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+    return cached;
   }
 
-  // 2. Check persistent localStorage cache (valid for 10 minutes)
-  const pCache = getPersistentCache();
-  const cached = pCache[normKey];
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    navCache.set(normKey, cached);
-    return cached;
+  // If offline, immediately return in-memory cache if available without attempting network calls
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return cached || null;
   }
 
   try {

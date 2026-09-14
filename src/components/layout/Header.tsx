@@ -1,9 +1,11 @@
 import React from 'react';
-import { Plus, LogOut, User, Eye, EyeOff, RefreshCw, Settings } from 'lucide-react';
+import { Plus, LogOut, User, Eye, EyeOff, RefreshCw, Settings, WifiOff, CloudUpload } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 import { NeoButton } from '../ui/NeoButton';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { usePrivacy } from '../../context/PrivacyContext';
+import { useOffline } from '../../context/OfflineContext';
+import { offlineStorage } from '../../utils/offlineStorage';
 import { UserProfile } from '../../types';
 
 interface HeaderProps {
@@ -21,13 +23,47 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { signOut } = useAuthActions();
   const { isPrivacyMode, togglePrivacyMode } = usePrivacy();
+  const { isOnline, isSyncing, pendingCount } = useOffline();
 
   return (
     <header className="app-header">
       <div className="app-header-inner">
-        <BrandLogo size="md" showSubtitle={false} />
+        <div className="flex items-center gap-2 min-w-0">
+          <BrandLogo size="md" showSubtitle={false} />
 
-        <div className="flex items-center gap-1.5 sm:gap-3">
+          {/* Offline / Sync Status Badge */}
+          {!isOnline && (
+            <div
+              className="flex items-center gap-1 px-2 py-1 bg-[#FFE600] text-[#121212] border-2 border-[#121212] shadow-neo-sm text-[10px] font-black uppercase shrink-0 animate-pulse"
+              title="You are offline. All transactions and budgets are saved locally and will auto-sync when online."
+            >
+              <WifiOff size={12} strokeWidth={3} />
+              <span className="hidden xs:inline">Offline</span>
+            </div>
+          )}
+
+          {isOnline && isSyncing && (
+            <div
+              className="flex items-center gap-1 px-2 py-1 bg-[#00F0FF] text-[#121212] border-2 border-[#121212] shadow-neo-sm text-[10px] font-black uppercase shrink-0"
+              title="Syncing local changes to cloud database..."
+            >
+              <RefreshCw size={12} strokeWidth={3} className="animate-spin" />
+              <span className="hidden xs:inline">Syncing...</span>
+            </div>
+          )}
+
+          {isOnline && !isSyncing && pendingCount > 0 && (
+            <div
+              className="flex items-center gap-1 px-2 py-1 bg-[#2EE59D] text-[#121212] border-2 border-[#121212] shadow-neo-sm text-[10px] font-black uppercase shrink-0"
+              title={`${pendingCount} change(s) ready to sync`}
+            >
+              <CloudUpload size={12} strokeWidth={3} />
+              <span>{pendingCount} queued</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
           {onRefresh && (
             <button
               onClick={onRefresh}
@@ -64,7 +100,11 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
             <button
-              onClick={() => { sessionStorage.removeItem('panam_welcome_celebrated'); void signOut(); }}
+              onClick={() => {
+                sessionStorage.removeItem('panam_welcome_celebrated');
+                offlineStorage.clearActiveSession();
+                void signOut();
+              }}
               title="Sign Out"
               className="w-8 h-8 sm:w-9 sm:h-9 hover:bg-[#FF4343] hover:text-white border-2 border-transparent hover:border-[#121212] transition-colors cursor-pointer rounded-xl flex items-center justify-center shrink-0"
             >

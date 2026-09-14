@@ -150,6 +150,8 @@ export interface Category {
   color: string;
   icon: string;
   isCustom?: boolean;
+  transactionCount?: number;
+  totalAmount?: number;
 }
 
 export interface UserProfile {

@@ -93,38 +93,38 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
   className,
 }) => {
   const iconSizes = {
-    sm: 'w-7 h-7',
-    md: 'w-7 h-7 sm:w-9 sm:h-9',
-    lg: 'w-10 h-10 sm:w-12 sm:h-12',
-    xl: 'w-14 h-14 sm:w-16 sm:h-16',
+    sm: 'w-6 h-6 sm:w-7 sm:h-7',
+    md: 'w-6 h-6 sm:w-8 sm:h-8',
+    lg: 'w-8 h-8 sm:w-11 sm:h-11',
+    xl: 'w-11 h-11 sm:w-14 sm:h-14',
   };
 
   const titleSizes = {
-    sm: 'text-sm sm:text-base',
-    md: 'text-base sm:text-xl',
-    lg: 'text-xl sm:text-2xl',
-    xl: 'text-3xl sm:text-4xl',
+    sm: 'text-xs sm:text-base',
+    md: 'text-sm sm:text-lg md:text-xl',
+    lg: 'text-lg sm:text-2xl',
+    xl: 'text-2xl sm:text-4xl',
   };
 
   return (
-    <div className={twMerge('flex items-center gap-3 select-none cursor-pointer group', className)}>
+    <div className={twMerge('flex items-center gap-2 sm:gap-3 select-none cursor-pointer group shrink-0 min-w-0', className)}>
       {/* High-Contrast Neo-Brutalist Badge */}
-      <div className="relative bg-[#FFE600] border-[2.5px] border-[#121212] shadow-neo-sm p-1.5 flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 group-hover:shadow-neo">
+      <div className="relative bg-[#FFE600] border-[2.5px] border-[#121212] shadow-neo-sm p-1 sm:p-1.5 flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 group-hover:shadow-neo">
         <PanamBitcoinIcon className={iconSizes[size]} />
       </div>
 
       {/* Brand Typography */}
-      <div className="flex flex-col justify-center">
-        <div className="flex items-center gap-1.5 leading-none">
+      <div className="flex flex-col justify-center min-w-0">
+        <div className="flex items-center gap-1 sm:gap-1.5 leading-none">
           <span className={twMerge('font-black uppercase tracking-tight text-[#121212]', titleSizes[size])}>
             PANAM
           </span>
-          <span className={twMerge('font-black uppercase tracking-tight text-[#121212] bg-[#FFE600] px-1.5 py-0.5 border border-[#121212] shadow-neo-sm leading-none', titleSizes[size])}>
+          <span className={twMerge('font-black uppercase tracking-tight text-[#121212] bg-[#FFE600] px-1 sm:px-1.5 py-0.5 border border-[#121212] shadow-neo-sm leading-none', titleSizes[size])}>
             PAARU
           </span>
         </div>
         {showSubtitle && (
-          <span className="text-[10px] font-mono font-bold tracking-wider text-neutral-600 uppercase mt-1">
+          <span className="text-[10px] font-mono font-bold tracking-wider text-neutral-600 uppercase mt-1 truncate">
             பணம் பாரு · See Your Money. Control Your Spending.
           </span>
         )}

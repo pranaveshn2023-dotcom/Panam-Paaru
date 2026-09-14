@@ -467,9 +467,9 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                   return (
                     <div
                       key={tx._id}
-                      className="flex items-center justify-between p-2.5 bg-[#FFFDF5] border border-[#121212] text-xs font-bold"
+                      className="flex items-center justify-between p-2.5 bg-[#FFFDF5] border border-[#121212] text-xs font-bold gap-2"
                     >
-                      <div className="flex items-center gap-2 truncate">
+                      <div className="flex items-center gap-2 truncate flex-1 min-w-0">
                         <div
                           className={`w-5 h-5 border border-[#121212] flex items-center justify-center shrink-0 ${
                             isExp ? 'bg-[#FF4343] text-white' : 'bg-[#05DF72] text-[#121212]'

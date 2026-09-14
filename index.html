@@ -3,19 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Clear any stale Service Workers registered on localhost:5173 from other projects
+      // Register Service Worker for 100% Offline Expense Tracking
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function(registrations) {
-          for (var reg of registrations) {
-            reg.unregister();
-          }
-        });
-      }
-      if ('caches' in window) {
-        caches.keys().then(function(names) {
-          for (var name of names) {
-            caches.delete(name);
-          }
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(function(err) {
+            console.warn('[SW] Registration failed:', err);
+          });
         });
       }
     </script>

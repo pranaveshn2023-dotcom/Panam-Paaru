@@ -200,13 +200,13 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
 
       {/* Returns Banner */}
       <div
-        className={`p-2.5 border-2 border-[#121212] shadow-neo-sm flex items-center justify-between text-xs font-mono font-black ${
+        className={`p-2 sm:p-2.5 border-2 border-[#121212] shadow-neo-sm flex flex-wrap items-center justify-between gap-1.5 text-xs font-mono font-black ${
           isGain ? 'bg-[#05DF72] text-[#121212]' : 'bg-[#FF4343] text-white'
         }`}
       >
-        <div className="flex items-center gap-1">
-          {isGain ? <ArrowUpRight size={15} strokeWidth={3} /> : <ArrowDownLeft size={15} strokeWidth={3} />}
-          <span>{isGain ? '+' : ''}{formatPrivateAmount(gain, currencySymbol)} ({isGain ? '+' : ''}{gainPercent}%)</span>
+        <div className="flex items-center gap-1 min-w-0">
+          {isGain ? <ArrowUpRight size={15} strokeWidth={3} className="shrink-0" /> : <ArrowDownLeft size={15} strokeWidth={3} className="shrink-0" />}
+          <span className="truncate">{isGain ? '+' : ''}{formatPrivateAmount(gain, currencySymbol)} ({isGain ? '+' : ''}{gainPercent}%)</span>
         </div>
         {inv.xirr ? (
           <span className="bg-[#121212] text-[#05DF72] px-1.5 py-0.5 text-[10px] font-black tracking-wide border border-[#121212] shrink-0">
