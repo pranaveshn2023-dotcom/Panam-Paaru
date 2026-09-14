@@ -1,4 +1,4 @@
-// PANAM PAARU - Service Worker for 100% Offline Expense Tracking
+// PanamPaaru - Service Worker for 100% Offline Expense Tracking
 const CACHE_NAME = 'paanam-pwa-v1';
 const PRECACHE_ASSETS = [
   '/',

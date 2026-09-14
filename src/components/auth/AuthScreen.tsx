@@ -57,7 +57,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = () => {
       <div className="w-full bg-[#121212] text-white py-2 px-4 border-2 border-[#121212] shadow-neo-sm overflow-hidden flex items-center justify-between z-10">
         <div className="flex items-center gap-2 text-xs font-mono font-bold tracking-widest text-[#FFE600] uppercase">
           <Zap size={14} className="fill-[#FFE600]" />
-          <span>PAANAM PARU · SEE YOUR MONEY · CONTROL YOUR SPENDING</span>
+          <span>PanamPaaru · SEE YOUR MONEY · CONTROL YOUR SPENDING</span>
         </div>
         <span className="hidden sm:inline-block text-[11px] font-mono text-neutral-400 uppercase">
           PRIVATE & ENCRYPTED

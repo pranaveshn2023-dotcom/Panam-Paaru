@@ -113,7 +113,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Account Statement - PANAM PAARU</title>
+        <title>Account Statement - PanamPaaru</title>
         <style>
           body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -220,7 +220,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
       <body>
         <div class="statement-header">
           <div>
-            <div class="brand-title">PANAM PAARU</div>
+            <div class="brand-title">PanamPaaru</div>
             <div class="brand-subtitle">Official Account Statement · பணம் பாரு</div>
             <div style="margin-top: 10px; font-size: 12px; font-weight: bold;">
               Account Holder: ${user?.name || 'Authorized Account'}<br />
@@ -302,7 +302,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
         </table>
 
         <div class="footer-note">
-          <span>This is an official computer-generated account statement from PANAM PAARU.</span>
+          <span>This is an official computer-generated account statement from PanamPaaru.</span>
           <span>Authentication Ref: ${Math.random().toString(36).substring(2, 10).toUpperCase()} · End of Statement</span>
         </div>
 

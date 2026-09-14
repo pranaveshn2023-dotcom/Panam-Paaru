@@ -116,11 +116,11 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
       {/* Brand Typography */}
       <div className="flex flex-col justify-center min-w-0">
         <div className="flex items-center gap-1 sm:gap-1.5 leading-none">
-          <span className={twMerge('font-black uppercase tracking-tight text-[#121212]', titleSizes[size])}>
-            PANAM
+          <span className={twMerge('font-black tracking-tight text-[#121212]', titleSizes[size])}>
+            Panam
           </span>
-          <span className={twMerge('font-black uppercase tracking-tight text-[#121212] bg-[#FFE600] px-1 sm:px-1.5 py-0.5 border border-[#121212] shadow-neo-sm leading-none', titleSizes[size])}>
-            PAARU
+          <span className={twMerge('font-black tracking-tight text-[#121212] bg-[#FFE600] px-1 sm:px-1.5 py-0.5 border border-[#121212] shadow-neo-sm leading-none', titleSizes[size])}>
+            Paaru
           </span>
         </div>
         {showSubtitle && (
