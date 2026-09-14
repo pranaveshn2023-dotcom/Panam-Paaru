@@ -61,8 +61,10 @@ export default defineSchema({
       v.literal("weekly"),
       v.literal("monthly"),
       v.literal("quarterly"),
-      v.literal("yearly")
+      v.literal("yearly"),
+      v.literal("one_time")
     ),
+    isRecurring: v.optional(v.boolean()), // true for recurring cycles, false for one-time setup
     startDate: v.string(), // Anchor ISO date string (e.g. 2026-01-31)
     sourceWalletId: v.optional(v.id("wallets")), // Linked wallet for automatic funding
     autoDeductFromWallet: v.optional(v.boolean()), // Whether to auto-deduct every recurrence

@@ -5,7 +5,7 @@
  * Ensures zero drift across months with variable day counts (28, 29, 30, 31).
  */
 
-export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'one_time';
 
 export interface BudgetPeriod {
   startDate: string; // ISO string YYYY-MM-DD
@@ -173,6 +173,15 @@ export function getActiveBudgetPeriod(
         periodIndex: Math.max(0, yearOffset),
       };
     }
+
+    case 'one_time': {
+      return {
+        startDate: formatISODate(anchorDate),
+        endDate: '9999-12-31',
+        nextOccurrenceDate: 'None (One-time)',
+        periodIndex: 0,
+      };
+    }
   }
 }
 
@@ -207,5 +216,7 @@ function getNextPeriodStartDate(startDate: Date, anchorDay: number, recurrence: 
       return computeMonthlyDate(startDate.getFullYear(), startDate.getMonth(), offset * 3, anchorDay);
     case 'yearly':
       return computeYearlyDate(startDate.getFullYear() + offset, startDate.getMonth(), anchorDay);
+    case 'one_time':
+      return new Date(8640000000000000);
   }
 }

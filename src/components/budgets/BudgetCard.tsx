@@ -40,6 +40,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
     monthly: { label: 'MONTHLY', color: '#05DF72' },
     quarterly: { label: 'QUARTERLY', color: '#FF4D8D' },
     yearly: { label: 'YEARLY', color: '#9B51E0' },
+    one_time: { label: 'ONE-TIME', color: '#FFE600' },
   };
 
   const badgeInfo = recurrenceBadges[budget.recurrence] || { label: budget.recurrence, color: '#FFE600' };
@@ -172,7 +173,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
       <div className="flex items-baseline justify-between pt-1">
         <div>
           <span className="text-[10px] font-black uppercase text-neutral-500 block">
-            SPENT THIS CYCLE
+            {budget.recurrence === 'one_time' ? 'TOTAL SPENT' : 'SPENT THIS CYCLE'}
           </span>
           <span
             className={`text-xl font-mono font-black ${
@@ -212,7 +213,17 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
       </div>
 
       {/* Cycle Boundaries & Engine Info */}
-      {budget.activePeriod && (
+      {budget.recurrence === 'one_time' ? (
+        <div className="pt-3 border-t-2 border-neutral-100 flex items-center justify-between text-[10px] font-mono font-bold text-neutral-600">
+          <div className="flex items-center gap-1">
+            <Clock size={12} className="text-neutral-500" />
+            <span>Active from: {budget.startDate}</span>
+          </div>
+          <div className="bg-[#FFE600] text-[#121212] px-2 py-0.5 border border-[#121212] font-black uppercase shadow-neo-sm">
+            ONE-TIME SETUP
+          </div>
+        </div>
+      ) : budget.activePeriod ? (
         <div className="pt-3 border-t-2 border-neutral-100 flex items-center justify-between text-[10px] font-mono font-bold text-neutral-600">
           <div className="flex items-center gap-1">
             <Clock size={12} className="text-neutral-500" />
@@ -224,7 +235,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
             Next: {budget.activePeriod.nextOccurrenceDate}
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Warning Pill if Near/Over Limit */}
       {isOver ? (

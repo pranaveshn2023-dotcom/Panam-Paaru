@@ -360,7 +360,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                   <CalendarSync size={14} />
                 </div>
                 <h3 className="text-sm font-black uppercase text-[#121212] tracking-wider">
-                  Active Recurring Budgets ({budgets.length})
+                  Active Budgets & Pockets ({budgets.length})
                 </h3>
               </div>
               <button
@@ -374,10 +374,10 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             {budgets.length === 0 ? (
               <div className="py-10 text-center flex flex-col items-center gap-3">
                 <p className="text-xs font-bold text-neutral-600 max-w-sm">
-                  Set spending limits for Daily, Weekly, or Monthly cycles. We calculate actual period spend automatically.
+                  Set spending limits for One-Time setup budgets or recurring Daily, Weekly, or Monthly cycles. We calculate actual period spend automatically.
                 </p>
                 <NeoButton variant="secondary" size="sm" onClick={onOpenBudgetModal}>
-                  Create First Recurring Budget
+                  Create First Budget
                 </NeoButton>
               </div>
             ) : (
@@ -398,7 +398,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                           {b.name}
                         </span>
                         <span className="text-[10px] font-mono font-bold bg-[#FFE600] px-1.5 py-0.2 border border-[#121212]">
-                          {b.recurrence.toUpperCase()}
+                          {b.recurrence === 'one_time' ? 'ONE-TIME' : b.recurrence.toUpperCase()}
                         </span>
                       </div>
 

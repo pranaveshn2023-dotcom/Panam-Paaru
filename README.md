@@ -77,7 +77,7 @@ Designed for secure usage in corporate or public spaces:
 ### 7. Reactive Cloud Synchronization
 - **Backend Architecture**: Real-time document subscription and mutation model powered by Convex.
 - **State Integrity**: Eliminates reliance on unpersisted client-side cache or vulnerable local storage.
-- **Cross-Platform Parity**: Instant updates reflected concurrently across desktop, tablet, and mobile browsers.
+- **Cross-Platform Parity**: Instant updates reflected concurrently across desktop, tablet, and mobile browsers using cloud sync.
 
 ---
 

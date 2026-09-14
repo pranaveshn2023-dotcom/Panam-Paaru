@@ -1,6 +1,6 @@
 export type TransactionType = 'income' | 'expense' | 'transfer';
 
-export type RecurrenceType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+export type RecurrenceType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'one_time';
 
 export type WalletType = 'bank' | 'cash' | 'card' | 'wallet' | 'savings' | 'investment';
 
@@ -52,6 +52,7 @@ export interface Budget {
   effectiveTotalPool?: number;
   category: string;
   recurrence: RecurrenceType;
+  isRecurring?: boolean;
   startDate: string;
   sourceWalletId?: string;
   autoDeductFromWallet?: boolean;

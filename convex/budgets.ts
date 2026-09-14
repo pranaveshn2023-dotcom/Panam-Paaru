@@ -38,9 +38,12 @@ export const listWithProgress = query({
         now
       );
 
-      // Sum expenses for this budget category strictly within the active period
+      // Sum expenses for this budget category
       const matchingTxs = transactions.filter((tx) => {
         if (tx.category !== budget.category) return false;
+        if (budget.recurrence === 'one_time') {
+          return tx.date >= activePeriod.startDate;
+        }
         return tx.date >= activePeriod.startDate && tx.date <= activePeriod.endDate;
       });
 
@@ -99,8 +102,10 @@ export const create = mutation({
       v.literal("weekly"),
       v.literal("monthly"),
       v.literal("quarterly"),
-      v.literal("yearly")
+      v.literal("yearly"),
+      v.literal("one_time")
     ),
+    isRecurring: v.optional(v.boolean()),
     startDate: v.string(),
     sourceWalletId: v.optional(v.id("wallets")),
     autoDeductFromWallet: v.optional(v.boolean()),
@@ -118,6 +123,7 @@ export const create = mutation({
 
     const initialLoaded = args.initialLoadedAmount ?? args.amount;
     const now = Date.now();
+    const isRecurring = args.isRecurring !== undefined ? args.isRecurring : (args.recurrence !== 'one_time');
 
     // If source wallet is chosen with auto-deduct enabled, deduct initial pool immediately
     if (args.sourceWalletId && args.autoDeductFromWallet) {
@@ -151,9 +157,10 @@ export const create = mutation({
       currentLoadedAmount: initialLoaded,
       category: args.category,
       recurrence: args.recurrence,
+      isRecurring,
       startDate: args.startDate,
       sourceWalletId: args.sourceWalletId,
-      autoDeductFromWallet: args.autoDeductFromWallet ?? false,
+      autoDeductFromWallet: isRecurring ? (args.autoDeductFromWallet ?? false) : false,
       lastDeductedPeriodIndex: 0,
       alertThreshold: args.alertThreshold ?? 80,
       lowBalanceThresholdAmount: args.lowBalanceThresholdAmount,
@@ -176,8 +183,10 @@ export const update = mutation({
       v.literal("weekly"),
       v.literal("monthly"),
       v.literal("quarterly"),
-      v.literal("yearly")
+      v.literal("yearly"),
+      v.literal("one_time")
     ),
+    isRecurring: v.optional(v.boolean()),
     startDate: v.string(),
     sourceWalletId: v.optional(v.id("wallets")),
     autoDeductFromWallet: v.optional(v.boolean()),
@@ -195,15 +204,18 @@ export const update = mutation({
       throw new Error("Budget not found or unauthorized");
     }
 
+    const isRecurring = args.isRecurring !== undefined ? args.isRecurring : (args.recurrence !== 'one_time');
+
     await ctx.db.patch(args.id, {
       name: args.name.trim(),
       amount: args.amount,
       initialLoadedAmount: args.initialLoadedAmount ?? budget.initialLoadedAmount,
       category: args.category,
       recurrence: args.recurrence,
+      isRecurring,
       startDate: args.startDate,
       sourceWalletId: args.sourceWalletId,
-      autoDeductFromWallet: args.autoDeductFromWallet,
+      autoDeductFromWallet: isRecurring ? args.autoDeductFromWallet : false,
       alertThreshold: args.alertThreshold ?? 80,
       lowBalanceThresholdAmount: args.lowBalanceThresholdAmount,
       lowBalanceThresholdPercent: args.lowBalanceThresholdPercent,
@@ -288,6 +300,7 @@ export const checkAndRenewRecurringBudgets = mutation({
     const nowTimestamp = Date.now();
 
     for (const budget of budgets) {
+      if (budget.recurrence === 'one_time' || budget.isRecurring === false) continue;
       if (!budget.sourceWalletId || !budget.autoDeductFromWallet) continue;
 
       const activePeriod = getActiveBudgetPeriod(

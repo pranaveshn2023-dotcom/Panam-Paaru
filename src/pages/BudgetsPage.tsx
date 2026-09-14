@@ -55,10 +55,10 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
             )}
           </div>
           <h2 className="text-2xl sm:text-3xl font-black uppercase text-[#121212] tracking-tight">
-            RECURRING BUDGETS & POCKETS
+            BUDGETS & RELOADABLE POCKETS
           </h2>
           <p className="text-xs font-bold text-neutral-900 mt-0.5">
-            Allocate funds, top-up whenever low, and automate Daily, Weekly & Monthly spending limits.
+            Allocate funds, top-up whenever low, and automate One-Time setup budgets or recurring Daily, Weekly & Monthly spending limits.
           </p>
         </div>
 
@@ -87,12 +87,12 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
 
         <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col justify-between gap-1">
           <span className="text-[10px] font-black uppercase text-neutral-500 block">
-            SPENT THIS CYCLE
+            TOTAL SPENT
           </span>
           <span className="text-2xl font-mono font-black text-[#FF4343]">
             {formatPrivateAmount(totalSpent, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500">Live aggregated period spend</span>
+          <span className="text-[10px] font-bold text-neutral-500">Live aggregated budget spend</span>
         </div>
 
         <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col justify-between gap-1">
@@ -106,12 +106,12 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
         </div>
       </div>
 
-      {/* Recurrence Filter Tabs for Daily, Weekly, Monthly, All */}
+      {/* Recurrence Filter Tabs for All, One-Time, Daily, Weekly, Monthly, Quarterly, Yearly */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
         <span className="text-xs font-black uppercase text-neutral-500 flex items-center gap-1 mr-2 shrink-0">
-          <Filter size={13} /> Cycle:
+          <Filter size={13} /> Type:
         </span>
-        {(['all', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
+        {(['all', 'one_time', 'daily', 'weekly', 'monthly', 'quarterly', 'yearly'] as const).map((cycle) => (
           <button
             key={cycle}
             onClick={() => setSelectedRecurrence(cycle)}
@@ -121,7 +121,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
                 : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
             }`}
           >
-            {cycle === 'all' ? 'All Cycles' : cycle}
+            {cycle === 'all' ? 'All Budgets' : cycle === 'one_time' ? 'One-Time Setup' : cycle}
           </button>
         ))}
       </div>
@@ -133,7 +133,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
             <CalendarSync size={28} />
           </div>
           <h3 className="text-lg font-black uppercase text-[#121212]">
-            No {selectedRecurrence !== 'all' ? `${selectedRecurrence.toUpperCase()} ` : ''}Budgets Found
+            No {selectedRecurrence !== 'all' ? `${selectedRecurrence === 'one_time' ? 'One-Time Setup ' : selectedRecurrence.toUpperCase() + ' '}` : ''}Budgets Found
           </h3>
           <p className="text-xs font-semibold text-neutral-600 max-w-md">
             Create an initial pocket/budget (Daily Coffee, Weekly Grocery, Monthly Rent) with top-up triggers and spending limits.

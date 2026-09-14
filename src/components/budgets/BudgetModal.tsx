@@ -3,7 +3,7 @@ import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
 import { Budget, Category, RecurrenceType, Wallet } from '../../types';
-import { CalendarSync, Tag, AlertTriangle, ShieldAlert, Coins } from 'lucide-react';
+import { CalendarSync, Tag, AlertTriangle, ShieldAlert, Coins, Sparkles, RefreshCw, Layers } from 'lucide-react';
 
 interface BudgetModalProps {
   isOpen: boolean;
@@ -14,6 +14,7 @@ interface BudgetModalProps {
     initialLoadedAmount?: number;
     category: string;
     recurrence: RecurrenceType;
+    isRecurring?: boolean;
     startDate: string;
     sourceWalletId?: string;
     autoDeductFromWallet?: boolean;
@@ -40,6 +41,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   const [amount, setAmount] = useState('');
   const [initialLoadedAmount, setInitialLoadedAmount] = useState('');
   const [category, setCategory] = useState('');
+  const [isRecurring, setIsRecurring] = useState(true);
   const [recurrence, setRecurrence] = useState<RecurrenceType>('monthly');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [sourceWalletId, setSourceWalletId] = useState<string>('');
@@ -58,10 +60,12 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setAmount(String(initialData.amount));
       setInitialLoadedAmount(String(initialData.currentLoadedAmount ?? initialData.initialLoadedAmount ?? initialData.amount));
       setCategory(initialData.category);
-      setRecurrence(initialData.recurrence);
+      const isRec = initialData.recurrence !== 'one_time' && initialData.isRecurring !== false;
+      setIsRecurring(isRec);
+      setRecurrence(isRec ? initialData.recurrence : 'monthly');
       setStartDate(initialData.startDate.slice(0, 10));
       setSourceWalletId(initialData.sourceWalletId || '');
-      setAutoDeductFromWallet(initialData.autoDeductFromWallet ?? true);
+      setAutoDeductFromWallet(initialData.autoDeductFromWallet ?? isRec);
       setAlertThreshold(String(initialData.alertThreshold ?? 80));
       setLowAmount(initialData.lowBalanceThresholdAmount ? String(initialData.lowBalanceThresholdAmount) : '');
       setLowPercent(initialData.lowBalanceThresholdPercent ? String(initialData.lowBalanceThresholdPercent) : '20');
@@ -70,6 +74,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setAmount('5000');
       setInitialLoadedAmount('5000');
       setCategory(expenseCategories[0]?.name || 'Food & Dining');
+      setIsRecurring(true);
       setRecurrence('monthly');
       setStartDate(new Date().toISOString().slice(0, 10));
       const defaultW = wallets.find((w) => w.isDefault) || wallets[0];
@@ -111,13 +116,16 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
         setTimeout(() => reject(new Error('Request timed out. Please check your connection.')), 8000)
       );
 
+      const effectiveRecurrence: RecurrenceType = isRecurring ? recurrence : 'one_time';
+
       await Promise.race([
         onSubmit({
           name: name.trim(),
           amount: numAmount,
           initialLoadedAmount: !isNaN(numLoaded) && numLoaded > 0 ? numLoaded : numAmount,
           category,
-          recurrence,
+          recurrence: effectiveRecurrence,
+          isRecurring,
           startDate,
           sourceWalletId: sourceWalletId || undefined,
           autoDeductFromWallet: !!sourceWalletId && autoDeductFromWallet,
@@ -148,7 +156,13 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
     <NeoModal
       isOpen={isOpen}
       onClose={onClose}
-      title={initialData ? 'EDIT BUDGET / POCKET' : 'CREATE RECURRING BUDGET / POCKET'}
+      title={
+        initialData
+          ? 'EDIT BUDGET / POCKET'
+          : isRecurring
+          ? 'CREATE RECURRING BUDGET / POCKET'
+          : 'CREATE ONE-TIME SETUP BUDGET'
+      }
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -157,7 +171,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           label="Budget / Pocket Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Daily Food Pool, Monthly Dining, Coffee"
+          placeholder={isRecurring ? "e.g. Daily Food Pool, Monthly Dining, Coffee" : "e.g. Wedding Shopping, Trip to Goa, Renovation"}
           required
         />
 
@@ -166,7 +180,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           {/* Target Limit */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
-              Budget Limit ({currencySymbol}) *
+              {isRecurring ? 'Cycle Budget Limit' : 'Total Setup Budget'} ({currencySymbol}) *
             </label>
             <div className="relative flex items-center">
               <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
@@ -208,7 +222,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           </div>
         </div>
 
-        {/* Funding Wallet Selection & Auto-Deduct Toggle (MyMoney Core Functionality) */}
+        {/* Funding Wallet Selection & Auto-Deduct Toggle */}
         {wallets.length > 0 && (
           <div className="p-3.5 bg-[#E8F8F0] border-2 border-[#05DF72] shadow-neo-sm flex flex-col gap-2.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -238,14 +252,16 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
                   className="w-4 h-4 accent-[#05DF72] cursor-pointer"
                 />
                 <span className="text-[11px] font-bold text-[#0B6B38]">
-                  Auto-deduct {currencySymbol}{amount || '0'} from this wallet every {recurrence} renewal cycle
+                  {isRecurring
+                    ? `Auto-deduct ${currencySymbol}${amount || '0'} from this wallet every ${recurrence} renewal cycle`
+                    : `Auto-deduct initial setup amount (${currencySymbol}${initialLoadedAmount || amount || '0'}) from this wallet on creation`}
                 </span>
               </label>
             )}
           </div>
         )}
 
-        {/* Category & Recurrence */}
+        {/* Category & Start Date */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Category Selector */}
           <div className="flex flex-col gap-1.5">
@@ -270,7 +286,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           {/* Start Date */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
-              Anchor Start Date *
+              {isRecurring ? 'Anchor Start Date *' : 'Budget Start Date *'}
             </label>
             <input
               type="date"
@@ -282,29 +298,87 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           </div>
         </div>
 
-        {/* Recurrence Cycle Selector */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center gap-1">
-            <CalendarSync size={13} />
-            Recurrence Cycle *
-          </label>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
-            {recurrenceOptions.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setRecurrence(opt.value)}
-                className={`p-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${
-                  recurrence === opt.value
-                    ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm font-black'
-                    : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+        {/* Recurring Toggle Switch (ON / OFF) */}
+        <div className="p-3 bg-[#FFFDF5] border-2 border-[#121212] shadow-neo-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <div className="flex items-center gap-1.5 text-xs font-black uppercase text-[#121212]">
+              <CalendarSync size={14} className={isRecurring ? 'text-[#05DF72]' : 'text-neutral-500'} />
+              <span>Recurring Budget Cycles</span>
+            </div>
+            <span className="text-[11px] font-bold text-neutral-600 mt-0.5">
+              {isRecurring
+                ? 'Budget automatically renews periodically (Daily, Weekly, Monthly, etc.)'
+                : 'One-time setup budget with a fixed amount tracking category expenses'}
+            </span>
+          </div>
+
+          {/* Neo-Brutalist ON / OFF Toggle Button */}
+          <div className="flex items-center gap-1 bg-white p-1 border-2 border-[#121212] shadow-neo-sm self-start sm:self-center">
+            <button
+              type="button"
+              onClick={() => setIsRecurring(false)}
+              className={`px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 ${
+                !isRecurring
+                  ? 'bg-[#121212] text-white shadow-neo-sm'
+                  : 'bg-transparent text-neutral-600 hover:text-black'
+              }`}
+            >
+              <Layers size={13} />
+              <span>OFF (One-Time)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsRecurring(true)}
+              className={`px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 ${
+                isRecurring
+                  ? 'bg-[#05DF72] text-[#121212] border border-[#121212] shadow-neo-sm'
+                  : 'bg-transparent text-neutral-600 hover:text-black'
+              }`}
+            >
+              <RefreshCw size={13} />
+              <span>ON (Recurring)</span>
+            </button>
           </div>
         </div>
+
+        {/* Recurrence Cycle Selector (Shown only when Recurring is ON) */}
+        {isRecurring ? (
+          <div className="flex flex-col gap-1.5 animate-in fade-in duration-150">
+            <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center gap-1">
+              <CalendarSync size={13} />
+              Recurrence Cycle *
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+              {recurrenceOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setRecurrence(opt.value)}
+                  className={`p-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${
+                    recurrence === opt.value
+                      ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm font-black'
+                      : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* One-Time Setup Explainer Banner (Shown when Recurring is OFF) */
+          <div className="p-3 bg-[#FFE600]/25 border-2 border-[#121212] shadow-neo-sm flex items-start gap-2.5 animate-in fade-in duration-150">
+            <Sparkles size={16} className="text-[#121212] shrink-0 mt-0.5" />
+            <div className="text-xs">
+              <span className="font-black uppercase text-[#121212] block">
+                One-Time Setup Budget Mode Active
+              </span>
+              <p className="font-bold text-neutral-800 mt-0.5 leading-relaxed">
+                This budget uses a fixed setup pool of <span className="font-mono font-black text-[#121212]">{currencySymbol}{amount || '0'}</span>. All transactions in category <span className="underline font-black text-[#121212]">{category || 'selected'}</span> starting from <span className="font-mono font-black">{startDate}</span> will deduct against this pool without periodic cycle resets.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Low-Balance Alert Controls (Both Amount & Percentage) */}
         <div className="p-3 bg-[#FFFDF5] border-2 border-[#121212] shadow-neo-sm flex flex-col gap-2.5">
@@ -364,7 +438,9 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               ? 'Saving...'
               : initialData
               ? 'Update Budget'
-              : 'Create Budget / Pocket'}
+              : isRecurring
+              ? 'Create Recurring Budget'
+              : 'Create One-Time Budget'}
           </NeoButton>
         </div>
       </form>
