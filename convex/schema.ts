@@ -72,6 +72,7 @@ export default defineSchema({
     alertThreshold: v.optional(v.number()), // percentage warning threshold e.g. 80%
     lowBalanceThresholdAmount: v.optional(v.number()), // alert when balance remaining is below ₹X
     lowBalanceThresholdPercent: v.optional(v.number()), // alert when remaining balance is below X%
+    alertTarget: v.optional(v.union(v.literal("pocket"), v.literal("wallet"))), // whether alert monitors pocket or linked bank account
     isActive: v.boolean(),
     createdAt: v.number(),
   })

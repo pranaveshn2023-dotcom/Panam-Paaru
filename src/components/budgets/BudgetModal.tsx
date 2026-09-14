@@ -22,6 +22,7 @@ interface BudgetModalProps {
     alertThreshold?: number;
     lowBalanceThresholdAmount?: number;
     lowBalanceThresholdPercent?: number;
+    alertTarget?: 'pocket' | 'wallet';
   }) => Promise<void>;
   initialData?: Budget | null;
   categories: Category[];
@@ -55,6 +56,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   const [autoDeductFromWallet, setAutoDeductFromWallet] = useState(true);
   const [alertThreshold, setAlertThreshold] = useState('80');
   const [alertMode, setAlertMode] = useState<'amount' | 'percent' | 'both'>('amount');
+  const [alertTarget, setAlertTarget] = useState<'pocket' | 'wallet'>('pocket');
   const [lowAmount, setLowAmount] = useState('1000');
   const [lowPercent, setLowPercent] = useState('20');
   const [error, setError] = useState('');
@@ -75,7 +77,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setSourceWalletId(initialData.sourceWalletId || '');
       setAutoDeductFromWallet(initialData.autoDeductFromWallet ?? isRec);
       setAlertThreshold(String(initialData.alertThreshold ?? 80));
-      setLowAmount(initialData.lowBalanceThresholdAmount ? String(initialData.lowBalanceThresholdAmount) : '1000');
+      setLowAmount(initialData.lowBalanceThresholdAmount ? String(initialData.lowBalanceThresholdAmount) : '');
       setLowPercent(initialData.lowBalanceThresholdPercent ? String(initialData.lowBalanceThresholdPercent) : '20');
       const hasAmt = Boolean(initialData.lowBalanceThresholdAmount && initialData.lowBalanceThresholdAmount > 0);
       const hasPct = Boolean(initialData.lowBalanceThresholdPercent && initialData.lowBalanceThresholdPercent > 0);
@@ -86,6 +88,12 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       } else {
         setAlertMode('amount');
       }
+      // If user had a threshold >= amount and linked a wallet, default alertTarget to 'wallet'
+      const shouldTargetWallet = initialData.alertTarget === 'wallet' || (
+        Boolean(initialData.sourceWalletId) &&
+        Boolean(initialData.lowBalanceThresholdAmount && initialData.lowBalanceThresholdAmount >= initialData.amount)
+      );
+      setAlertTarget(shouldTargetWallet ? 'wallet' : 'pocket');
     } else {
       setName('');
       setAmount('');
@@ -98,6 +106,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setAutoDeductFromWallet(true);
       setAlertThreshold('80');
       setAlertMode('amount');
+      setAlertTarget('pocket');
       setLowAmount('');
       setLowPercent('20');
     }
@@ -125,8 +134,14 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setError('Please enter a valid budget amount');
       return;
     }
-    if (numLowAmount !== undefined && numLowAmount >= numAmount) {
-      setError(`Alert threshold amount (${currencySymbol}${numLowAmount}) must be less than the budget pool (${currencySymbol}${numAmount})`);
+
+    const isTargetingWallet = alertTarget === 'wallet' && Boolean(sourceWalletId);
+    if (!isTargetingWallet && numLowAmount !== undefined && numLowAmount >= numAmount) {
+      if (sourceWalletId) {
+        setError(`Pocket alert threshold (${currencySymbol}${numLowAmount}) cannot exceed the pocket pool (${currencySymbol}${numAmount}). If this alert is for your bank account balance, choose "Account Balance" below.`);
+      } else {
+        setError(`Alert threshold amount (${currencySymbol}${numLowAmount}) must be less than the budget pool (${currencySymbol}${numAmount})`);
+      }
       return;
     }
     if (!category) {
@@ -158,6 +173,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           alertThreshold: !isNaN(numThreshold) ? numThreshold : 80,
           lowBalanceThresholdAmount: numLowAmount,
           lowBalanceThresholdPercent: numLowPercent,
+          alertTarget: isTargetingWallet ? 'wallet' : 'pocket',
         }),
         timeoutPromise,
       ]);
@@ -415,6 +431,42 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             </span>
           </div>
 
+          {/* If a funding wallet is linked, let the user choose whether to monitor the Pocket or the Account */}
+          {sourceWalletId && (
+            <div className="flex flex-col gap-1.5 p-2.5 bg-[#00F0FF]/15 border-2 border-[#121212] shadow-neo-sm">
+              <div className="flex items-center justify-between text-[11px] font-black uppercase text-[#121212]">
+                <span>Monitor Alert On:</span>
+                <span className="text-[10px] font-mono text-neutral-700">
+                  {alertTarget === 'wallet' ? 'Bank Account Balance' : 'Pocket Allowance'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setAlertTarget('pocket')}
+                  className={`py-1.5 px-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${
+                    alertTarget === 'pocket'
+                      ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm'
+                      : 'bg-white text-neutral-600 border-neutral-300'
+                  }`}
+                >
+                  Pocket Allowance ({currencySymbol}{amount || '0'})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAlertTarget('wallet')}
+                  className={`py-1.5 px-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${
+                    alertTarget === 'wallet'
+                      ? 'bg-[#05DF72] text-[#121212] border-[#121212] shadow-neo-sm'
+                      : 'bg-white text-neutral-600 border-neutral-300'
+                  }`}
+                >
+                  Account Balance ({wallets.find((w) => w._id === sourceWalletId)?.name || 'Account'})
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Segmented Selector: Amount Limit OR Percentage Limit OR Both */}
           <div className="flex items-center gap-1 bg-white p-1 border-2 border-[#121212] shadow-neo-sm">
             <button
@@ -460,7 +512,9 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
               <div className={`flex flex-col gap-1 ${alertMode === 'amount' ? 'sm:col-span-2' : ''} animate-in fade-in duration-150`}>
                 <label className="text-[11px] font-black uppercase text-[#121212] flex items-center gap-1">
                   <Coins size={11} className="text-[#FF8800]" />
-                  Alert When Remaining Balance Drops Below ({currencySymbol})
+                  {alertTarget === 'wallet' && sourceWalletId
+                    ? `Alert When ${wallets.find((w) => w._id === sourceWalletId)?.name || 'Account'} Balance Drops Below (${currencySymbol})`
+                    : `Alert When Remaining Pocket Balance Drops Below (${currencySymbol})`}
                 </label>
                 <div className="relative flex items-center">
                   <span className="absolute left-2.5 text-xs font-mono font-black text-neutral-500 pointer-events-none">
@@ -472,13 +526,15 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
                     min="1"
                     value={lowAmount}
                     onChange={(e) => setLowAmount(e.target.value)}
-                    placeholder="e.g. 1000"
+                    placeholder="e.g. 250"
                     className="neo-input pl-7 pr-2.5 py-1.5 text-xs font-mono font-black text-[#121212] w-full"
                     required={alertMode === 'amount'}
                   />
                 </div>
                 <p className="text-[10px] font-bold text-neutral-600">
-                  Warning triggers when remaining balance drops to or below {currencySymbol}{lowAmount || '1000'}.
+                  {alertTarget === 'wallet' && sourceWalletId
+                    ? `Warning triggers when your bank account balance drops to or below ${currencySymbol}${lowAmount || '0'}. Add money to account.`
+                    : `Warning triggers when remaining pocket funds drop to or below ${currencySymbol}${lowAmount || '0'}.`}
                 </p>
               </div>
             )}

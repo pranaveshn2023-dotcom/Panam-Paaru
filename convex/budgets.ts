@@ -75,19 +75,20 @@ export const listWithProgress = query({
       const remainingPercent = 100 - progressPercent;
       const isOverBudget = spentAmount > effectiveTotalPool;
 
-      // Low balance warning triggers: Amount limit OR Percentage limit
-      // Only active if spending has started and threshold is strictly below the total pool
-      const validLowAmountThreshold =
-        budget.lowBalanceThresholdAmount !== undefined &&
-        budget.lowBalanceThresholdAmount > 0 &&
-        budget.lowBalanceThresholdAmount < effectiveTotalPool
-          ? budget.lowBalanceThresholdAmount
-          : undefined;
+      const sourceWallet = budget.sourceWalletId ? walletMap.get(budget.sourceWalletId) : undefined;
+      const isAlertOnWallet = budget.alertTarget === "wallet";
 
-      const isLowAmount =
-        validLowAmountThreshold !== undefined &&
-        remainingAmount <= validLowAmountThreshold &&
-        spentAmount > 0;
+      // Low balance warning triggers:
+      // If alertTarget is 'wallet', monitor the linked account's balance!
+      // Otherwise, monitor the budget pocket's remaining allowance!
+      let isLowAmount = false;
+      if (budget.lowBalanceThresholdAmount !== undefined && budget.lowBalanceThresholdAmount > 0) {
+        if (isAlertOnWallet && sourceWallet) {
+          isLowAmount = sourceWallet.balance <= budget.lowBalanceThresholdAmount;
+        } else if (budget.lowBalanceThresholdAmount < effectiveTotalPool && spentAmount > 0) {
+          isLowAmount = remainingAmount <= budget.lowBalanceThresholdAmount;
+        }
+      }
 
       const isLowPercent =
         budget.lowBalanceThresholdPercent !== undefined &&
@@ -97,13 +98,11 @@ export const listWithProgress = query({
         spentAmount > 0;
 
       const hasCustomAlert =
-        validLowAmountThreshold !== undefined ||
+        (budget.lowBalanceThresholdAmount !== undefined && budget.lowBalanceThresholdAmount > 0) ||
         (budget.lowBalanceThresholdPercent !== undefined && budget.lowBalanceThresholdPercent > 0);
 
       const defaultWarning = !hasCustomAlert && progressPercent >= (budget.alertThreshold ?? 80) && spentAmount > 0;
       const isWarning = (isLowAmount || isLowPercent || defaultWarning) && !isOverBudget;
-
-      const sourceWallet = budget.sourceWalletId ? walletMap.get(budget.sourceWalletId) : undefined;
 
       return {
         ...budget,
@@ -147,6 +146,7 @@ export const create = mutation({
     alertThreshold: v.optional(v.number()),
     lowBalanceThresholdAmount: v.optional(v.number()),
     lowBalanceThresholdPercent: v.optional(v.number()),
+    alertTarget: v.optional(v.union(v.literal("pocket"), v.literal("wallet"))),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -200,6 +200,7 @@ export const create = mutation({
       alertThreshold: args.alertThreshold ?? 80,
       lowBalanceThresholdAmount: args.lowBalanceThresholdAmount,
       lowBalanceThresholdPercent: args.lowBalanceThresholdPercent,
+      alertTarget: args.alertTarget,
       isActive: true,
       createdAt: now,
     });
@@ -228,6 +229,7 @@ export const update = mutation({
     alertThreshold: v.optional(v.number()),
     lowBalanceThresholdAmount: v.optional(v.number()),
     lowBalanceThresholdPercent: v.optional(v.number()),
+    alertTarget: v.optional(v.union(v.literal("pocket"), v.literal("wallet"))),
     isActive: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -250,10 +252,11 @@ export const update = mutation({
       isRecurring,
       startDate: args.startDate,
       sourceWalletId: args.sourceWalletId,
-      autoDeductFromWallet: isRecurring ? args.autoDeductFromWallet : false,
+      autoDeductFromWallet: isRecurring ? (args.autoDeductFromWallet ?? false) : false,
       alertThreshold: args.alertThreshold ?? 80,
       lowBalanceThresholdAmount: args.lowBalanceThresholdAmount,
       lowBalanceThresholdPercent: args.lowBalanceThresholdPercent,
+      alertTarget: args.alertTarget,
       isActive: args.isActive,
     });
 

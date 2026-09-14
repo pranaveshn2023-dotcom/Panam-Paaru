@@ -63,6 +63,7 @@ export interface Budget {
   alertThreshold?: number;
   lowBalanceThresholdAmount?: number;
   lowBalanceThresholdPercent?: number;
+  alertTarget?: 'pocket' | 'wallet';
   isActive: boolean;
   activePeriod?: {
     startDate: string;

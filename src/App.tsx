@@ -527,6 +527,7 @@ export function AppContent() {
     category: string; recurrence: RecurrenceType; startDate: string;
     alertThreshold?: number; lowBalanceThresholdAmount?: number;
     lowBalanceThresholdPercent?: number;
+    alertTarget?: 'pocket' | 'wallet';
     sourceWalletId?: string; autoDeductFromWallet?: boolean;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);

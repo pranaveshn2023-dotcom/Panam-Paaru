@@ -256,7 +256,11 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
         <div className="bg-[#FF8800] text-[#121212] p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
-            <span>Alert Reached: Below {formatPrivateAmount(budget.lowBalanceThresholdAmount ?? 0, currencySymbol)} ({formatPrivateAmount(remaining, currencySymbol)} left)</span>
+            <span>
+              {budget.alertTarget === 'wallet'
+                ? `Alert Reached: ${budget.sourceWalletName || 'Account'} balance below ${formatPrivateAmount(budget.lowBalanceThresholdAmount ?? 0, currencySymbol)}`
+                : `Alert Reached: Below ${formatPrivateAmount(budget.lowBalanceThresholdAmount ?? 0, currencySymbol)} (${formatPrivateAmount(remaining, currencySymbol)} left)`}
+            </span>
           </div>
           <button
             onClick={() => setIsTopUpOpen(true)}
