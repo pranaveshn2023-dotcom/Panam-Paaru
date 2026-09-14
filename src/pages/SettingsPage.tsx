@@ -304,7 +304,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             variant="danger"
             size="sm"
             onClick={() => {
-              sessionStorage.removeItem('panam_welcome_celebrated');
               offlineStorage.clearActiveSession();
               void signOut();
             }}

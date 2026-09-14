@@ -101,7 +101,6 @@ export const Header: React.FC<HeaderProps> = ({
             )}
             <button
               onClick={() => {
-                sessionStorage.removeItem('panam_welcome_celebrated');
                 offlineStorage.clearActiveSession();
                 void signOut();
               }}

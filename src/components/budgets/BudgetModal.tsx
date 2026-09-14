@@ -3,7 +3,7 @@ import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
 import { Budget, Category, RecurrenceType, Wallet } from '../../types';
-import { CalendarSync, Tag, AlertTriangle, ShieldAlert, Coins, Sparkles, RefreshCw, Layers, Plus } from 'lucide-react';
+import { CalendarSync, Tag, AlertTriangle, ShieldAlert, Coins, Sparkles, RefreshCw, Layers, Plus, Percent } from 'lucide-react';
 import { CategoryFormModal } from '../categories/CategoryFormModal';
 
 interface BudgetModalProps {
@@ -54,7 +54,8 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   const [sourceWalletId, setSourceWalletId] = useState<string>('');
   const [autoDeductFromWallet, setAutoDeductFromWallet] = useState(true);
   const [alertThreshold, setAlertThreshold] = useState('80');
-  const [lowAmount, setLowAmount] = useState('');
+  const [alertMode, setAlertMode] = useState<'amount' | 'percent' | 'both'>('amount');
+  const [lowAmount, setLowAmount] = useState('1000');
   const [lowPercent, setLowPercent] = useState('20');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -74,8 +75,17 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setSourceWalletId(initialData.sourceWalletId || '');
       setAutoDeductFromWallet(initialData.autoDeductFromWallet ?? isRec);
       setAlertThreshold(String(initialData.alertThreshold ?? 80));
-      setLowAmount(initialData.lowBalanceThresholdAmount ? String(initialData.lowBalanceThresholdAmount) : '');
+      setLowAmount(initialData.lowBalanceThresholdAmount ? String(initialData.lowBalanceThresholdAmount) : '1000');
       setLowPercent(initialData.lowBalanceThresholdPercent ? String(initialData.lowBalanceThresholdPercent) : '20');
+      const hasAmt = Boolean(initialData.lowBalanceThresholdAmount && initialData.lowBalanceThresholdAmount > 0);
+      const hasPct = Boolean(initialData.lowBalanceThresholdPercent && initialData.lowBalanceThresholdPercent > 0);
+      if (hasAmt && hasPct) {
+        setAlertMode('both');
+      } else if (hasPct) {
+        setAlertMode('percent');
+      } else {
+        setAlertMode('amount');
+      }
     } else {
       setName('');
       setAmount('');
@@ -87,7 +97,8 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       setSourceWalletId(defaultW?._id || '');
       setAutoDeductFromWallet(true);
       setAlertThreshold('80');
-      setLowAmount('');
+      setAlertMode('amount');
+      setLowAmount('1000');
       setLowPercent('20');
     }
     setError('');
@@ -97,8 +108,14 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
     e.preventDefault();
     const numAmount = parseFloat(amount);
     const numThreshold = parseInt(alertThreshold, 10);
-    const numLowAmount = lowAmount ? parseFloat(lowAmount) : undefined;
-    const numLowPercent = lowPercent ? parseInt(lowPercent, 10) : undefined;
+    const numLowAmount =
+      (alertMode === 'amount' || alertMode === 'both') && lowAmount && !isNaN(parseFloat(lowAmount))
+        ? Math.max(0, parseFloat(lowAmount))
+        : undefined;
+    const numLowPercent =
+      (alertMode === 'percent' || alertMode === 'both') && lowPercent && !isNaN(parseFloat(lowPercent))
+        ? Math.max(1, Math.min(99, parseFloat(lowPercent)))
+        : undefined;
 
     if (!name.trim()) {
       setError('Please provide a budget / pocket name');
@@ -372,46 +389,113 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           </div>
         )}
 
-        {/* Low-Balance Alert Controls (Both Amount & Percentage) */}
+        {/* Low-Balance Alert Controls (Amount Limit OR Percentage Limit) */}
         <div className="p-3 bg-[#FFFDF5] border-2 border-[#121212] shadow-neo-sm flex flex-col gap-2.5">
-          <div className="flex items-center gap-1.5 text-xs font-black uppercase text-[#121212]">
-            <ShieldAlert size={14} className="text-[#FF8800]" />
-            <span>Low-Balance Top-up Alerts (Dual Thresholds)</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs font-black uppercase text-[#121212]">
+              <ShieldAlert size={14} className="text-[#FF8800]" />
+              <span>Low-Balance Top-up Alert Limit</span>
+            </div>
+            <span className="text-[10px] font-mono font-black uppercase bg-[#FFE600] px-1.5 py-0.5 border border-[#121212]">
+              {alertMode === 'amount' ? `By Amount (${currencySymbol})` : alertMode === 'percent' ? 'By Percent (%)' : 'Amount or %'}
+            </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Low Balance Alert by Amount */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-black uppercase text-neutral-600">
-                Alert when Balance drops below ({currencySymbol})
-              </label>
-              <input
-                type="number"
-                step="1"
-                min="0"
-                value={lowAmount}
-                onChange={(e) => setLowAmount(e.target.value)}
-                placeholder="e.g. 1000"
-                className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
-              />
-            </div>
+          {/* Segmented Selector: Amount Limit OR Percentage Limit OR Both */}
+          <div className="flex items-center gap-1 bg-white p-1 border-2 border-[#121212] shadow-neo-sm">
+            <button
+              type="button"
+              onClick={() => setAlertMode('amount')}
+              className={`flex-1 py-1.5 px-2 text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                alertMode === 'amount'
+                  ? 'bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm'
+                  : 'bg-transparent text-neutral-600 hover:text-black'
+              }`}
+            >
+              <Coins size={12} strokeWidth={2.5} />
+              <span>Amount Limit ({currencySymbol})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAlertMode('percent')}
+              className={`flex-1 py-1.5 px-2 text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                alertMode === 'percent'
+                  ? 'bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm'
+                  : 'bg-transparent text-neutral-600 hover:text-black'
+              }`}
+            >
+              <Percent size={12} strokeWidth={2.5} />
+              <span>Percentage Limit (%)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAlertMode('both')}
+              className={`py-1.5 px-2.5 text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                alertMode === 'both'
+                  ? 'bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm'
+                  : 'bg-transparent text-neutral-600 hover:text-black'
+              }`}
+            >
+              <span>Both</span>
+            </button>
+          </div>
 
-            {/* Low Balance Alert by Percent */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-black uppercase text-neutral-600 flex justify-between">
-                <span>Alert when remaining is &le;</span>
-                <span className="font-mono font-bold text-[#FF8800]">{lowPercent}%</span>
-              </label>
-              <input
-                type="range"
-                min="5"
-                max="50"
-                step="5"
-                value={lowPercent}
-                onChange={(e) => setLowPercent(e.target.value)}
-                className="accent-[#FF8800] cursor-pointer"
-              />
-            </div>
+          {/* Inputs for selected mode */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            {(alertMode === 'amount' || alertMode === 'both') && (
+              <div className={`flex flex-col gap-1 ${alertMode === 'amount' ? 'sm:col-span-2' : ''} animate-in fade-in duration-150`}>
+                <label className="text-[11px] font-black uppercase text-[#121212] flex items-center gap-1">
+                  <Coins size={11} className="text-[#FF8800]" />
+                  Alert When Remaining Balance Drops Below ({currencySymbol})
+                </label>
+                <div className="relative flex items-center">
+                  <span className="absolute left-2.5 text-xs font-mono font-black text-neutral-500 pointer-events-none">
+                    {currencySymbol}
+                  </span>
+                  <input
+                    type="number"
+                    step="1"
+                    min="1"
+                    value={lowAmount}
+                    onChange={(e) => setLowAmount(e.target.value)}
+                    placeholder="e.g. 1000"
+                    className="neo-input pl-7 pr-2.5 py-1.5 text-xs font-mono font-black text-[#121212] w-full"
+                    required={alertMode === 'amount'}
+                  />
+                </div>
+                <p className="text-[10px] font-bold text-neutral-600">
+                  Warning triggers when remaining balance drops to or below {currencySymbol}{lowAmount || '1000'}.
+                </p>
+              </div>
+            )}
+
+            {(alertMode === 'percent' || alertMode === 'both') && (
+              <div className={`flex flex-col gap-1.5 ${alertMode === 'percent' ? 'sm:col-span-2' : ''} animate-in fade-in duration-150`}>
+                <div className="flex items-center justify-between text-[11px] font-black uppercase text-[#121212]">
+                  <span className="flex items-center gap-1">
+                    <Percent size={11} className="text-[#FF8800]" />
+                    Alert When Remaining Budget Is &le;
+                  </span>
+                  <span className="font-mono font-black text-[#FF8800] bg-white px-1.5 py-0.5 border border-[#121212]">
+                    {lowPercent}% Remaining
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="50"
+                  step="5"
+                  value={lowPercent}
+                  onChange={(e) => setLowPercent(e.target.value)}
+                  className="accent-[#FF8800] cursor-pointer w-full"
+                />
+                <div className="flex justify-between text-[10px] font-mono font-bold text-neutral-500">
+                  <span>5% (Tight)</span>
+                  <span>20% (Default)</span>
+                  <span>50% (Half Remaining)</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

@@ -217,7 +217,6 @@ export const PinLockScreen: React.FC = () => {
                 size="sm"
                 onClick={() => {
                   sessionStorage.removeItem('panam_pin_configured');
-                  sessionStorage.removeItem('panam_welcome_celebrated');
                   offlineStorage.clearActiveSession();
                   void signOut();
                 }}
@@ -286,7 +285,6 @@ export const PinLockScreen: React.FC = () => {
           <button
             onClick={() => {
               sessionStorage.removeItem('panam_pin_configured');
-              sessionStorage.removeItem('panam_welcome_celebrated');
               offlineStorage.clearActiveSession();
               void signOut();
             }}

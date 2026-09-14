@@ -71,21 +71,25 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
     return 'Good evening';
   };
 
-  // Trigger celebratory confetti ONLY ONCE upon fresh login session (or after re-signing in)
+  // Celebration confetti MUST occur ONLY on the homepage AND ONLY when the eye button is toggled from hidden to visible
+  const prevPrivacyRef = React.useRef<boolean>(isPrivacyMode);
+
   useEffect(() => {
-    const hasCelebrated = sessionStorage.getItem('panam_welcome_celebrated');
-    if (!hasCelebrated && (monthIncome > 0 || totalBalance > 0)) {
-      sessionStorage.setItem('panam_welcome_celebrated', 'true');
-      try {
-        confetti({
-          particleCount: 40,
-          spread: 70,
-          origin: { y: 0.8 },
-          colors: ['#FFE600', '#05DF72', '#121212'],
-        });
-      } catch (e) {}
+    // Only fire when eye toggle changes from masked (true) to visible (false)
+    if (prevPrivacyRef.current === true && isPrivacyMode === false) {
+      if (monthIncome > 0 || totalBalance > 0) {
+        try {
+          confetti({
+            particleCount: 45,
+            spread: 70,
+            origin: { y: 0.75 },
+            colors: ['#FFE600', '#05DF72', '#00F0FF', '#121212'],
+          });
+        } catch (e) {}
+      }
     }
-  }, [monthIncome, totalBalance]);
+    prevPrivacyRef.current = isPrivacyMode;
+  }, [isPrivacyMode, monthIncome, totalBalance]);
 
   const overBudgetItems = budgets.filter((b) => b.isOverBudget || b.isWarning);
 

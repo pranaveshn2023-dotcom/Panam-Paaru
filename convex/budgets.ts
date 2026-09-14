@@ -51,7 +51,7 @@ export const listWithProgress = query({
       const remainingPercent = 100 - progressPercent;
       const isOverBudget = spentAmount > effectiveTotalPool;
 
-      // Low balance warning triggers (Dual Thresholds: Percent OR Amount)
+      // Low balance warning triggers: Amount limit OR Percentage limit
       const isLowAmount =
         budget.lowBalanceThresholdAmount !== undefined &&
         budget.lowBalanceThresholdAmount > 0 &&
@@ -62,7 +62,11 @@ export const listWithProgress = query({
         budget.lowBalanceThresholdPercent > 0 &&
         remainingPercent <= budget.lowBalanceThresholdPercent;
 
-      const defaultWarning = progressPercent >= (budget.alertThreshold ?? 80);
+      const hasCustomAlert =
+        (budget.lowBalanceThresholdAmount !== undefined && budget.lowBalanceThresholdAmount > 0) ||
+        (budget.lowBalanceThresholdPercent !== undefined && budget.lowBalanceThresholdPercent > 0);
+
+      const defaultWarning = !hasCustomAlert && progressPercent >= (budget.alertThreshold ?? 80);
       const isWarning = (isLowAmount || isLowPercent || defaultWarning) && !isOverBudget;
 
       const sourceWallet = budget.sourceWalletId ? walletMap.get(budget.sourceWalletId) : undefined;
