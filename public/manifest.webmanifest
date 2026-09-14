@@ -1,37 +1,31 @@
 {
-  "name": "PanamPaaru - See Your Money",
+  "name": "PanamPaaru - See Your Money, Control Your Spending",
   "short_name": "PanamPaaru",
-  "description": "See your money. Control your spending. Deterministic calendar-aware budgets and 6-PIN security.",
+  "description": "the unified dashboard for your liquid cash flow and live asset portfolio.",
   "start_url": "/",
   "id": "/",
   "display": "standalone",
   "background_color": "#FFFDF5",
   "theme_color": "#FFE600",
-  "orientation": "portrait-primary",
+  "orientation": "portrait",
   "icons": [
-    {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
     {
       "src": "/favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
