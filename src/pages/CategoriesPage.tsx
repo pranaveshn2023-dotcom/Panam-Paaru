@@ -129,7 +129,7 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
                 Category Manager
               </h2>
               <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-[#05DF72] text-[#121212] border border-[#121212] shadow-neo-sm">
-                CRUD Enabled
+                Customizable
               </span>
             </div>
             <p className="text-xs font-bold text-neutral-600 mt-0.5">
@@ -142,7 +142,7 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
         <div className="flex items-center flex-wrap gap-2 w-full md:w-auto justify-between md:justify-end">
           <div className="flex items-center gap-1.5 text-xs font-black">
             <span className="px-2 py-1 bg-neutral-100 border border-[#121212] font-mono">
-              Total: {categories.length}
+              Total: {safeCategories.length}
             </span>
             <span className="px-2 py-1 bg-[#FF4343]/15 text-[#FF4343] border border-[#FF4343] font-mono">
               Exp: {expenseCount}
@@ -247,7 +247,7 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
         </div>
       )}
 
-      {/* CRUD Form Modal */}
+      {/* Category Form Modal */}
       <CategoryFormModal
         isOpen={isFormModalOpen}
         onClose={() => {

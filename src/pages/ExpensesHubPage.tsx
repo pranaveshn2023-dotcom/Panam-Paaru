@@ -48,7 +48,7 @@ interface ExpensesHubPageProps {
   onEditBudget: (b: Budget) => void;
   onDeleteBudget: (id: string) => void;
   onTopUpBudget: (id: string, amount: number, walletId?: string) => Promise<void>;
-  // Categories CRUD
+  // Categories
   onCreateCategory: (data: {
     name: string;
     type: 'income' | 'expense';
@@ -126,7 +126,7 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
     },
     {
       id: 'categories' as ExpenseSubTab,
-      label: 'Categories (CRUD)',
+      label: 'Categories',
       shortLabel: 'Categories',
       badge: safeCategories.length,
       icon: Tag,
