@@ -46,7 +46,7 @@ export const listWithProgress = query({
           tx.title?.startsWith("Budget Top-up:") ||
           tx.title?.startsWith("Recurring Budget Renewed:") ||
           tx.notes?.includes("Auto-allocated from wallet") ||
-          tx.notes?.includes("Top-up loaded into budget pocket") ||
+          tx.notes?.includes("Top-up loaded into budget wallet") ||
           tx.notes?.includes("Auto-renewed for cycle") ||
           tx.budgetId === budget._id
         ) {
@@ -80,7 +80,7 @@ export const listWithProgress = query({
 
       // Low balance warning triggers:
       // If alertTarget is 'wallet', monitor the linked account's balance!
-      // Otherwise, monitor the budget pocket's remaining allowance!
+      // Otherwise, monitor the budget wallet's remaining allowance!
       let isLowAmount = false;
       if (budget.lowBalanceThresholdAmount !== undefined && budget.lowBalanceThresholdAmount > 0) {
         if (isAlertOnWallet && sourceWallet) {
@@ -146,7 +146,7 @@ export const create = mutation({
     alertThreshold: v.optional(v.number()),
     lowBalanceThresholdAmount: v.optional(v.number()),
     lowBalanceThresholdPercent: v.optional(v.number()),
-    alertTarget: v.optional(v.union(v.literal("pocket"), v.literal("wallet"))),
+    alertTarget: v.optional(v.union(v.literal("wallet"), v.literal("pocket"))),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -229,7 +229,7 @@ export const update = mutation({
     alertThreshold: v.optional(v.number()),
     lowBalanceThresholdAmount: v.optional(v.number()),
     lowBalanceThresholdPercent: v.optional(v.number()),
-    alertTarget: v.optional(v.union(v.literal("pocket"), v.literal("wallet"))),
+    alertTarget: v.optional(v.union(v.literal("wallet"), v.literal("pocket"))),
     isActive: v.boolean(),
   },
   handler: async (ctx, args) => {
@@ -305,7 +305,7 @@ export const topUp = mutation({
           type: "expense",
           category: budget.category,
           date: new Date().toISOString().slice(0, 10),
-          notes: `Top-up loaded into budget pocket from ${wallet.name}`,
+          notes: `Top-up loaded into budget wallet from ${wallet.name}`,
           walletId: fundingWalletId,
           budgetId: budget._id,
           createdAt: now,

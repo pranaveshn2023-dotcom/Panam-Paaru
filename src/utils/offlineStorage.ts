@@ -83,9 +83,13 @@ function setStorageItem<T>(key: string, value: T): void {
 
 export const offlineStorage = {
   /**
-   * Set the current authenticated user in memory
+   * Set the current authenticated user in memory.
+   * If switching users, completely wipes RAM to prevent any cross-session data leakage.
    */
   setCurrentUser(userId: string | null) {
+    if (activeUserId && activeUserId !== userId) {
+      memoryStore.clear();
+    }
     activeUserId = userId;
   },
 
@@ -94,26 +98,31 @@ export const offlineStorage = {
   },
 
   /**
-   * Wipes all cached snapshots for the active user upon sign-out from RAM
+   * Wipes all cached snapshots and session data upon sign-out to prevent session hijacking
    */
   clearActiveSession() {
-    if (activeUserId) {
-      const prefix = `user_${activeUserId}_`;
-      for (const k of Array.from(memoryStore.keys())) {
-        if (k.startsWith(prefix)) {
-          memoryStore.delete(k);
-        }
-      }
-    }
+    memoryStore.clear();
     activeUserId = null;
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.clear();
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (k.startsWith('paanam_') || k.startsWith('panam_') || k.startsWith('offline_') || k.startsWith('user_'))) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+      } catch {}
+    }
   },
 
   /**
-   * Completely purges the entire in-memory store
+   * Completely purges the entire in-memory store and session state
    */
   clearAll() {
-    memoryStore.clear();
-    activeUserId = null;
+    this.clearActiveSession();
   },
   // --- Snapshot Savers & Getters ---
   saveTransactions(data: Transaction[]) {

@@ -75,7 +75,7 @@ export const seedDefaultWallets = mutation({
       color: "#05DF72",
       icon: "Banknote",
       isDefault: false,
-      notes: "Physical cash & daily pocket change",
+      notes: "Physical cash & daily wallet change",
       createdAt: now,
       updatedAt: now,
     });

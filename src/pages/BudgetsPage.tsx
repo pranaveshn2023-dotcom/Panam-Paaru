@@ -46,7 +46,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[10px] font-mono font-black uppercase tracking-widest bg-[#121212] text-[#05DF72] px-2 py-0.5 inline-block">
-              RELOADABLE POCKETS & BUDGETS
+              RELOADABLE WALLETS & BUDGETS
             </span>
             {lowFundsCount > 0 && (
               <span className="text-[10px] font-black bg-[#FF4343] text-white px-2 py-0.5 border border-[#121212] flex items-center gap-1 shadow-neo-sm">
@@ -55,7 +55,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
             )}
           </div>
           <h2 className="text-2xl sm:text-3xl font-black uppercase text-[#121212] tracking-tight">
-            BUDGETS & RELOADABLE POCKETS
+            BUDGETS & RELOADABLE WALLETS
           </h2>
           <p className="text-xs font-bold text-neutral-900 mt-0.5">
             Allocate funds, top-up whenever low, and automate One-Time setup budgets or recurring Daily, Weekly & Monthly spending limits.
@@ -69,7 +69,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
           className="flex items-center gap-1.5 shrink-0"
         >
           <Plus size={16} strokeWidth={3} className="text-[#FFE600]" />
-          <span>New Budget / Pocket</span>
+          <span>New Budget / Wallet</span>
         </NeoButton>
       </div>
 
@@ -82,7 +82,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
           <span className="text-2xl font-mono font-black text-[#121212]">
             {formatPrivateAmount(totalLoaded, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500">Across {budgets.length} active pockets</span>
+          <span className="text-[10px] font-bold text-neutral-500">Across {budgets.length} active wallets</span>
         </div>
 
         <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col justify-between gap-1">
@@ -136,10 +136,10 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
             No {selectedRecurrence !== 'all' ? `${selectedRecurrence === 'one_time' ? 'One-Time Setup ' : selectedRecurrence.toUpperCase() + ' '}` : ''}Budgets Found
           </h3>
           <p className="text-xs font-semibold text-neutral-600 max-w-md">
-            Create an initial pocket/budget (Daily Coffee, Weekly Grocery, Monthly Rent) with top-up triggers and spending limits.
+            Create an initial wallet/budget (Daily Coffee, Weekly Grocery, Monthly Rent) with top-up triggers and spending limits.
           </p>
           <NeoButton variant="secondary" size="md" onClick={onOpenBudgetModal} className="mt-2">
-            Create Budget / Pocket
+            Create Budget / Wallet
           </NeoButton>
         </div>
       ) : (

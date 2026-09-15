@@ -48,10 +48,10 @@ export default defineSchema({
     .index("by_user_category", ["userId", "category"])
     .index("by_user_wallet", ["userId", "walletId"]),
 
-  // Calendar-Aware & Reloadable Recurring Budgets / Pockets
+  // Calendar-Aware & Reloadable Recurring Budgets / Wallets
   budgets: defineTable({
     userId: v.id("users"),
-    name: v.string(),
+    name: v.string(), // Target spending limit or allocated pool
     amount: v.number(), // Target spending limit or allocated pool
     initialLoadedAmount: v.optional(v.number()), // Initial loaded capital
     currentLoadedAmount: v.optional(v.number()), // Total loaded funds after top-ups
@@ -72,7 +72,7 @@ export default defineSchema({
     alertThreshold: v.optional(v.number()), // percentage warning threshold e.g. 80%
     lowBalanceThresholdAmount: v.optional(v.number()), // alert when balance remaining is below ₹X
     lowBalanceThresholdPercent: v.optional(v.number()), // alert when remaining balance is below X%
-    alertTarget: v.optional(v.union(v.literal("pocket"), v.literal("wallet"))), // whether alert monitors pocket or linked bank account
+    alertTarget: v.optional(v.union(v.literal("wallet"), v.literal("pocket"))), // whether alert monitors wallet or linked bank account
     isActive: v.boolean(),
     createdAt: v.number(),
   })

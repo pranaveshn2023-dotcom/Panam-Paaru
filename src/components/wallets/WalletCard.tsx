@@ -51,7 +51,7 @@ export const getWalletTypeLabel = (type: WalletType): string => {
     case 'card':
       return 'Card / Credit';
     case 'savings':
-      return 'Savings Pocket';
+      return 'Savings Wallet';
     case 'investment':
       return 'Investment Demat';
     case 'wallet':

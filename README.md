@@ -43,7 +43,7 @@ The user interface is segmented into four primary operational domains:
 
 ### 2. Multi-Account Management
 Maintains accurate account separation across all asset locations:
-- **Supported Account Types**: Bank accounts, physical cash on hand, credit lines, brokerage balances, and dedicated savings pockets.
+- **Supported Account Types**: Bank accounts, physical cash on hand, credit lines, brokerage balances, and dedicated savings wallets.
 - **Atomic Fund Transfers**: Double-entry consistency ensuring simultaneous balance adjustments between source and destination accounts.
 - **Zero Discrepancy Baseline**: Explicit tracking without arbitrary initial values.
 

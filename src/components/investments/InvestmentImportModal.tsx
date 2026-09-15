@@ -20,7 +20,7 @@ import {
   fetchLiveCryptoPrice,
 } from '../../utils/liveMarketService';
 import { AssetType, ImportBatch } from '../../types';
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import {
   Upload,
@@ -43,9 +43,13 @@ import {
   Clock,
   Building2,
   X,
+  HelpCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import confetti from 'canvas-confetti';
+import { ALL_BROKER_OPTIONS, detectBrokerFromFile } from '../../utils/brokerDirectory';
+import { BrokerExportGuideModal } from './BrokerExportGuideModal';
+import { BrokerSelectDropdown } from './BrokerSelectDropdown';
 
 interface InvestmentImportModalProps {
   isOpen: boolean;
@@ -91,20 +95,7 @@ const GRANULAR_ASSET_TYPES: { label: string; assetType: AssetType; subType: stri
   { label: 'Other Asset', assetType: 'other', subType: 'Other Asset' },
 ];
 
-const BROKER_OPTIONS = [
-  'Auto-Detect Broker',
-  'CAMS / KFintech CAS',
-  'Zerodha (Kite / Console)',
-  'Groww',
-  'Upstox',
-  'Angel One',
-  'INDmoney',
-  'Dhan',
-  'ICICI Direct',
-  'HDFC Sky',
-  'Bank Statement',
-  'Custom CSV / Excel',
-];
+const BROKER_OPTIONS = ALL_BROKER_OPTIONS;
 
 export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   isOpen,
@@ -117,6 +108,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const [activeTab, setActiveTab] = useState<'upload' | 'paste'>('upload');
   const [importMode, setImportMode] = useState<'investments' | 'expenses'>('investments');
   const [selectedBroker, setSelectedBroker] = useState<string>('Auto-Detect Broker');
+  const [detectedBrokerTag, setDetectedBrokerTag] = useState<string | null>(null);
+  const [isBrokerGuideOpen, setIsBrokerGuideOpen] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [rawGrid, setRawGrid] = useState<RawFileContent | null>(null);
   const [parsedHoldings, setParsedHoldings] = useState<ParsedHolding[]>([]);
@@ -138,9 +131,14 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const [passwordError, setPasswordError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
-  // Convex Queries & Mutations for Batch History & 1-Click Rollback
+  // Convex Queries, Mutations & Actions for Batch History, Live Quotes & 1-Click Rollback
   const importBatches = useQuery(api.investments.listImportBatches, isOpen ? {} : 'skip') as ImportBatch[] | undefined;
   const undoBatchMutation = useMutation(api.investments.undoImportBatch);
+  const fetchLivePriceAction = useAction(api.investments.fetchLivePrice);
+
+  // Per-row live price fetching status & debounce timers
+  const [rowFetchingPrice, setRowFetchingPrice] = useState<Record<string, boolean>>({});
+  const nameDebounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -160,6 +158,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     setIsPasswordPrompt(false);
     setPasswordError('');
     setShowPassword(false);
+    Object.values(nameDebounceTimers.current).forEach(clearTimeout);
+    nameDebounceTimers.current = {};
+    setRowFetchingPrice({});
+    setDetectedBrokerTag(null);
+    setSelectedBroker('Auto-Detect Broker');
   };
 
   /**
@@ -228,6 +231,22 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               const live = await fetchLiveStockPrice(holding.name);
               if (live && live.price > 0) livePrice = live.price;
             }
+
+            // Unblocked server action fallback for live prices if direct client query was blocked
+            if (livePrice === null || livePrice <= 0) {
+              try {
+                const serverRes = await fetchLivePriceAction({
+                  name: holding.name,
+                  assetType: at,
+                  notes: holding.notes || (holding.isin ? `ISIN: ${holding.isin}` : undefined),
+                });
+                if (serverRes && serverRes.price > 0) {
+                  livePrice = serverRes.price;
+                  const resDate = (serverRes as any)?.date;
+                  if (resDate) liveDate = resDate;
+                }
+              } catch {}
+            }
           } catch (e) {
             // Ignore individual fetch errors
           }
@@ -270,6 +289,133 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     }
   };
 
+  /**
+   * Dedicated single-row live price lookup when the user manually types or edits
+   * any fund or stock name in the import table.
+   */
+  const fetchLivePriceForRow = async (
+    id: string,
+    assetName: string,
+    explicitType?: AssetType,
+    notesOrIsin?: string
+  ) => {
+    if (!assetName || assetName.trim().length < 2) {
+      setRowFetchingPrice((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      return;
+    }
+
+    const detected = detectDetailedAssetType(assetName);
+    const targetType = explicitType || detected.assetType;
+
+    if (
+      targetType === 'fd_rd' ||
+      targetType === 'ppf_epf' ||
+      targetType === 'real_estate' ||
+      targetType === 'other'
+    ) {
+      return;
+    }
+
+    setRowFetchingPrice((prev) => ({ ...prev, [id]: true }));
+
+    let livePrice: number | null = null;
+    let liveDate: string | undefined = undefined;
+
+    try {
+      if (targetType === 'mutual_fund') {
+        const live = await fetchAmfiNav(assetName, notesOrIsin);
+        if (live && live.nav > 0) {
+          livePrice = live.nav;
+          liveDate = live.date;
+        } else if (/\b(etf|bees)\b/i.test(assetName)) {
+          const liveStock = await fetchLiveStockPrice(assetName);
+          if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
+        }
+      } else if (targetType === 'crypto') {
+        const live = await fetchLiveCryptoPrice(assetName);
+        if (live && live.price > 0) livePrice = live.price;
+      } else if (targetType === 'gold') {
+        const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(assetName);
+        if (!isSgbOrDigital) {
+          const liveStock = await fetchLiveStockPrice(assetName);
+          if (liveStock && liveStock.price > 0) {
+            livePrice = liveStock.price;
+          } else {
+            const live = await fetchAmfiNav(assetName, notesOrIsin);
+            if (live && live.nav > 0) {
+              livePrice = live.nav;
+              liveDate = live.date;
+            }
+          }
+        }
+      } else {
+        const liveStock = await fetchLiveStockPrice(assetName);
+        if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
+      }
+
+      // Backend action fallback
+      if (livePrice === null || livePrice <= 0) {
+        try {
+          const serverRes = await fetchLivePriceAction({
+            name: assetName,
+            assetType: targetType,
+            notes: notesOrIsin,
+          });
+          if (serverRes && serverRes.price > 0) {
+            livePrice = serverRes.price;
+            const resDate = (serverRes as any)?.date;
+            if (resDate) liveDate = resDate;
+          }
+        } catch {}
+      }
+    } catch {
+      // ignore
+    } finally {
+      setRowFetchingPrice((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+
+    if (livePrice !== null && livePrice > 0) {
+      setParsedHoldings((prev) =>
+        prev.map((h) => {
+          if (h.id !== id) return h;
+          const cleanPrice = cleanNavPrice(livePrice!, targetType === 'mutual_fund');
+          const updated = {
+            ...h,
+            currentPrice: cleanPrice,
+            isLiveSynced: true,
+            liveNavDate: liveDate || h.liveNavDate,
+          };
+          if (updated.units && updated.units > 0) {
+            updated.currentValue = cleanCurrency(updated.units * cleanPrice);
+          } else if (updated.investedAmount > 0 && updated.buyPrice && updated.buyPrice > 0) {
+            const derivedUnits = cleanUnits(updated.investedAmount / updated.buyPrice);
+            updated.units = derivedUnits;
+            updated.currentValue = cleanCurrency(derivedUnits * cleanPrice);
+          } else if (h.currentPrice && h.currentPrice > 0 && updated.currentValue > 0) {
+            const ratio = cleanPrice / h.currentPrice;
+            updated.currentValue = cleanCurrency(updated.currentValue * ratio);
+          }
+          if (updated.currentValue > 0 || updated.investedAmount > 0) {
+            updated.returns = cleanCurrency(updated.currentValue - updated.investedAmount);
+          }
+          updated.isValid = Boolean(
+            updated.name.trim() &&
+              (updated.currentValue > 0 || updated.investedAmount > 0 || updated.currentPrice > 0)
+          );
+          return updated;
+        })
+      );
+    }
+  };
+
   const processFile = async (file: File) => {
     try {
       setIsParsing(true);
@@ -280,10 +426,20 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       const result = await parseInvestmentFile(file);
       setRawGrid(result.rawGrid);
 
+      // Intelligent Universal Broker Detection across all 30+ brokers & depositories
+      const autoDetected = detectBrokerFromFile(file.name, result.rawGrid);
+      if (autoDetected) {
+        setSelectedBroker(autoDetected);
+        setDetectedBrokerTag(autoDetected);
+      }
+
       if (result.holdings.length > 0) {
-        setParsedHoldings(result.holdings);
+        const taggedHoldings = autoDetected
+          ? result.holdings.map((h) => ({ ...h, broker: h.broker || autoDetected }))
+          : result.holdings;
+        setParsedHoldings(taggedHoldings);
         setIsParsing(false);
-        enrichHoldingsWithLivePrices(result.holdings);
+        enrichHoldingsWithLivePrices(taggedHoldings);
       } else {
         setError('No holdings found in file. Please ensure it is a statement or copy-paste rows.');
         setIsParsing(false);
@@ -345,11 +501,20 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       const result = await parseInvestmentFile(pendingFile, pdfPassword.trim());
       setRawGrid(result.rawGrid);
 
+      const autoDetected = detectBrokerFromFile(pendingFile.name, result.rawGrid);
+      if (autoDetected) {
+        setSelectedBroker(autoDetected);
+        setDetectedBrokerTag(autoDetected);
+      }
+
       if (result.holdings.length > 0) {
-        setParsedHoldings(result.holdings);
+        const taggedHoldings = autoDetected
+          ? result.holdings.map((h) => ({ ...h, broker: h.broker || autoDetected }))
+          : result.holdings;
+        setParsedHoldings(taggedHoldings);
         setIsPasswordPrompt(false);
         setIsParsing(false);
-        enrichHoldingsWithLivePrices(result.holdings);
+        enrichHoldingsWithLivePrices(taggedHoldings);
       } else {
         setError('Password accepted, but no asset rows were found.');
         setIsPasswordPrompt(false);
@@ -385,9 +550,20 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         setError('Could not extract rows. Make sure each line has a Name and at least one Amount.');
         return;
       }
-      setParsedHoldings(extracted);
+
+      const autoDetected = detectBrokerFromFile(undefined, undefined, pastedText);
+      if (autoDetected) {
+        setSelectedBroker(autoDetected);
+        setDetectedBrokerTag(autoDetected);
+      }
+
+      const taggedHoldings = autoDetected
+        ? extracted.map((h) => ({ ...h, broker: h.broker || autoDetected }))
+        : extracted;
+
+      setParsedHoldings(taggedHoldings);
       setError('');
-      enrichHoldingsWithLivePrices(extracted);
+      enrichHoldingsWithLivePrices(taggedHoldings);
     } catch (err: any) {
       setError(err?.message || 'Failed to parse pasted text.');
     }
@@ -399,14 +575,16 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       ...prev,
       {
         id: newId,
-        name: 'New Asset',
-        assetType: 'mutual_fund',
-        subType: 'Equity Mutual Fund',
-        investedAmount: 10000,
-        currentValue: 10000,
-        units: 100,
+        name: '',
+        assetType: 'stocks',
+        subType: 'Stock / Equity',
+        investedAmount: 0,
+        currentValue: 0,
+        units: undefined,
+        buyPrice: undefined,
+        currentPrice: undefined,
         selected: true,
-        isValid: true,
+        isValid: false,
       },
     ]);
   };
@@ -431,6 +609,31 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       prev.map((h) => {
         if (h.id !== id) return h;
         const updated = { ...h, [field]: val };
+
+        if (field === 'name') {
+          const newName = String(val);
+          updated.name = newName;
+          if (newName.trim().length >= 2) {
+            const detected = detectDetailedAssetType(newName);
+            updated.assetType = detected.assetType;
+            updated.subType = detected.subType;
+            if (detected.sector && !updated.sector) {
+              updated.sector = detected.sector;
+            }
+          }
+
+          if (nameDebounceTimers.current[id]) {
+            clearTimeout(nameDebounceTimers.current[id]);
+          }
+
+          if (newName.trim().length >= 2) {
+            nameDebounceTimers.current[id] = setTimeout(() => {
+              const notesOrIsin = updated.isin ? `ISIN: ${updated.isin}` : updated.notes;
+              fetchLivePriceForRow(id, newName, updated.assetType, notesOrIsin);
+            }, 400);
+          }
+        }
+
         if (field === 'units') {
           const unitsNum = val !== undefined && val !== '' ? parseFloat(val) : undefined;
           updated.units = unitsNum;
@@ -454,7 +657,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           updated.returns = cleanCurrency(updated.currentValue - updated.investedAmount);
         }
         // Recalculate validity
-        updated.isValid = Boolean(updated.name.trim() && (updated.currentValue > 0 || updated.investedAmount > 0));
+        updated.isValid = Boolean(
+          updated.name.trim() &&
+            (updated.currentValue > 0 || updated.investedAmount > 0 || (updated.currentPrice && updated.currentPrice > 0))
+        );
         return updated;
       })
     );
@@ -462,19 +668,25 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
   const handleTypeChange = (id: string, compositeValue: string) => {
     const found = GRANULAR_ASSET_TYPES.find((t) => t.subType === compositeValue);
-    if (found) {
-      setParsedHoldings((prev) =>
-        prev.map((h) =>
-          h.id === id ? { ...h, assetType: found.assetType, subType: found.subType } : h
-        )
-      );
-    } else {
-      setParsedHoldings((prev) =>
-        prev.map((h) =>
-          h.id === id ? { ...h, subType: compositeValue } : h
-        )
-      );
-    }
+    const targetAssetType = found ? found.assetType : undefined;
+    const targetSubType = found ? found.subType : compositeValue;
+
+    setParsedHoldings((prev) =>
+      prev.map((h) => {
+        if (h.id !== id) return h;
+        const updated = {
+          ...h,
+          subType: targetSubType,
+          ...(targetAssetType ? { assetType: targetAssetType } : {}),
+        };
+        // If user changed type and there's a name, trigger live price search for the new asset class
+        if (h.name && h.name.trim().length >= 2 && targetAssetType) {
+          const notesOrIsin = h.isin ? `ISIN: ${h.isin}` : h.notes;
+          fetchLivePriceForRow(id, h.name, targetAssetType, notesOrIsin);
+        }
+        return updated;
+      })
+    );
   };
 
   const removeItem = (id: string) => {
@@ -598,19 +810,39 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           <div className="flex flex-col gap-3">
             {/* Broker & Type Selector */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-[#FFFDF5] p-2.5 border-2 border-[#121212]">
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <span className="text-[10px] font-black uppercase text-neutral-600 shrink-0">Source:</span>
-                <select
-                  value={selectedBroker}
-                  onChange={(e) => setSelectedBroker(e.target.value)}
-                  className="px-2 py-1 text-xs font-bold bg-white border border-[#121212] cursor-pointer flex-1 sm:flex-initial"
-                >
-                  {BROKER_OPTIONS.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex flex-col gap-1 w-full sm:w-auto">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-black uppercase text-neutral-600 shrink-0">Broker:</span>
+                  <BrokerSelectDropdown
+                    value={selectedBroker}
+                    onChange={(brokerName) => {
+                      setSelectedBroker(brokerName);
+                      if (brokerName === 'Auto-Detect Broker') {
+                        setDetectedBrokerTag(null);
+                      } else {
+                        setDetectedBrokerTag(brokerName);
+                      }
+                    }}
+                  />
+
+                  {detectedBrokerTag && detectedBrokerTag !== 'Auto-Detect Broker' && (
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-[#05DF72]/20 text-[#0B6B38] border border-[#05DF72] flex items-center gap-1 shrink-0">
+                      <Check size={11} strokeWidth={3} />
+                      <span>Detected: {detectedBrokerTag}</span>
+                    </span>
+                  )}
+                </div>
+
+                {selectedBroker !== 'Auto-Detect Broker' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsBrokerGuideOpen(true)}
+                    className="text-[11px] font-bold text-[#0B6B38] hover:underline flex items-center gap-1 cursor-pointer self-start pl-12 sm:pl-14 transition-colors"
+                  >
+                    <ChevronDown size={13} />
+                    <span>Where do I get this file from {selectedBroker}?</span>
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-1 w-full sm:w-auto">
@@ -699,14 +931,19 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                <p className="text-xs font-bold text-neutral-700">
-                  Copy rows from your broker table, Excel, or Google Sheets and paste here:
-                </p>
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-xs font-bold text-neutral-800">
+                    Paste table rows from any broker statement, Excel, or Google Sheets:
+                  </p>
+                  <p className="text-[11px] text-neutral-500 font-semibold">
+                    Universal Column Detection: Any column arrangement is supported. Paanam identifies Scheme / Stock Name, Units, Price, Cost, and Current Value dynamically by column.
+                  </p>
+                </div>
                 <textarea
                   rows={6}
                   value={pastedText}
                   onChange={(e) => setPastedText(e.target.value)}
-                  placeholder={`HDFC Mid Cap Fund Direct Growth\t14.402\t3362.69\nParag Parikh Flexi Cap Fund Direct Growth\t164.957\t15184.74\nRELIANCE\t10\t28905`}
+                  placeholder="Paste rows from any broker or statement in any column order...&#10;Paanam automatically detects each column (Scheme / Stock Name, Units, Buy Price, Cost, Current Value, P&L)."
                   className="w-full p-2.5 font-mono text-xs border-2 border-[#121212] shadow-neo-sm bg-white"
                 />
                 <NeoButton
@@ -942,6 +1179,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                             <input
                               type="text"
                               value={h.name}
+                              placeholder="Enter fund, stock or ticker name..."
                               onChange={(e) => updateItemField(h.id, 'name', e.target.value)}
                               className="w-full p-1 bg-transparent hover:bg-neutral-100 focus:bg-white border border-transparent hover:border-neutral-300 focus:border-[#121212] font-black text-xs text-[#121212]"
                             />
@@ -1025,6 +1263,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                           {/* NAV / CP cell (effective per-unit price) */}
                           <td className="p-2.5 text-right font-mono text-xs font-bold text-neutral-700">
                             {(() => {
+                              const isRowLoading = Boolean(rowFetchingPrice[h.id]);
                               const eff =
                                 h.currentPrice && h.currentPrice > 0
                                   ? h.currentPrice
@@ -1033,17 +1272,22 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                   : undefined;
                               return (
                                 <div className="flex items-center justify-end gap-1">
-                                  {h.isLiveSynced && (
+                                  {isRowLoading ? (
+                                    <span
+                                      className="w-2 h-2 rounded-full bg-amber-500 animate-ping inline-block shrink-0"
+                                      title="Searching live AMFI NAV / market quote..."
+                                    />
+                                  ) : h.isLiveSynced ? (
                                     <span
                                       className="w-1.5 h-1.5 rounded-full bg-[#05DF72] inline-block shrink-0"
                                       title={`Live AMFI / Market NAV${h.liveNavDate ? ` (${h.liveNavDate})` : ''}`}
                                     />
-                                  )}
+                                  ) : null}
                                   <input
                                     type="number"
                                     step="any"
                                     value={eff !== undefined ? eff : ''}
-                                    placeholder="—"
+                                    placeholder={isRowLoading ? '...' : '—'}
                                     onChange={(e) => {
                                       const newPrice = e.target.value ? parseFloat(e.target.value) : undefined;
                                       updateItemField(h.id, 'currentPrice', newPrice);
@@ -1052,7 +1296,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                       h.isLiveSynced ? 'text-[#0B6B38]' : 'text-[#121212]'
                                     }`}
                                     title={
-                                      h.isLiveSynced
+                                      isRowLoading
+                                        ? 'Fetching live market rate...'
+                                        : h.isLiveSynced
                                         ? `Live synced from AMFI/Market${h.liveNavDate ? ` (${h.liveNavDate})` : ''}`
                                         : 'Document NAV / CP'
                                     }
@@ -1339,6 +1585,16 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         </div>
 
       </div>
+
+      <BrokerExportGuideModal
+        isOpen={isBrokerGuideOpen}
+        onClose={() => setIsBrokerGuideOpen(false)}
+        onSelectBroker={(brokerName) => {
+          setSelectedBroker(brokerName);
+          setDetectedBrokerTag(brokerName);
+        }}
+        initialSelectedBroker={selectedBroker !== 'Auto-Detect Broker' ? selectedBroker : undefined}
+      />
     </NeoModal>
   );
 };

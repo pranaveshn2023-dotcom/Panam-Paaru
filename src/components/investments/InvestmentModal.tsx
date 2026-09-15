@@ -6,7 +6,12 @@ import { Investment, AssetType } from '../../types';
 import { TrendingUp, Layers, Calendar, DollarSign, Zap, Loader2 } from 'lucide-react';
 import { useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import { fetchAmfiNav, fetchLiveStockPrice, fetchLiveCryptoPrice } from '../../utils/liveMarketService';
+import {
+  fetchAmfiNav,
+  fetchLiveStockPrice,
+  fetchLiveCryptoPrice,
+  detectDetailedAssetType,
+} from '../../utils/liveMarketService';
 
 interface InvestmentModalProps {
   isOpen: boolean;
@@ -134,7 +139,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           try {
             const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
             if (serverRes && serverRes.price > 0) result = serverRes;
-          } catch {}
+          } catch { }
         }
       } else if (type === 'crypto') {
         // First try client-side CoinGecko
@@ -143,14 +148,14 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           try {
             const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
             if (serverRes && serverRes.price > 0) result = serverRes;
-          } catch {}
+          } catch { }
         }
       } else {
         // Stocks, Gold, Silver, ETFs — query backend action for unblocked NSE/BSE quotes
         try {
           const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
           if (serverRes && serverRes.price > 0) result = serverRes;
-        } catch {}
+        } catch { }
 
         if (!result || result.price <= 0) {
           result = await fetchLiveStockPrice(assetName);
@@ -273,13 +278,22 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        
+
         {/* Asset Name */}
         <NeoInput
           label="Investment / Asset Name"
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Parag Parikh Flexi Cap, Bitcoin, Reliance, Gold 24K"
+          onChange={(e) => {
+            const newName = e.target.value;
+            setName(newName);
+            if (!initialData && newName.trim().length >= 3) {
+              const detected = detectDetailedAssetType(newName);
+              if (detected.assetType && detected.assetType !== 'other') {
+                setAssetType(detected.assetType);
+              }
+            }
+          }}
+          placeholder="e.g. Enter fund name, stock ticker, or asset..."
           required
         />
 
@@ -549,8 +563,8 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
             {isSubmitting
               ? 'Saving...'
               : initialData
-              ? 'Update Asset'
-              : 'Add Investment'}
+                ? 'Update Asset'
+                : 'Add Investment'}
           </NeoButton>
         </div>
       </form>

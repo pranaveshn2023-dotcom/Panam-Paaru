@@ -22,7 +22,7 @@ interface BudgetModalProps {
     alertThreshold?: number;
     lowBalanceThresholdAmount?: number;
     lowBalanceThresholdPercent?: number;
-    alertTarget?: 'pocket' | 'wallet';
+    alertTarget?: 'wallet' | 'pocket';
   }) => Promise<void>;
   initialData?: Budget | null;
   categories: Category[];
@@ -127,7 +127,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
         : undefined;
 
     if (!name.trim()) {
-      setError('Please provide a budget / pocket name');
+      setError('Please provide a budget / wallet name');
       return;
     }
     if (isNaN(numAmount) || numAmount <= 0) {
@@ -138,7 +138,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
     const isTargetingWallet = alertTarget === 'wallet' && Boolean(sourceWalletId);
     if (!isTargetingWallet && numLowAmount !== undefined && numLowAmount >= numAmount) {
       if (sourceWalletId) {
-        setError(`Pocket alert threshold (${currencySymbol}${numLowAmount}) cannot exceed the pocket pool (${currencySymbol}${numAmount}). If this alert is for your bank account balance, choose "Account Balance" below.`);
+        setError(`Wallet alert threshold (${currencySymbol}${numLowAmount}) cannot exceed the wallet pool (${currencySymbol}${numAmount}). If this alert is for your bank account balance, choose "Account Balance" below.`);
       } else {
         setError(`Alert threshold amount (${currencySymbol}${numLowAmount}) must be less than the budget pool (${currencySymbol}${numAmount})`);
       }
@@ -152,7 +152,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
     try {
       setIsSubmitting(true);
       setError('');
-      
+
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Request timed out. Please check your connection.')), 8000)
       );
@@ -187,7 +187,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
   };
 
   const recurrenceOptions: { label: string; value: RecurrenceType }[] = [
-    { label: 'Daily (24h)', value: 'daily' },
+    { label: 'Daily', value: 'daily' },
     { label: 'Weekly', value: 'weekly' },
     { label: 'Monthly', value: 'monthly' },
     { label: 'Quarterly', value: 'quarterly' },
@@ -200,17 +200,17 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
       onClose={onClose}
       title={
         initialData
-          ? 'EDIT BUDGET / POCKET'
+          ? 'EDIT BUDGET'
           : isRecurring
-          ? 'CREATE RECURRING BUDGET / POCKET'
-          : 'CREATE ONE-TIME SETUP BUDGET'
+            ? 'CREATE RECURRING BUDGET'
+            : 'CREATE ONE-TIME SETUP BUDGET'
       }
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {/* Budget Name */}
         <NeoInput
-          label="Budget / Pocket Name"
+          label="Budget Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={isRecurring ? "e.g. Daily Food Pool, Monthly Dining, Coffee" : "e.g. Wedding Shopping, Trip to Goa, Renovation"}
@@ -356,23 +356,21 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             <button
               type="button"
               onClick={() => setIsRecurring(false)}
-              className={`px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 ${
-                !isRecurring
-                  ? 'bg-[#121212] text-white shadow-neo-sm'
-                  : 'bg-transparent text-neutral-600 hover:text-black'
-              }`}
+              className={`px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 ${!isRecurring
+                ? 'bg-[#121212] text-white shadow-neo-sm'
+                : 'bg-transparent text-neutral-600 hover:text-black'
+                }`}
             >
               <Layers size={13} />
-              <span>OFF (Auto-Resets Monthly)</span>
+              <span>OFF (Monthly Reset)</span>
             </button>
             <button
               type="button"
               onClick={() => setIsRecurring(true)}
-              className={`px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 ${
-                isRecurring
-                  ? 'bg-[#05DF72] text-[#121212] border border-[#121212] shadow-neo-sm'
-                  : 'bg-transparent text-neutral-600 hover:text-black'
-              }`}
+              className={`px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 ${isRecurring
+                ? 'bg-[#05DF72] text-[#121212] border border-[#121212] shadow-neo-sm'
+                : 'bg-transparent text-neutral-600 hover:text-black'
+                }`}
             >
               <RefreshCw size={13} />
               <span>ON (Recurring)</span>
@@ -393,11 +391,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
                   key={opt.value}
                   type="button"
                   onClick={() => setRecurrence(opt.value)}
-                  className={`p-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${
-                    recurrence === opt.value
-                      ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm font-black'
-                      : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
-                  }`}
+                  className={`p-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${recurrence === opt.value
+                    ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm font-black'
+                    : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
+                    }`}
                 >
                   {opt.label}
                 </button>
@@ -410,10 +407,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             <Sparkles size={16} className="text-[#121212] shrink-0 mt-0.5" />
             <div className="text-xs">
               <span className="font-black uppercase text-[#121212] block">
-                One-Time Setup Budget (Auto-Resets Monthly)
+                One-Time Setup Budget (Monthly Reset)
               </span>
               <p className="font-bold text-neutral-800 mt-0.5 leading-relaxed">
-                This budget starts with a setup pool of <span className="font-mono font-black text-[#121212]">{currencySymbol}{amount || '0'}</span>. Transactions in category <span className="underline font-black text-[#121212]">{category || 'selected'}</span> will track against this pool and automatically reset on the 1st of every month without recurring wallet deductions.
+                This budget starts with <span className="font-mono font-black text-[#121212]">{currencySymbol}{amount || '0'}</span>. Transactions in category <span className="underline font-black text-[#121212]">{category || 'selected'}</span> will track against this pool and automatically reset on the 1st of every month without recurring wallet deductions.
               </p>
             </div>
           </div>
@@ -424,42 +421,40 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs font-black uppercase text-[#121212]">
               <ShieldAlert size={14} className="text-[#FF8800]" />
-              <span>Low-Balance Top-up Alert Limit</span>
+              <span>Low-Balance Top-up </span>
             </div>
             <span className="text-[10px] font-mono font-black uppercase bg-[#FFE600] px-1.5 py-0.5 border border-[#121212]">
               {alertMode === 'amount' ? `By Amount (${currencySymbol})` : alertMode === 'percent' ? 'By Percent (%)' : 'Amount or %'}
             </span>
           </div>
 
-          {/* If a funding wallet is linked, let the user choose whether to monitor the Pocket or the Account */}
+          {/* If a funding wallet is linked, let the user choose whether to monitor the Wallet or the Account */}
           {sourceWalletId && (
             <div className="flex flex-col gap-1.5 p-2.5 bg-[#00F0FF]/15 border-2 border-[#121212] shadow-neo-sm">
               <div className="flex items-center justify-between text-[11px] font-black uppercase text-[#121212]">
                 <span>Monitor Alert On:</span>
                 <span className="text-[10px] font-mono text-neutral-700">
-                  {alertTarget === 'wallet' ? 'Bank Account Balance' : 'Pocket Allowance'}
+                  {alertTarget === 'wallet' ? 'Bank Account Balance' : 'Wallet Allowance'}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
                   onClick={() => setAlertTarget('pocket')}
-                  className={`py-1.5 px-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${
-                    alertTarget === 'pocket'
-                      ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm'
-                      : 'bg-white text-neutral-600 border-neutral-300'
-                  }`}
+                  className={`py-1.5 px-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${alertTarget === 'pocket'
+                    ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm'
+                    : 'bg-white text-neutral-600 border-neutral-300'
+                    }`}
                 >
-                  Pocket Allowance ({currencySymbol}{amount || '0'})
+                  Wallet Allowance ({currencySymbol}{amount || '0'})
                 </button>
                 <button
                   type="button"
                   onClick={() => setAlertTarget('wallet')}
-                  className={`py-1.5 px-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${
-                    alertTarget === 'wallet'
-                      ? 'bg-[#05DF72] text-[#121212] border-[#121212] shadow-neo-sm'
-                      : 'bg-white text-neutral-600 border-neutral-300'
-                  }`}
+                  className={`py-1.5 px-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center ${alertTarget === 'wallet'
+                    ? 'bg-[#05DF72] text-[#121212] border-[#121212] shadow-neo-sm'
+                    : 'bg-white text-neutral-600 border-neutral-300'
+                    }`}
                 >
                   Account Balance ({wallets.find((w) => w._id === sourceWalletId)?.name || 'Account'})
                 </button>
@@ -472,11 +467,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             <button
               type="button"
               onClick={() => setAlertMode('amount')}
-              className={`flex-1 py-1.5 px-2 text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                alertMode === 'amount'
-                  ? 'bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm'
-                  : 'bg-transparent text-neutral-600 hover:text-black'
-              }`}
+              className={`flex-1 py-1.5 px-2 text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${alertMode === 'amount'
+                ? 'bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm'
+                : 'bg-transparent text-neutral-600 hover:text-black'
+                }`}
             >
               <Coins size={12} strokeWidth={2.5} />
               <span>Amount Limit ({currencySymbol})</span>
@@ -484,11 +478,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             <button
               type="button"
               onClick={() => setAlertMode('percent')}
-              className={`flex-1 py-1.5 px-2 text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                alertMode === 'percent'
-                  ? 'bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm'
-                  : 'bg-transparent text-neutral-600 hover:text-black'
-              }`}
+              className={`flex-1 py-1.5 px-2 text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1.5 ${alertMode === 'percent'
+                ? 'bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm'
+                : 'bg-transparent text-neutral-600 hover:text-black'
+                }`}
             >
               <Percent size={12} strokeWidth={2.5} />
               <span>Percentage Limit (%)</span>
@@ -496,11 +489,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             <button
               type="button"
               onClick={() => setAlertMode('both')}
-              className={`py-1.5 px-2.5 text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                alertMode === 'both'
-                  ? 'bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm'
-                  : 'bg-transparent text-neutral-600 hover:text-black'
-              }`}
+              className={`py-1.5 px-2.5 text-xs font-black uppercase transition-all cursor-pointer flex items-center justify-center gap-1 ${alertMode === 'both'
+                ? 'bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm'
+                : 'bg-transparent text-neutral-600 hover:text-black'
+                }`}
             >
               <span>Both</span>
             </button>
@@ -514,7 +506,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
                   <Coins size={11} className="text-[#FF8800]" />
                   {alertTarget === 'wallet' && sourceWalletId
                     ? `Alert When ${wallets.find((w) => w._id === sourceWalletId)?.name || 'Account'} Balance Drops Below (${currencySymbol})`
-                    : `Alert When Remaining Pocket Balance Drops Below (${currencySymbol})`}
+                    : `Alert When Remaining Wallet Balance Drops Below (${currencySymbol})`}
                 </label>
                 <div className="relative flex items-center">
                   <span className="absolute left-2.5 text-xs font-mono font-black text-neutral-500 pointer-events-none">
@@ -534,7 +526,7 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
                 <p className="text-[10px] font-bold text-neutral-600">
                   {alertTarget === 'wallet' && sourceWalletId
                     ? `Warning triggers when your bank account balance drops to or below ${currencySymbol}${lowAmount || '0'}. Add money to account.`
-                    : `Warning triggers when remaining pocket funds drop to or below ${currencySymbol}${lowAmount || '0'}.`}
+                    : `Warning triggers when remaining wallet funds drop to or below ${currencySymbol}${lowAmount || '0'}.`}
                 </p>
               </div>
             )}
@@ -583,10 +575,10 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
             {isSubmitting
               ? 'Saving...'
               : initialData
-              ? 'Update Budget'
-              : isRecurring
-              ? 'Create Recurring Budget'
-              : 'Create One-Time Budget'}
+                ? 'Update Budget'
+                : isRecurring
+                  ? 'Create Recurring Budget'
+                  : 'Create One-Time Budget'}
           </NeoButton>
         </div>
       </form>

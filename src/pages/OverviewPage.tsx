@@ -364,7 +364,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                   <CalendarSync size={14} />
                 </div>
                 <h3 className="text-sm font-black uppercase text-[#121212] tracking-wider">
-                  Active Budgets & Pockets ({budgets.length})
+                  Active Budgets & Wallets ({budgets.length})
                 </h3>
               </div>
               <button

@@ -35,6 +35,7 @@ interface TransactionFormModalProps {
     transferToWalletId?: string;
   }) => Promise<void>;
   initialData?: Transaction | null;
+  defaultType?: TransactionType;
   categories: Category[];
   wallets?: Wallet[];
   currencySymbol?: string;
@@ -51,6 +52,7 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
   onClose,
   onSubmit,
   initialData,
+  defaultType = 'expense',
   categories,
   wallets = [],
   currencySymbol = '₹',
@@ -85,11 +87,14 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
       setWalletId(initialData.walletId || defaultWallet?._id || '');
       setTransferToWalletId(initialData.transferToWalletId || secondWallet?._id || '');
     } else {
-      setType('expense');
+      const activeType = defaultType || 'expense';
+      setType(activeType);
       setTitle('');
       setAmount('');
       setCalcExpression('');
-      setCategory(categories.find((c) => c.type === 'expense')?.name || 'Food & Dining');
+      const defaultCat = categories.find((c) => c.type === activeType)?.name ||
+        (activeType === 'income' ? 'Salary & Wages' : activeType === 'transfer' ? 'Transfer' : 'Food & Dining');
+      setCategory(defaultCat);
       setDate(new Date().toISOString().slice(0, 10));
       setNotes('');
       setWalletId(defaultWallet?._id || '');
@@ -97,7 +102,7 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
     }
     setShowCalculator(false);
     setError('');
-  }, [initialData, isOpen, categories, wallets]);
+  }, [initialData, isOpen, defaultType, categories, wallets]);
 
   const handleKeypadPress = (btn: string) => {
     if (btn === 'C') {

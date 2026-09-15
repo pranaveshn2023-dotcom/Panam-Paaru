@@ -28,7 +28,7 @@ const WALLET_TYPES: { type: WalletType; label: string; icon: string; defaultColo
   { type: 'cash', label: 'Cash in Hand', icon: 'Banknote', defaultColor: '#05DF72' },
   { type: 'card', label: 'Credit/Debit Card', icon: 'CreditCard', defaultColor: '#FF4343' },
   { type: 'wallet', label: 'Digital Wallet / UPI', icon: 'Wallet', defaultColor: '#FFE600' },
-  { type: 'savings', label: 'Savings Pocket', icon: 'PiggyBank', defaultColor: '#9B51E0' },
+  { type: 'savings', label: 'Savings Wallet', icon: 'wallet', defaultColor: '#9B51E0' },
   { type: 'investment', label: 'Investment Demat', icon: 'TrendingUp', defaultColor: '#FFD700' },
 ];
 
@@ -146,7 +146,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
           label="Account / Wallet Name *"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. HDFC Salary Account, Pocket Cash, ICICI Amazon Pay"
+          placeholder="e.g. Salary Account, Wallet Cash, ICICI Amazon Pay"
           required
         />
 
@@ -163,11 +163,10 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                   key={wt.type}
                   type="button"
                   onClick={() => handleTypeSelect(wt.type)}
-                  className={`p-2.5 border-2 border-[#121212] flex items-center gap-2.5 transition-all cursor-pointer text-left ${
-                    isSelected
-                      ? 'bg-[#121212] text-white shadow-neo-sm'
-                      : 'bg-white text-[#121212] hover:bg-[#FFFDF5]'
-                  }`}
+                  className={`p-2.5 border-2 border-[#121212] flex items-center gap-2.5 transition-all cursor-pointer text-left ${isSelected
+                    ? 'bg-[#121212] text-white shadow-neo-sm'
+                    : 'bg-white text-[#121212] hover:bg-[#FFFDF5]'
+                    }`}
                 >
                   <div
                     className="w-6 h-6 border border-[#121212] flex items-center justify-center shrink-0"
@@ -230,9 +229,8 @@ export const WalletModal: React.FC<WalletModalProps> = ({
                 key={c}
                 type="button"
                 onClick={() => setColor(c)}
-                className={`w-8 h-8 border-2 border-[#121212] transition-all cursor-pointer ${
-                  color === c ? 'scale-110 ring-2 ring-[#121212] shadow-neo-sm' : 'opacity-80 hover:opacity-100'
-                }`}
+                className={`w-8 h-8 border-2 border-[#121212] transition-all cursor-pointer ${color === c ? 'scale-110 ring-2 ring-[#121212] shadow-neo-sm' : 'opacity-80 hover:opacity-100'
+                  }`}
                 style={{ backgroundColor: c }}
               />
             ))}

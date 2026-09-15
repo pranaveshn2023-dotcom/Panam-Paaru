@@ -36,7 +36,10 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // Sync with cloud pinStatus as soon as query resolves
   useEffect(() => {
-    if (pinStatus !== undefined && !hasInitialized) {
+    if (pinStatus === null) {
+      setIsLocked(false);
+      setHasInitialized(false);
+    } else if (pinStatus !== undefined && !hasInitialized) {
       if (pinStatus?.pinEnabled) {
         setIsLocked(true);
       } else {

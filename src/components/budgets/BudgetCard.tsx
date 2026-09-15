@@ -96,7 +96,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
           <button
             onClick={() => setIsTopUpOpen((prev) => !prev)}
             className="p-1.5 bg-[#05DF72] hover:bg-[#04C966] text-[#121212] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center gap-1 text-[11px] font-black"
-            title="Reload Funds into this Pocket"
+            title="Reload Funds into this Wallet"
           >
             <PlusCircle size={13} strokeWidth={2.5} />
             <span className="hidden sm:inline">Reload</span>

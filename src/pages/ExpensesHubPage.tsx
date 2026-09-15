@@ -118,7 +118,7 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
     },
     {
       id: 'budgets' as ExpenseSubTab,
-      label: 'Budgets & Pockets',
+      label: 'Budgets & Wallets',
       shortLabel: 'Budgets',
       badge: safeBudgets.length,
       icon: CalendarSync,

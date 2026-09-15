@@ -1009,23 +1009,72 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         );
         if (!stringCell) continue;
 
-        const numCells = row.map(parseCleanNumber).filter((n: number) => n > 100 && n < 500000000);
-        if (numCells.length >= 1) {
-          const invested = numCells[0];
-          const current = numCells.length >= 2 ? numCells[1] : invested;
-          const detailed = detectDetailedAssetType(String(stringCell));
+        const parsedNums: { val: number; colIdx: number }[] = [];
+        row.forEach((cell: any, cIdx: number) => {
+          const num = parseCleanNumber(cell);
+          if (num > 0 && num < 500000000) {
+            parsedNums.push({ val: num, colIdx: cIdx });
+          }
+        });
 
-          holdings.push({
-            id: `pos_${sheet.sheetName}_${r}_${Date.now()}`,
-            name: String(stringCell).trim(),
-            assetType: detailed.assetType,
-            subType: detailed.subType,
-            sector: undefined,
-            investedAmount: cleanCurrency(Math.abs(invested)),
-            currentValue: cleanCurrency(Math.abs(current)),
-            selected: true,
-            isValid: true,
-          });
+        if (parsedNums.length >= 1) {
+          let units: number | undefined = undefined;
+          let currentPrice: number | undefined = undefined;
+          let invested = 0;
+          let current = 0;
+
+          if (parsedNums.length >= 3) {
+            const [n1, n2, n3] = parsedNums.map((p) => p.val);
+            // Case A: Qty * Price ≈ Total Value
+            if (Math.abs(n1 * n2 - n3) < Math.max(1, n3 * 0.05)) {
+              units = n1;
+              currentPrice = n2;
+              invested = n3;
+              current = n3;
+            } else if (parsedNums.length >= 4) {
+              // Case B: Qty, Buy Price, Invested, Current Value
+              const n4 = parsedNums[3].val;
+              units = n1;
+              currentPrice = n2;
+              invested = n3;
+              current = n4;
+            } else {
+              // Units, Invested, Current
+              units = n1 < 100000 ? n1 : undefined;
+              invested = n2;
+              current = n3;
+            }
+          } else if (parsedNums.length === 2) {
+            const [n1, n2] = parsedNums.map((p) => p.val);
+            if (n1 < 10000 && n2 >= 100) {
+              units = n1;
+              invested = n2;
+              current = n2;
+            } else {
+              invested = n1;
+              current = n2;
+            }
+          } else {
+            invested = parsedNums[0].val;
+            current = parsedNums[0].val;
+          }
+
+          if (invested > 0 || current > 0) {
+            const detailed = detectDetailedAssetType(String(stringCell));
+            holdings.push({
+              id: `pos_${sheet.sheetName}_${r}_${Date.now()}`,
+              name: String(stringCell).trim(),
+              assetType: detailed.assetType,
+              subType: detailed.subType,
+              sector: undefined,
+              units: units ? cleanUnits(units) : undefined,
+              currentPrice: currentPrice ? cleanNavPrice(currentPrice, detailed.assetType === 'mutual_fund') : undefined,
+              investedAmount: cleanCurrency(Math.abs(invested)),
+              currentValue: cleanCurrency(Math.abs(current)),
+              selected: true,
+              isValid: true,
+            });
+          }
         }
       }
     }

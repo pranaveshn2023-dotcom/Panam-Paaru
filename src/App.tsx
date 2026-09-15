@@ -81,8 +81,16 @@ export function AppContent() {
       setActiveTab(tab as NavTab);
     }
   }, []);
+
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
+  const [transactionDefaultType, setTransactionDefaultType] = useState<TransactionType>('expense');
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+
+  const handleOpenTransactionModal = useCallback((defaultType: TransactionType = 'expense') => {
+    setEditingTransaction(null);
+    setTransactionDefaultType(defaultType);
+    setIsTransactionModalOpen(true);
+  }, []);
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [isInvestmentModalOpen, setIsInvestmentModalOpen] = useState(false);
@@ -156,7 +164,7 @@ export function AppContent() {
     if (cloudUser?._id) {
       offlineStorage.setCurrentUser(cloudUser._id);
     } else if (!isAuthenticated) {
-      offlineStorage.setCurrentUser(null);
+      offlineStorage.clearActiveSession();
     }
   }, [cloudUser?._id, isAuthenticated]);
 
@@ -187,8 +195,7 @@ export function AppContent() {
 
       if (e.key === 'n' || e.key === 'N') {
         e.preventDefault();
-        setEditingTransaction(null);
-        setIsTransactionModalOpen(true);
+        handleOpenTransactionModal('expense');
       } else if (e.key === 'b' || e.key === 'B') {
         e.preventDefault();
         setEditingBudget(null);
@@ -527,7 +534,7 @@ export function AppContent() {
     category: string; recurrence: RecurrenceType; startDate: string;
     alertThreshold?: number; lowBalanceThresholdAmount?: number;
     lowBalanceThresholdPercent?: number;
-    alertTarget?: 'pocket' | 'wallet';
+    alertTarget?: 'wallet' | 'pocket';
     sourceWalletId?: string; autoDeductFromWallet?: boolean;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
@@ -798,10 +805,7 @@ export function AppContent() {
         user={user}
         alertCount={budgets.filter((b) => b.isOverBudget || b.isLowAmount || b.isLowPercent || b.isWarning).length}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
-        onOpenTransactionModal={() => {
-          setEditingTransaction(null);
-          setIsTransactionModalOpen(true);
-        }}
+        onOpenTransactionModal={() => handleOpenTransactionModal('expense')}
         onOpenPinSetup={() => setIsPinSetupModalOpen(true)}
       />
 
@@ -818,10 +822,7 @@ export function AppContent() {
             <OverviewPage
               stats={stats} transactions={transactions} budgets={budgets}
               categories={categories} wallets={wallets} walletSummary={walletSummary}
-              onOpenAddModal={(defaultType) => {
-                setEditingTransaction(null);
-                setIsTransactionModalOpen(true);
-              }}
+              onOpenAddModal={(defaultType) => handleOpenTransactionModal(defaultType || 'expense')}
               onOpenBudgetModal={() => { setEditingBudget(null); setIsBudgetModalOpen(true); }}
               onOpenTransferModal={() => {
                 setDefaultTransferSourceWalletId(undefined);
@@ -839,7 +840,7 @@ export function AppContent() {
               transactions={transactions}
               categories={categories}
               user={user}
-              onOpenAddTransactionModal={() => { setEditingTransaction(null); setIsTransactionModalOpen(true); }}
+              onOpenAddTransactionModal={() => handleOpenTransactionModal('expense')}
               onEditTransaction={(tx) => { setEditingTransaction(tx); setIsTransactionModalOpen(true); }}
               onDeleteTransaction={handleDeleteTransaction}
               wallets={wallets}
@@ -886,13 +887,14 @@ export function AppContent() {
 
       <BottomNav
         activeTab={activeTab} onSelectTab={setActiveTab}
-        onOpenAddModal={() => { setEditingTransaction(null); setIsTransactionModalOpen(true); }}
+        onOpenAddModal={() => handleOpenTransactionModal('expense')}
       />
 
       <TransactionFormModal
         isOpen={isTransactionModalOpen}
         onClose={() => { setIsTransactionModalOpen(false); setEditingTransaction(null); }}
         onSubmit={handleSaveTransaction} initialData={editingTransaction}
+        defaultType={transactionDefaultType}
         categories={categories} wallets={wallets} currencySymbol={currencySymbol}
         onCreateCategory={handleCreateCategory}
       />
