@@ -3,7 +3,19 @@ import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
 import { Investment, AssetType } from '../../types';
-import { TrendingUp, Layers, Calendar, DollarSign, Zap, Loader2 } from 'lucide-react';
+import {
+  TrendingUp,
+  Layers,
+  Calendar,
+  DollarSign,
+  Zap,
+  Loader2,
+  Plus,
+  CheckCircle2,
+  ArrowRight,
+  Edit3,
+  RefreshCw,
+} from 'lucide-react';
 import { useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import {
@@ -13,7 +25,7 @@ import {
   detectDetailedAssetType,
 } from '../../utils/liveMarketService';
 
-interface InvestmentModalProps {
+export interface InvestmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: {
@@ -28,9 +40,12 @@ interface InvestmentModalProps {
     sipDay?: number;
     xirr?: string;
     notes?: string;
+    existingIdToMerge?: string;
   }) => Promise<void>;
   initialData?: Investment | null;
   currencySymbol?: string;
+  existingInvestments?: Investment[];
+  isTopUpMode?: boolean;
 }
 
 const ASSET_TYPES: { label: string; value: AssetType; colorVar: string; desc: string }[] = [
@@ -44,12 +59,32 @@ const ASSET_TYPES: { label: string; value: AssetType; colorVar: string; desc: st
   { label: 'Other Assets', value: 'other', colorVar: 'var(--neo-border)', desc: 'Bonds, P2P, Angel, Art' },
 ];
 
+function findMatchingExistingHolding(query: string, holdings: Investment[]): Investment | null {
+  if (!query || query.trim().length < 3 || !holdings || holdings.length === 0) return null;
+  const cleanQ = query.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const qWords = query.toLowerCase().split(/[\s-_/]+/).filter((w) => w.length > 2);
+
+  for (const h of holdings) {
+    const cleanH = h.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (cleanH === cleanQ || cleanH.includes(cleanQ) || cleanQ.includes(cleanH)) return h;
+
+    const hWords = h.name.toLowerCase().split(/[\s-_/]+/).filter((w) => w.length > 2);
+    const matchedCount = qWords.filter((w) => hWords.includes(w)).length;
+    if (matchedCount >= 2 && matchedCount >= Math.min(qWords.length, 3)) {
+      return h;
+    }
+  }
+  return null;
+}
+
 export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
   initialData,
   currencySymbol = '₹',
+  existingInvestments = [],
+  isTopUpMode: initialTopUpMode = false,
 }) => {
   const [name, setName] = useState('');
   const [assetType, setAssetType] = useState<AssetType>('mutual_fund');
@@ -64,6 +99,13 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // ── Top-Up Mode State ──
+  const [mode, setMode] = useState<'normal' | 'topup'>('normal');
+  const [matchedHolding, setMatchedHolding] = useState<Investment | null>(null);
+  const [dismissedMatchId, setDismissedMatchId] = useState<string | null>(null);
+  const [topUpAmount, setTopUpAmount] = useState<string>('');
+  const [topUpUnits, setTopUpUnits] = useState<string>('');
 
   // ── Real-time price fetching state ──
   const [isFetchingPrice, setIsFetchingPrice] = useState(false);
@@ -89,6 +131,16 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setNotes(initialData.notes || '');
       setLivePrice(initialData.currentPrice || null);
       setLivePriceSymbol(initialData.name);
+
+      if (initialTopUpMode) {
+        setMatchedHolding(initialData);
+        setMode('topup');
+        setTopUpAmount('');
+        setTopUpUnits('');
+      } else {
+        setMatchedHolding(null);
+        setMode('normal');
+      }
     } else {
       setName('');
       setAssetType('mutual_fund');
@@ -103,9 +155,14 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setNotes('');
       setLivePrice(null);
       setLivePriceSymbol('');
+      setMatchedHolding(null);
+      setDismissedMatchId(null);
+      setMode('normal');
+      setTopUpAmount('');
+      setTopUpUnits('');
     }
     setError('');
-  }, [initialData, isOpen]);
+  }, [initialData, isOpen, initialTopUpMode]);
 
   const investedAmountRef = useRef(investedAmount);
   investedAmountRef.current = investedAmount;
@@ -128,7 +185,6 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       return;
     }
 
-    // FD/RD, PPF/EPF, Real Estate, and Other don't have live market prices
     if (type === 'fd_rd' || type === 'ppf_epf' || type === 'real_estate' || type === 'other') {
       setLivePrice(null);
       setLivePriceSymbol('');
@@ -142,19 +198,16 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       let result: { price: number; prevClose?: number; symbol?: string } | null = null;
 
       if (type === 'mutual_fund') {
-        // Fast direct AMFI lookup (works natively with CORS in browser)
         const mf = await fetchAmfiNav(assetName);
         if (mf && mf.nav > 0) {
           result = { price: mf.nav, symbol: mf.schemeName };
         } else {
-          // Backend server action with direct Yahoo Finance & AMFI access
           try {
             const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
             if (serverRes && serverRes.price > 0) result = serverRes;
           } catch { }
         }
       } else if (type === 'crypto') {
-        // First try client-side CoinGecko
         result = await fetchLiveCryptoPrice(assetName);
         if (!result || result.price <= 0) {
           try {
@@ -163,7 +216,6 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           } catch { }
         }
       } else {
-        // Stocks, Gold, Silver, ETFs — query backend action for unblocked NSE/BSE quotes
         try {
           const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
           if (serverRes && serverRes.price > 0) result = serverRes;
@@ -174,7 +226,6 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         }
       }
 
-      // Discard if a newer request has been fired
       if (id !== fetchIdRef.current) return;
 
       if (result && result.price > 0) {
@@ -182,7 +233,6 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         setLivePriceSymbol(result.symbol || '');
         setCurrentPrice(String(result.price));
 
-        // Dynamically auto-compute units & current value based on latest user input
         const numInv = parseFloat(investedAmountRef.current);
         const numUnits = parseFloat(unitsRef.current);
         const numBuy = parseFloat(buyPriceRef.current);
@@ -190,12 +240,19 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         if (!isNaN(numUnits) && numUnits > 0) {
           const computedVal = Math.round(numUnits * result.price * 100) / 100;
           setCurrentValue(String(computedVal));
+          if (!isNaN(numInv) && numInv > 0 && isNaN(numBuy)) {
+            const avgBuy = Math.round((numInv / numUnits) * 10000) / 10000;
+            setBuyPrice(String(avgBuy));
+          }
         } else if (!isNaN(numInv) && numInv > 0) {
           const effPrice = !isNaN(numBuy) && numBuy > 0 ? numBuy : result.price;
           const derivedUnits = Math.round((numInv / effPrice) * 10000) / 10000;
           setUnits(String(derivedUnits));
           const computedVal = Math.round(derivedUnits * result.price * 100) / 100;
           setCurrentValue(String(computedVal));
+          if (isNaN(numBuy) || numBuy <= 0) {
+            setBuyPrice(String(result.price));
+          }
         }
       } else {
         setLivePrice(null);
@@ -233,36 +290,53 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     };
   }, [name, assetType, doFetchLivePrice]);
 
-  // Dynamic cross-calculation handlers
+  // ── Dynamic cross-calculation handlers ──
   const handleInvestedAmountChange = (val: string) => {
     setInvestedAmount(val);
     const numInv = parseFloat(val);
+    const numUnits = parseFloat(units);
     const numBuy = parseFloat(buyPrice);
     const activePrice = livePrice ?? (currentPrice ? parseFloat(currentPrice) : null);
-    const effPrice = !isNaN(numBuy) && numBuy > 0 ? numBuy : activePrice;
 
-    if (!isNaN(numInv) && numInv > 0 && effPrice && effPrice > 0) {
-      const derivedUnits = Math.round((numInv / effPrice) * 10000) / 10000;
-      setUnits(String(derivedUnits));
-      if (activePrice && activePrice > 0) {
-        const computedVal = Math.round(derivedUnits * activePrice * 100) / 100;
-        setCurrentValue(String(computedVal));
+    if (!isNaN(numInv) && numInv > 0) {
+      if (!isNaN(numUnits) && numUnits > 0) {
+        // Both invested amount and units are present -> auto-calculate Buy Price per unit
+        const avgBuy = Math.round((numInv / numUnits) * 10000) / 10000;
+        setBuyPrice(String(avgBuy));
+        if (activePrice && activePrice > 0) {
+          const computedVal = Math.round(numUnits * activePrice * 100) / 100;
+          setCurrentValue(String(computedVal));
+        }
       } else {
-        setCurrentValue(val);
+        // Units is not set -> derive units from Buy Price or Live NAV
+        const effPrice = !isNaN(numBuy) && numBuy > 0 ? numBuy : activePrice;
+        if (effPrice && effPrice > 0) {
+          const derivedUnits = Math.round((numInv / effPrice) * 10000) / 10000;
+          setUnits(String(derivedUnits));
+          if (activePrice && activePrice > 0) {
+            const computedVal = Math.round(derivedUnits * activePrice * 100) / 100;
+            setCurrentValue(String(computedVal));
+          } else {
+            setCurrentValue(val);
+          }
+          if (isNaN(numBuy) || numBuy <= 0) {
+            setBuyPrice(String(effPrice));
+          }
+        } else {
+          setCurrentValue(val);
+        }
       }
     } else if (!val) {
       setUnits('');
       setCurrentValue('');
-    } else if (!effPrice) {
-      if (!currentValue || currentValue === investedAmount) {
-        setCurrentValue(val);
-      }
+      setBuyPrice('');
     }
   };
 
   const handleUnitsChange = (val: string) => {
     setUnits(val);
     const numUnits = parseFloat(val);
+    const numInv = parseFloat(investedAmount);
     const numBuy = parseFloat(buyPrice);
     const activePrice = livePrice ?? (currentPrice ? parseFloat(currentPrice) : null);
 
@@ -271,12 +345,18 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         const computedVal = Math.round(numUnits * activePrice * 100) / 100;
         setCurrentValue(String(computedVal));
       }
-      if (!isNaN(numBuy) && numBuy > 0) {
+
+      if (!isNaN(numInv) && numInv > 0) {
+        // Both invested amount and units exist -> auto calculate average buy price
+        const avgBuy = Math.round((numInv / numUnits) * 10000) / 10000;
+        setBuyPrice(String(avgBuy));
+      } else if (!isNaN(numBuy) && numBuy > 0) {
         const computedInv = Math.round(numUnits * numBuy * 100) / 100;
         setInvestedAmount(String(computedInv));
-      } else if (!investedAmount && activePrice && activePrice > 0) {
+      } else if (activePrice && activePrice > 0) {
         const computedInv = Math.round(numUnits * activePrice * 100) / 100;
         setInvestedAmount(String(computedInv));
+        setBuyPrice(String(activePrice));
       }
     }
   };
@@ -324,8 +404,77 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     }
   };
 
+  // ── Top-up specific calculations ──
+  const effectiveNavForTopUp = livePrice ?? (currentPrice ? parseFloat(currentPrice) : (matchedHolding?.currentPrice || (matchedHolding && matchedHolding.units ? matchedHolding.currentValue / matchedHolding.units : 1)));
+
+  const handleTopUpAmountChange = (val: string) => {
+    setTopUpAmount(val);
+    const num = parseFloat(val);
+    if (!isNaN(num) && num > 0 && effectiveNavForTopUp > 0) {
+      const derived = Math.round((num / effectiveNavForTopUp) * 10000) / 10000;
+      setTopUpUnits(String(derived));
+    } else if (!val) {
+      setTopUpUnits('');
+    }
+  };
+
+  const handleTopUpUnitsChange = (val: string) => {
+    setTopUpUnits(val);
+    const num = parseFloat(val);
+    if (!isNaN(num) && num > 0 && effectiveNavForTopUp > 0) {
+      const derived = Math.round(num * effectiveNavForTopUp * 100) / 100;
+      setTopUpAmount(String(derived));
+    } else if (!val) {
+      setTopUpAmount('');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (mode === 'topup' && matchedHolding) {
+      const addAmt = parseFloat(topUpAmount);
+      if (isNaN(addAmt) || addAmt <= 0) {
+        setError('Please enter a valid additional amount to invest');
+        return;
+      }
+
+      const addU = topUpUnits ? parseFloat(topUpUnits) : (effectiveNavForTopUp > 0 ? addAmt / effectiveNavForTopUp : 0);
+      const existingUnits = matchedHolding.units || 0;
+      const existingInvested = matchedHolding.investedAmount || 0;
+
+      const newTotalUnits = Math.round((existingUnits + addU) * 10000) / 10000;
+      const newTotalInvested = Math.round((existingInvested + addAmt) * 100) / 100;
+      const newAvgBuyPrice = newTotalUnits > 0 ? Math.round((newTotalInvested / newTotalUnits) * 10000) / 10000 : undefined;
+      const effNav = effectiveNavForTopUp > 0 ? effectiveNavForTopUp : (matchedHolding.currentPrice || 1);
+      const newTotalCurrentValue = Math.round(newTotalUnits * effNav * 100) / 100;
+
+      try {
+        setIsSubmitting(true);
+        setError('');
+        await onSubmit({
+          name: matchedHolding.name,
+          assetType: matchedHolding.assetType,
+          investedAmount: newTotalInvested,
+          currentValue: newTotalCurrentValue,
+          units: newTotalUnits > 0 ? newTotalUnits : undefined,
+          buyPrice: newAvgBuyPrice,
+          currentPrice: effNav,
+          sipAmount: matchedHolding.sipAmount,
+          sipDay: matchedHolding.sipDay,
+          xirr: matchedHolding.xirr,
+          notes: matchedHolding.notes,
+          existingIdToMerge: matchedHolding._id,
+        });
+        setIsSubmitting(false);
+        onClose();
+      } catch (err: any) {
+        setIsSubmitting(false);
+        setError(err?.message || 'Failed to top up holding. Please try again.');
+      }
+      return;
+    }
+
     const numInvested = parseFloat(investedAmount);
     const numCurrent = currentValue ? parseFloat(currentValue) : numInvested;
     const numUnits = units ? parseFloat(units) : undefined;
@@ -377,276 +526,415 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   };
 
   const hasAutoValue = !!(livePrice && units && parseFloat(units) > 0);
+  const autoBuyPriceCalculated = !!(units && parseFloat(units) > 0 && investedAmount && parseFloat(investedAmount) > 0);
 
   return (
     <NeoModal
       isOpen={isOpen}
       onClose={onClose}
-      title={initialData ? 'EDIT INVESTMENT ASSET' : 'ADD INVESTMENT ASSET'}
+      title={
+        mode === 'topup' && matchedHolding
+          ? `TOP UP: ${matchedHolding.name.substring(0, 24)}...`
+          : initialData
+          ? 'EDIT INVESTMENT ASSET'
+          : 'ADD INVESTMENT ASSET'
+      }
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-
-        {/* Asset Name */}
-        <NeoInput
-          label="Investment / Asset Name"
-          value={name}
-          onChange={(e) => {
-            const newName = e.target.value;
-            setName(newName);
-            if (!initialData && newName.trim().length >= 3) {
-              const detected = detectDetailedAssetType(newName);
-              if (detected.assetType && detected.assetType !== 'other') {
-                setAssetType(detected.assetType);
-              }
-            }
-          }}
-          placeholder="e.g. Enter fund name, stock ticker, or asset..."
-          required
-        />
-
-        {/* Asset Classification Selector */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-black uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--neo-border)' }}>
-            <Layers size={13} />
-            Asset Class *
-          </label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-            {ASSET_TYPES.map((type) => (
+        {/* ── TOP-UP MODE ACTIVE BANNER ── */}
+        {mode === 'topup' && matchedHolding && (
+          <div className="p-3.5 bg-[#E8F8F0] border-[3px] border-[#05DF72] shadow-neo-sm flex flex-col gap-2.5 animate-in fade-in">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase text-[#0B6B38] flex items-center gap-1.5">
+                <CheckCircle2 size={15} />
+                Topping Up Existing Holding
+              </span>
               <button
-                key={type.value}
                 type="button"
-                onClick={() => setAssetType(type.value)}
-                className="p-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center truncate"
-                style={
-                  assetType === type.value
-                    ? { background: 'var(--neo-border)', color: 'var(--neo-yellow)', borderColor: 'var(--neo-border)', boxShadow: '3px 3px 0 var(--neo-border)' }
-                    : { background: 'white', color: '#555', borderColor: '#ccc' }
-                }
+                onClick={() => setMode('normal')}
+                className="text-[10px] font-bold text-neutral-600 hover:text-neutral-900 underline cursor-pointer"
               >
-                {type.label}
+                Switch to Separate Asset
               </button>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {/* ── Live Price Indicator Badge ── */}
-        {(isFetchingPrice || livePrice) && (
-          <div
-            className="flex items-center gap-2 px-3 py-2 border-2 text-xs font-black rounded-sm"
-            style={{
-              background: livePrice ? 'linear-gradient(135deg, #e8fdf0, #f0fdf4)' : '#fafafa',
-              borderColor: livePrice ? '#05DF72' : '#ddd',
-            }}
-          >
-            {isFetchingPrice ? (
-              <>
-                <Loader2 size={14} className="animate-spin" style={{ color: '#888' }} />
-                <span style={{ color: '#888' }}>Fetching live market price...</span>
-              </>
-            ) : livePrice ? (
-              <>
-                <span
-                  style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: '#05DF72', display: 'inline-block',
-                    boxShadow: '0 0 6px #05DF72',
-                    animation: 'pulse 2s infinite',
-                  }}
-                />
-                <Zap size={13} style={{ color: '#05DF72' }} />
-                <span style={{ color: '#121212' }}>
-                  LIVE: {currencySymbol}{livePrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                </span>
-                {livePriceSymbol && (
-                  <span style={{ color: '#888', fontWeight: 600, fontSize: 10 }}>
-                    ({livePriceSymbol.length > 30 ? livePriceSymbol.substring(0, 30) + '…' : livePriceSymbol})
+            <div className="bg-white p-2.5 border-2 border-[#121212] flex flex-col gap-1">
+              <span className="text-xs font-black uppercase text-[#121212] truncate">{matchedHolding.name}</span>
+              <div className="flex items-center gap-2 text-[11px] font-mono text-neutral-700 flex-wrap">
+                <span>Holdings: <strong>{matchedHolding.units || 0} units</strong></span>
+                <span>•</span>
+                <span>Basis: <strong>{currencySymbol}{matchedHolding.investedAmount.toLocaleString('en-IN')}</strong></span>
+                <span>•</span>
+                <span>NAV: <strong>{currencySymbol}{effectiveNavForTopUp.toFixed(4)}</strong></span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-black uppercase text-[#121212]">
+                  Additional Capital to Add ({currencySymbol}) *
+                </label>
+                <div className="relative flex items-center">
+                  <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
+                    {currencySymbol}
                   </span>
-                )}
-              </>
-            ) : null}
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={topUpAmount}
+                    onChange={(e) => handleTopUpAmountChange(e.target.value)}
+                    placeholder="e.g. 999.00"
+                    className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black"
+                    autoFocus
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-black uppercase text-[#121212]">
+                  Additional Units (Auto-Derived)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={topUpUnits}
+                  onChange={(e) => handleTopUpUnitsChange(e.target.value)}
+                  placeholder="Auto-calculated from NAV"
+                  className="neo-input px-3 py-2 text-base font-mono font-black"
+                />
+              </div>
+            </div>
+
+            {topUpAmount && parseFloat(topUpAmount) > 0 && (
+              <div className="p-2.5 bg-white border border-[#05DF72] text-[11px] font-mono flex flex-col gap-1">
+                <span className="font-bold text-[#0B6B38]">New Holding After Top-Up:</span>
+                <div className="grid grid-cols-2 gap-1 text-neutral-800">
+                  <span>New Basis: <strong>{currencySymbol}{(matchedHolding.investedAmount + (parseFloat(topUpAmount) || 0)).toFixed(2)}</strong></span>
+                  <span>New Units: <strong>{((matchedHolding.units || 0) + (parseFloat(topUpUnits) || 0)).toFixed(4)} units</strong></span>
+                  <span>New Avg Buy: <strong>{currencySymbol}{(((matchedHolding.investedAmount + (parseFloat(topUpAmount) || 0)) / ((matchedHolding.units || 0) + (parseFloat(topUpUnits) || 0))) || 0).toFixed(2)}</strong></span>
+                  <span>New Valuation: <strong>{currencySymbol}{(((matchedHolding.units || 0) + (parseFloat(topUpUnits) || 0)) * effectiveNavForTopUp).toFixed(2)}</strong></span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Invested Capital vs Current Valuation */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-black uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--neo-border)' }}>
-              <DollarSign size={13} />
-              Invested Capital ({currencySymbol}) *
-            </label>
-            <div className="relative flex items-center">
-              <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
-                {currencySymbol}
-              </span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={investedAmount}
-                onChange={(e) => handleInvestedAmountChange(e.target.value)}
-                placeholder="0.00"
-                className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black"
-                style={{ color: 'var(--neo-border)' }}
+        {/* ── NORMAL MODE INPUTS ── */}
+        {mode === 'normal' && (
+          <>
+            {/* Asset Name */}
+            <div className="flex flex-col gap-1.5">
+              <NeoInput
+                label="Investment / Asset Name"
+                value={name}
+                onChange={(e) => {
+                  const newName = e.target.value;
+                  setName(newName);
+                  if (!initialData && newName.trim().length >= 3) {
+                    const detected = detectDetailedAssetType(newName);
+                    if (detected.assetType && detected.assetType !== 'other') {
+                      setAssetType(detected.assetType);
+                    }
+                    const matched = findMatchingExistingHolding(newName, existingInvestments);
+                    if (matched && matched._id !== dismissedMatchId) {
+                      setMatchedHolding(matched);
+                    } else if (!matched) {
+                      setMatchedHolding(null);
+                    }
+                  }
+                }}
+                placeholder="e.g. Enter fund name, stock ticker, or asset..."
                 required
               />
-            </div>
-          </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-black uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--neo-border)' }}>
-              <TrendingUp size={13} style={{ color: 'var(--neo-green)' }} />
-              Current Value ({currencySymbol}) *
-              {hasAutoValue && (
-                <span className="text-[9px] font-bold ml-1 px-1 py-0.5" style={{ color: '#fff', background: '#05DF72', borderRadius: 2 }}>AUTO</span>
+              {/* Matching Existing Holding Banner in Normal Mode */}
+              {matchedHolding && !initialData && dismissedMatchId !== matchedHolding._id && (
+                <div className="p-3 bg-[#E8F8F0] border-2 border-[#05DF72] shadow-neo-sm flex flex-col gap-2 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase text-[#0B6B38] flex items-center gap-1">
+                      <CheckCircle2 size={14} />
+                      Existing Holding Found: {matchedHolding.name}
+                    </span>
+                    <span className="text-[10px] font-mono font-bold bg-[#05DF72] text-[#121212] px-1.5 py-0.5">
+                      {matchedHolding.units || 0} units
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-600 font-medium">
+                    Current Basis: {currencySymbol}{matchedHolding.investedAmount.toLocaleString('en-IN')} • Value: {currencySymbol}{matchedHolding.currentValue.toLocaleString('en-IN')}
+                  </p>
+                  <div className="flex items-center gap-2 pt-1 border-t border-[#05DF72]/40 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setMode('topup')}
+                      className="px-3 py-1 bg-[#05DF72] hover:bg-[#04c463] text-[#121212] border border-[#121212] text-xs font-black uppercase shadow-neo-sm cursor-pointer"
+                    >
+                      Top Up Existing Holding (Add to Basis & Units)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedMatchId(matchedHolding._id)}
+                      className="px-2 py-1 bg-white hover:bg-neutral-100 text-neutral-700 border border-[#121212] text-xs font-bold cursor-pointer"
+                    >
+                      Create as Separate Asset
+                    </button>
+                  </div>
+                </div>
               )}
-            </label>
-            <div className="relative flex items-center">
-              <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
-                {currencySymbol}
-              </span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={currentValue}
-                onChange={(e) => setCurrentValue(e.target.value)}
-                placeholder="0.00"
-                className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black"
-                style={{ color: 'var(--neo-green)' }}
-                required
-              />
             </div>
-          </div>
-        </div>
 
-        {/* Units, Buy Price & Live Price */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-black uppercase text-neutral-600">
-              Quantity / Units (Optional)
-            </label>
-            <input
-              type="number"
-              step="any"
-              min="0"
-              value={units}
-              onChange={(e) => handleUnitsChange(e.target.value)}
-              placeholder="Auto-calculated from amount & NAV"
-              className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
-            />
-          </div>
+            {/* Asset Classification Selector */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-black uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--neo-border)' }}>
+                <Layers size={13} />
+                Asset Class *
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {ASSET_TYPES.map((type) => (
+                  <button
+                    key={type.value}
+                    type="button"
+                    onClick={() => setAssetType(type.value)}
+                    className="p-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center truncate"
+                    style={
+                      assetType === type.value
+                        ? { background: 'var(--neo-border)', color: 'var(--neo-yellow)', borderColor: 'var(--neo-border)', boxShadow: '3px 3px 0 var(--neo-border)' }
+                        : { background: 'white', color: '#555', borderColor: '#ccc' }
+                    }
+                  >
+                    {type.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-black uppercase text-neutral-600">
-              Buy Price per Unit ({currencySymbol})
-            </label>
-            <input
-              type="number"
-              step="any"
-              min="0"
-              value={buyPrice}
-              onChange={(e) => handleBuyPriceChange(e.target.value)}
-              placeholder="0.00"
-              className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
-            />
-          </div>
+            {/* ── Live Price Indicator Badge ── */}
+            {(isFetchingPrice || livePrice) && (
+              <div
+                className="flex items-center gap-2 px-3 py-2 border-2 text-xs font-black rounded-sm"
+                style={{
+                  background: livePrice ? 'linear-gradient(135deg, #e8fdf0, #f0fdf4)' : '#fafafa',
+                  borderColor: livePrice ? '#05DF72' : '#ddd',
+                }}
+              >
+                {isFetchingPrice ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" style={{ color: '#888' }} />
+                    <span style={{ color: '#888' }}>Fetching live market price / NAV...</span>
+                  </>
+                ) : livePrice ? (
+                  <>
+                    <span
+                      style={{
+                        width: 8, height: 8, borderRadius: '50%',
+                        background: '#05DF72', display: 'inline-block',
+                        boxShadow: '0 0 6px #05DF72',
+                        animation: 'pulse 2s infinite',
+                      }}
+                    />
+                    <Zap size={13} style={{ color: '#05DF72' }} />
+                    <span style={{ color: '#121212' }}>
+                      LIVE: {currencySymbol}{livePrice.toLocaleString('en-IN', { maximumFractionDigits: 4 })}
+                    </span>
+                    {livePriceSymbol && (
+                      <span style={{ color: '#888', fontWeight: 600, fontSize: 10 }}>
+                        ({livePriceSymbol.length > 30 ? livePriceSymbol.substring(0, 30) + '…' : livePriceSymbol})
+                      </span>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            )}
 
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-black uppercase text-neutral-600 flex items-center gap-1">
-              Live Price / NAV ({currencySymbol})
-              {livePrice && (
-                <span
-                  style={{
-                    width: 6, height: 6, borderRadius: '50%',
-                    background: '#05DF72', display: 'inline-block',
-                    boxShadow: '0 0 4px #05DF72',
-                  }}
+            {/* Invested Capital vs Current Valuation */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-black uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--neo-border)' }}>
+                  <DollarSign size={13} />
+                  Invested Capital ({currencySymbol}) *
+                </label>
+                <div className="relative flex items-center">
+                  <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
+                    {currencySymbol}
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={investedAmount}
+                    onChange={(e) => handleInvestedAmountChange(e.target.value)}
+                    placeholder="0.00"
+                    className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black"
+                    style={{ color: 'var(--neo-border)' }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-black uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--neo-border)' }}>
+                  <TrendingUp size={13} style={{ color: 'var(--neo-green)' }} />
+                  Current Value ({currencySymbol}) *
+                  {hasAutoValue && (
+                    <span className="text-[9px] font-bold ml-1 px-1 py-0.5" style={{ color: '#fff', background: '#05DF72', borderRadius: 2 }}>AUTO</span>
+                  )}
+                </label>
+                <div className="relative flex items-center">
+                  <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
+                    {currencySymbol}
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={currentValue}
+                    onChange={(e) => setCurrentValue(e.target.value)}
+                    placeholder="0.00"
+                    className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black"
+                    style={{ color: 'var(--neo-green)' }}
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Units, Buy Price & Live Price */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-black uppercase text-neutral-600">
+                  Quantity / Units (Optional)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={units}
+                  onChange={(e) => handleUnitsChange(e.target.value)}
+                  placeholder="Auto-calculated"
+                  className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
                 />
-              )}
-            </label>
-            <input
-              type="number"
-              step="any"
-              min="0"
-              value={currentPrice}
-              onChange={(e) => handleCurrentPriceChange(e.target.value)}
-              placeholder={isFetchingPrice ? 'Fetching...' : 'Auto-fetched'}
-              className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
-              style={{ color: livePrice ? '#05DF72' : undefined }}
-              readOnly={!!livePrice}
-            />
-          </div>
-        </div>
+              </div>
 
-        {/* Recurring SIP Section */}
-        <div className="p-3 border-2 shadow-neo-sm flex flex-col gap-2" style={{ background: 'var(--neo-bg)', borderColor: 'var(--neo-border)' }}>
-          <div className="flex items-center gap-1.5 text-xs font-black uppercase" style={{ color: 'var(--neo-border)' }}>
-            <Calendar size={14} style={{ color: 'var(--neo-cyan)' }} />
-            <span>Monthly Recurring SIP (Optional)</span>
-          </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-black uppercase text-neutral-600 flex items-center justify-between">
+                  <span>Buy Price / Unit ({currencySymbol})</span>
+                  {autoBuyPriceCalculated && (
+                    <span className="text-[9px] font-bold text-[#05DF72] lowercase font-mono">auto: inv ÷ units</span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={buyPrice}
+                  onChange={(e) => handleBuyPriceChange(e.target.value)}
+                  placeholder="0.00"
+                  className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
+                />
+              </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-black uppercase text-neutral-600">
-                Monthly SIP Amount ({currencySymbol})
-              </label>
-              <input
-                type="number"
-                step="1"
-                min="0"
-                value={sipAmount}
-                onChange={(e) => setSipAmount(e.target.value)}
-                placeholder="0.00"
-                className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
-              />
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-black uppercase text-neutral-600 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    Live Price / NAV ({currencySymbol})
+                    {livePrice && (
+                      <span
+                        style={{
+                          width: 6, height: 6, borderRadius: '50%',
+                          background: '#05DF72', display: 'inline-block',
+                          boxShadow: '0 0 4px #05DF72',
+                        }}
+                      />
+                    )}
+                  </span>
+                  <span className="text-[9px] font-bold text-neutral-400 lowercase">editable</span>
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={currentPrice}
+                  onChange={(e) => handleCurrentPriceChange(e.target.value)}
+                  placeholder={isFetchingPrice ? 'Fetching...' : 'Click to edit NAV'}
+                  className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
+                  style={{ color: livePrice ? '#05DF72' : undefined }}
+                />
+              </div>
             </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-black uppercase text-neutral-600">
-                SIP Deduction Day (1 - 28)
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="28"
-                value={sipDay}
-                onChange={(e) => setSipDay(e.target.value)}
-                placeholder="5"
-                className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
-              />
+            {/* Recurring SIP Section */}
+            <div className="p-3 border-2 shadow-neo-sm flex flex-col gap-2" style={{ background: 'var(--neo-bg)', borderColor: 'var(--neo-border)' }}>
+              <div className="flex items-center gap-1.5 text-xs font-black uppercase" style={{ color: 'var(--neo-border)' }}>
+                <Calendar size={14} style={{ color: 'var(--neo-cyan)' }} />
+                <span>Monthly Recurring SIP (Optional)</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-black uppercase text-neutral-600">
+                    Monthly SIP Amount ({currencySymbol})
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={sipAmount}
+                    onChange={(e) => setSipAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-black uppercase text-neutral-600">
+                    SIP Deduction Day (1 - 28)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="28"
+                    value={sipDay}
+                    onChange={(e) => setSipDay(e.target.value)}
+                    placeholder="5"
+                    className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        {/* Notes and XIRR */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-black uppercase text-neutral-600">
-              XIRR / CAGR % (Optional)
-            </label>
-            <input
-              type="text"
-              value={xirr}
-              onChange={(e) => setXirr(e.target.value)}
-              placeholder="—"
-              className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
-            />
-          </div>
+            {/* Notes and XIRR */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-black uppercase text-neutral-600">
+                  XIRR / CAGR % (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={xirr}
+                  onChange={(e) => setXirr(e.target.value)}
+                  placeholder="—"
+                  className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
+                />
+              </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-[11px] font-black uppercase text-neutral-600">
-              Notes / Folio Number (Optional)
-            </label>
-            <input
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional folio, demat, or notes"
-              className="neo-input py-1.5 px-2.5 text-xs font-bold"
-            />
-          </div>
-        </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-black uppercase text-neutral-600">
+                  Notes / Folio Number (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional folio, demat, or notes"
+                  className="neo-input py-1.5 px-2.5 text-xs font-bold"
+                />
+              </div>
+            </div>
+          </>
+        )}
 
         {error && (
           <div className="text-white text-xs font-bold p-2.5 border-2 shadow-neo-sm" style={{ background: 'var(--neo-red)', borderColor: 'var(--neo-border)' }}>
@@ -661,9 +949,11 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           <NeoButton type="submit" variant="secondary" disabled={isSubmitting}>
             {isSubmitting
               ? 'Saving...'
+              : mode === 'topup' && matchedHolding
+              ? `Confirm Top Up (+${currencySymbol}${topUpAmount || '0.00'})`
               : initialData
-                ? 'Update Asset'
-                : 'Add Investment'}
+              ? 'Update Asset'
+              : 'Add Investment'}
           </NeoButton>
         </div>
       </form>

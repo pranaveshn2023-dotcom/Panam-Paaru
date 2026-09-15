@@ -9,7 +9,8 @@ interface InvestmentsPageProps {
   onOpenImportModal: () => void;
   onEdit: (inv: Investment) => void;
   onDelete: (id: string) => void;
-  onQuickUpdateValue: (id: string, currentValue: number) => Promise<void>;
+  onQuickUpdateValue: (id: string, currentValue: number, currentPrice?: number) => Promise<void>;
+  onTopUp?: (inv: Investment) => void;
   currencySymbol?: string;
 }
 

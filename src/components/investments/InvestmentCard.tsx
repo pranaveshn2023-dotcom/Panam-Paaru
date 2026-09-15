@@ -14,6 +14,8 @@ import {
   EyeOff,
   ArrowUpRight,
   ArrowDownLeft,
+  Plus,
+  Zap,
 } from 'lucide-react';
 import { usePrivacy } from '../../context/PrivacyContext';
 
@@ -22,7 +24,8 @@ interface InvestmentCardProps {
   currencySymbol: string;
   onEdit: (inv: Investment) => void;
   onDelete: (id: string) => void;
-  onQuickUpdateValue: (id: string, currentValue: number) => Promise<void>;
+  onQuickUpdateValue: (id: string, currentValue: number, currentPrice?: number) => Promise<void>;
+  onTopUp?: (inv: Investment) => void;
 }
 
 const ASSET_COLORS: Record<string, { label: string; color: string }> = {
@@ -42,10 +45,15 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
   onEdit,
   onDelete,
   onQuickUpdateValue,
+  onTopUp,
 }) => {
   const { formatPrivateAmount, isPrivacyMode } = usePrivacy();
   const [isUpdating, setIsUpdating] = useState(false);
+  const [updateMode, setUpdateMode] = useState<'nav' | 'value'>('nav');
   const [updateValue, setUpdateValue] = useState(String(inv.currentValue));
+  const [updateNav, setUpdateNav] = useState(
+    inv.currentPrice ? String(inv.currentPrice) : inv.units && inv.units > 0 ? String(Math.round((inv.currentValue / inv.units) * 10000) / 10000) : ''
+  );
 
   const badgeInfo = ASSET_COLORS[inv.assetType] || { label: inv.assetType, color: '#FFE600' };
   const gain = inv.currentValue - inv.investedAmount;
@@ -62,13 +70,34 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
   const handleUpdate = async () => {
     if (isUpdating) {
       const val = parseFloat(updateValue);
+      const navVal = parseFloat(updateNav);
       if (!isNaN(val) && val >= 0) {
-        await onQuickUpdateValue(inv._id, val);
+        await onQuickUpdateValue(inv._id, val, !isNaN(navVal) && navVal > 0 ? navVal : undefined);
       }
       setIsUpdating(false);
     } else {
       setUpdateValue(String(inv.currentValue));
+      if (effectivePrice) setUpdateNav(String(effectivePrice));
+      setUpdateMode('nav');
       setIsUpdating(true);
+    }
+  };
+
+  const handleNavInputChange = (newNavStr: string) => {
+    setUpdateNav(newNavStr);
+    const n = parseFloat(newNavStr);
+    if (!isNaN(n) && n > 0 && inv.units && inv.units > 0) {
+      const computedVal = Math.round(inv.units * n * 100) / 100;
+      setUpdateValue(String(computedVal));
+    }
+  };
+
+  const handleValueInputChange = (newValStr: string) => {
+    setUpdateValue(newValStr);
+    const v = parseFloat(newValStr);
+    if (!isNaN(v) && v > 0 && inv.units && inv.units > 0) {
+      const computedNav = Math.round((v / inv.units) * 10000) / 10000;
+      setUpdateNav(String(computedNav));
     }
   };
 
@@ -93,10 +122,19 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {onTopUp && (
+            <button
+              onClick={() => onTopUp(inv)}
+              className="p-1.5 bg-[#05DF72] hover:bg-[#04c463] text-[#121212] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer font-black"
+              title="Add More / Top Up this Holding"
+            >
+              <Plus size={13} strokeWidth={3} />
+            </button>
+          )}
           <button
             onClick={handleUpdate}
             className="p-1.5 bg-[#FFE600] hover:bg-[#FFD700] text-[#121212] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-            title="Quick Update Value"
+            title="Edit NAV / Live Price & Value"
           >
             {isUpdating ? <RefreshCw size={13} strokeWidth={2.5} className="animate-spin" /> : <TrendingUp size={13} strokeWidth={2.5} />}
           </button>
@@ -136,12 +174,23 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
             </span>
           )}
           {effectivePrice && (
-            <span className="text-[10px] font-mono font-bold bg-[#E8F8F0] text-[#0B6B38] px-1.5 py-0.5 border border-[#05DF72] flex items-center gap-1 shadow-neo-sm">
+            <button
+              type="button"
+              onClick={() => {
+                setUpdateNav(String(effectivePrice));
+                setUpdateValue(String(inv.currentValue));
+                setUpdateMode('nav');
+                setIsUpdating(true);
+              }}
+              className="text-[10px] font-mono font-bold bg-[#E8F8F0] hover:bg-[#d0fae2] text-[#0B6B38] px-1.5 py-0.5 border border-[#05DF72] flex items-center gap-1 shadow-neo-sm cursor-pointer transition-all"
+              title="Click to edit NAV / Market Price directly"
+            >
               <span className="w-1.5 h-1.5 rounded-full bg-[#05DF72] inline-block animate-pulse" />
               <span>
                 {inv.assetType === 'mutual_fund' ? 'NAV' : 'CP'}: {isPrivacyMode ? '••••' : `${currencySymbol}${effectivePrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: inv.assetType === 'mutual_fund' ? 4 : 2 })}`}
               </span>
-            </span>
+              <Edit size={10} className="ml-0.5 opacity-60 hover:opacity-100" />
+            </button>
           )}
           {inv.sipAmount && (
             <span className="text-[10px] font-mono font-bold bg-[#121212] text-[#00F0FF] px-1.5 py-0.5 border border-[#121212]">
@@ -151,34 +200,84 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
         </div>
       </div>
 
-      {/* Quick Update Input */}
+      {/* Quick Update NAV & Valuation Bar */}
       {isUpdating && (
-        <div className="p-2.5 bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm flex items-center gap-2 animate-in fade-in">
-          <span className="text-xs font-black uppercase text-[#121212] shrink-0">New Value:</span>
-          <div className="relative flex-1">
-            <span className="absolute left-2 top-1.5 text-xs font-mono font-bold text-neutral-600">{currencySymbol}</span>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={updateValue}
-              onChange={(e) => setUpdateValue(e.target.value)}
-              className="w-full pl-6 pr-2 py-1 text-xs font-mono font-bold bg-white border border-[#121212]"
-              autoFocus
-            />
+        <div className="p-2.5 bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm flex flex-col gap-2 animate-in fade-in">
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setUpdateMode('nav')}
+                className={`px-2 py-0.5 text-[10px] font-black uppercase border border-[#121212] ${
+                  updateMode === 'nav' ? 'bg-[#121212] text-white' : 'bg-white text-neutral-800'
+                }`}
+              >
+                Edit NAV / Price
+              </button>
+              <button
+                type="button"
+                onClick={() => setUpdateMode('value')}
+                className={`px-2 py-0.5 text-[10px] font-black uppercase border border-[#121212] ${
+                  updateMode === 'value' ? 'bg-[#121212] text-white' : 'bg-white text-neutral-800'
+                }`}
+              >
+                Edit Current Value
+              </button>
+            </div>
+            <button
+              onClick={() => setIsUpdating(false)}
+              className="p-0.5 text-xs font-black text-[#121212] hover:bg-neutral-200 cursor-pointer"
+            >
+              ✕
+            </button>
           </div>
-          <button
-            onClick={handleUpdate}
-            className="px-2.5 py-1 bg-[#121212] text-white hover:bg-black text-xs font-black uppercase cursor-pointer"
-          >
-            Save
-          </button>
-          <button
-            onClick={() => setIsUpdating(false)}
-            className="px-1.5 py-1 text-xs font-bold text-[#121212] cursor-pointer"
-          >
-            ✕
-          </button>
+
+          <div className="flex items-center gap-2">
+            {updateMode === 'nav' ? (
+              <div className="relative flex-1">
+                <span className="absolute left-2 top-1.5 text-xs font-mono font-bold text-neutral-600">NAV {currencySymbol}</span>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={updateNav}
+                  onChange={(e) => handleNavInputChange(e.target.value)}
+                  placeholder="Enter new NAV..."
+                  className="w-full pl-16 pr-2 py-1 text-xs font-mono font-bold bg-white border border-[#121212]"
+                  autoFocus
+                />
+              </div>
+            ) : (
+              <div className="relative flex-1">
+                <span className="absolute left-2 top-1.5 text-xs font-mono font-bold text-neutral-600">{currencySymbol}</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={updateValue}
+                  onChange={(e) => handleValueInputChange(e.target.value)}
+                  placeholder="Enter current value..."
+                  className="w-full pl-6 pr-2 py-1 text-xs font-mono font-bold bg-white border border-[#121212]"
+                  autoFocus
+                />
+              </div>
+            )}
+
+            <button
+              onClick={handleUpdate}
+              className="px-3 py-1 bg-[#121212] text-white hover:bg-black text-xs font-black uppercase cursor-pointer"
+            >
+              Save
+            </button>
+          </div>
+
+          {inv.units && inv.units > 0 && (
+            <span className="text-[10px] font-mono text-neutral-800 font-bold">
+              {updateMode === 'nav'
+                ? `Calculated Value: ${currencySymbol}${updateValue} (${inv.units} units × ${currencySymbol}${updateNav})`
+                : `Calculated NAV: ${currencySymbol}${updateNav}`}
+            </span>
+          )}
         </div>
       )}
 

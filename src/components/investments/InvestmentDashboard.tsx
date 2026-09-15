@@ -52,7 +52,8 @@ interface InvestmentDashboardProps {
   onOpenImportModal: () => void;
   onEdit: (inv: Investment) => void;
   onDelete: (id: string) => void;
-  onQuickUpdateValue: (id: string, currentValue: number) => Promise<void>;
+  onQuickUpdateValue: (id: string, currentValue: number, currentPrice?: number) => Promise<void>;
+  onTopUp?: (inv: Investment) => void;
   currencySymbol?: string;
 }
 
@@ -64,6 +65,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   onEdit,
   onDelete,
   onQuickUpdateValue,
+  onTopUp,
   currencySymbol = '₹',
 }) => {
   const { formatPrivateAmount, isPrivacyMode, togglePrivacyMode } = usePrivacy();
@@ -630,6 +632,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
               onEdit={onEdit}
               onDelete={onDelete}
               onQuickUpdateValue={onQuickUpdateValue}
+              onTopUp={onTopUp}
             />
           ))}
         </div>

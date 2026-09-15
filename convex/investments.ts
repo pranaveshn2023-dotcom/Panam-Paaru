@@ -320,6 +320,39 @@ export const add = mutation({
         ? Math.round((args.investedAmount / args.units) * 100) / 100
         : undefined;
 
+    const userInvestments = await ctx.db
+      .query("investments")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    const matched = userInvestments.find(
+      (inv) => areHoldingsEquivalent(inv, { name: args.name, notes: args.notes })
+    );
+
+    if (matched) {
+      const existingUnits = matched.units || 0;
+      const addedUnits = args.units || 0;
+      const combinedUnits = existingUnits + addedUnits > 0 ? existingUnits + addedUnits : undefined;
+      const combinedInvested = matched.investedAmount + Math.max(0, args.investedAmount);
+      const combinedValue = matched.currentValue + Math.max(0, args.currentValue);
+      const newAvgBuyPrice =
+        combinedUnits && combinedUnits > 0
+          ? Math.round((combinedInvested / combinedUnits) * 10000) / 10000
+          : derivedBuyPrice;
+
+      await ctx.db.patch(matched._id, {
+        investedAmount: combinedInvested,
+        currentValue: combinedValue,
+        units: combinedUnits,
+        buyPrice: newAvgBuyPrice,
+        currentPrice: derivedCurrentPrice ?? matched.currentPrice,
+        sipAmount: args.sipAmount ?? matched.sipAmount,
+        sipDay: args.sipDay ?? matched.sipDay,
+        updatedAt: Date.now(),
+      });
+      return matched._id;
+    }
+
     const id = await ctx.db.insert("investments", {
       userId,
       name: args.name.trim(),

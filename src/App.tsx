@@ -98,6 +98,7 @@ export function AppContent() {
   const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
   const directUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [editingInvestment, setEditingInvestment] = useState<Investment | null>(null);
+  const [isTopUpMode, setIsTopUpMode] = useState(false);
   const [isPinSetupModalOpen, setIsPinSetupModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
@@ -697,9 +698,26 @@ export function AppContent() {
     name: string; assetType: AssetType; investedAmount: number; currentValue: number;
     units?: number; buyPrice?: number; currentPrice?: number;
     sipAmount?: number; sipDay?: number; xirr?: string; notes?: string;
+    existingIdToMerge?: string;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
-    if (editingInvestment) {
+    if (data.existingIdToMerge) {
+      await updateInvestmentMutation({
+        id: data.existingIdToMerge as any,
+        name: data.name,
+        assetType: data.assetType,
+        investedAmount: data.investedAmount,
+        currentValue: data.currentValue,
+        units: data.units,
+        buyPrice: data.buyPrice,
+        currentPrice: data.currentPrice,
+        sipAmount: data.sipAmount,
+        sipDay: data.sipDay,
+        xirr: data.xirr,
+        notes: data.notes,
+      });
+      toast.success(`Successfully topped up ${data.name}!`);
+    } else if (editingInvestment) {
       await updateInvestmentMutation({ id: editingInvestment._id as any, ...data });
     } else {
       await addInvestmentMutation(data);
@@ -733,9 +751,9 @@ export function AppContent() {
     }
   };
 
-  const handleQuickUpdateInvestmentValue = async (id: string, currentValue: number) => {
+  const handleQuickUpdateInvestmentValue = async (id: string, currentValue: number, currentPrice?: number) => {
     if (navigator.vibrate) navigator.vibrate(15);
-    await quickUpdateInvestmentMutation({ id: id as any, currentValue });
+    await quickUpdateInvestmentMutation({ id: id as any, currentValue, currentPrice });
   };
 
   const handleDeleteInvestment = async (id: string) => {
@@ -765,11 +783,18 @@ export function AppContent() {
         portfolioSummary={portfolioSummary}
         onOpenAddModal={(defaultType) => {
           setEditingInvestment(null);
+          setIsTopUpMode(false);
           setIsInvestmentModalOpen(true);
         }}
         onOpenImportModal={() => setIsInvestmentImportModalOpen(true)}
         onEdit={(inv) => {
           setEditingInvestment(inv);
+          setIsTopUpMode(false);
+          setIsInvestmentModalOpen(true);
+        }}
+        onTopUp={(inv) => {
+          setEditingInvestment(inv);
+          setIsTopUpMode(true);
           setIsInvestmentModalOpen(true);
         }}
         onDelete={handleDeleteInvestment}
@@ -926,9 +951,16 @@ export function AppContent() {
 
       <InvestmentModal
         isOpen={isInvestmentModalOpen}
-        onClose={() => { setIsInvestmentModalOpen(false); setEditingInvestment(null); }}
-        onSubmit={handleSaveInvestment} initialData={editingInvestment}
+        onClose={() => {
+          setIsInvestmentModalOpen(false);
+          setEditingInvestment(null);
+          setIsTopUpMode(false);
+        }}
+        onSubmit={handleSaveInvestment}
+        initialData={editingInvestment}
         currencySymbol={currencySymbol}
+        existingInvestments={cloudInvestments as Investment[]}
+        isTopUpMode={isTopUpMode}
       />
 
       {/* Hidden File Input for Direct OS File Dialog Upload (Ctrl+U) */}
