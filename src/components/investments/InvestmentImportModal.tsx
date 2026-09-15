@@ -1593,7 +1593,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           setSelectedBroker(brokerName);
           setDetectedBrokerTag(brokerName);
         }}
-        initialSelectedBroker={selectedBroker !== 'Auto-Detect Broker' ? selectedBroker : undefined}
+        initialSelectedBroker={selectedBroker !== 'Auto-Detect Broker' ? selectedBroker : (detectedBrokerTag || undefined)}
       />
     </NeoModal>
   );

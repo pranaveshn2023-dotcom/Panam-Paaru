@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { NeoModal } from '../ui/NeoModal';
 import { BROKER_DIRECTORY, BrokerGuide } from '../../utils/brokerDirectory';
 import { BrokerSelectDropdown } from './BrokerSelectDropdown';
@@ -21,11 +21,49 @@ export const BrokerExportGuideModal: React.FC<BrokerExportGuideModalProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [activeBrokerId, setActiveBrokerId] = useState<string>(() => {
     if (initialSelectedBroker) {
-      const match = BROKER_DIRECTORY.find((b) => b.shortName === initialSelectedBroker);
+      const match = BROKER_DIRECTORY.find(
+        (b) =>
+          b.shortName.toLowerCase() === initialSelectedBroker.toLowerCase() ||
+          b.name.toLowerCase() === initialSelectedBroker.toLowerCase() ||
+          b.id.toLowerCase() === initialSelectedBroker.toLowerCase()
+      );
       if (match) return match.id;
     }
-    return 'cams_kfintech';
+    return 'groww';
   });
+
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // Synchronize activeBrokerId immediately whenever the modal opens or initialSelectedBroker changes
+  useEffect(() => {
+    if (isOpen) {
+      if (initialSelectedBroker && initialSelectedBroker !== 'Auto-Detect Broker') {
+        const match = BROKER_DIRECTORY.find(
+          (b) =>
+            b.shortName.toLowerCase() === initialSelectedBroker.toLowerCase() ||
+            b.name.toLowerCase() === initialSelectedBroker.toLowerCase() ||
+            b.id.toLowerCase() === initialSelectedBroker.toLowerCase()
+        );
+        if (match) {
+          setActiveBrokerId(match.id);
+          setSelectedCategory('All');
+          setSearchQuery('');
+        }
+      }
+    }
+  }, [isOpen, initialSelectedBroker]);
+
+  // Smooth scroll active broker item into view in sidebar
+  useEffect(() => {
+    if (isOpen && activeBrokerId) {
+      setTimeout(() => {
+        const el = document.getElementById(`broker-btn-${activeBrokerId}`);
+        if (el) {
+          el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      }, 100);
+    }
+  }, [isOpen, activeBrokerId]);
 
   const categories = ['All', 'Depositories & CAS', 'Discount Brokers', 'Full-Service & Banking', 'Crypto Platforms'];
 
@@ -43,7 +81,9 @@ export const BrokerExportGuideModal: React.FC<BrokerExportGuideModalProps> = ({
   }, [searchQuery, selectedCategory]);
 
   const activeBroker = useMemo(() => {
-    return BROKER_DIRECTORY.find((b) => b.id === activeBrokerId) || filteredBrokers[0] || BROKER_DIRECTORY[0];
+    const found = BROKER_DIRECTORY.find((b) => b.id === activeBrokerId);
+    if (found) return found;
+    return filteredBrokers[0] || BROKER_DIRECTORY[0];
   }, [activeBrokerId, filteredBrokers]);
 
   return (
@@ -115,6 +155,7 @@ export const BrokerExportGuideModal: React.FC<BrokerExportGuideModalProps> = ({
                 const isSelected = activeBroker.id === b.id;
                 return (
                   <button
+                    id={`broker-btn-${b.id}`}
                     key={b.id}
                     type="button"
                     onClick={() => setActiveBrokerId(b.id)}
