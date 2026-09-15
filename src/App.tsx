@@ -65,7 +65,7 @@ const DEFAULT_CATEGORIES: Category[] = [
 
 export function AppContent() {
   const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
-  const { isPinEnabled, isPinLoading, lockNow, isLocked } = usePinLock();
+  const { isPinLoading, isLocked } = usePinLock();
   const { isOnline, syncOfflineQueue, pendingCount } = useOffline();
   const [, setLocalTick] = useState(0);
   const triggerLocalUpdate = useCallback(() => setLocalTick((t) => t + 1), []);
@@ -202,7 +202,7 @@ export function AppContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAuthenticated, isLocked, isPinEnabled]);
+  }, [isAuthenticated, isLocked]);
 
   // --- OFFLINE PERSISTENCE: Cache cloud snapshots locally ---
   useEffect(() => {

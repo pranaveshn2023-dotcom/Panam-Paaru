@@ -351,9 +351,18 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
                   Ctrl+U
                 </span>
               </NeoButton>
-              <NeoButton variant="dark" size="md" onClick={() => onOpenAddModal()} className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial">
+              <NeoButton
+                variant="dark"
+                size="md"
+                onClick={() => onOpenAddModal()}
+                title="Add Investment (I)"
+                className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+              >
                 <Plus size={16} strokeWidth={3} className="text-[#05DF72]" />
                 <span>+ Add</span>
+                <span className="hidden xl:inline text-[9px] font-mono px-1 py-0.2 bg-neutral-800 border border-neutral-700 text-neutral-300 rounded-none font-bold">
+                  I
+                </span>
               </NeoButton>
             </div>
           </div>

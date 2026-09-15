@@ -527,7 +527,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             <kbd className="px-1.5 py-0.5 bg-neutral-100 border border-[#121212] font-black">B</kbd> New Budget
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 bg-neutral-100 border border-[#121212] font-black">L</kbd> 6-PIN Lock
+            <kbd className="px-1.5 py-0.5 bg-neutral-100 border border-[#121212] font-black">I</kbd> Add Investment
           </span>
         </div>
       </div>
