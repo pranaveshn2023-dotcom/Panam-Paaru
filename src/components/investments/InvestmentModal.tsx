@@ -107,6 +107,18 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     setError('');
   }, [initialData, isOpen]);
 
+  const investedAmountRef = useRef(investedAmount);
+  investedAmountRef.current = investedAmount;
+
+  const unitsRef = useRef(units);
+  unitsRef.current = units;
+
+  const buyPriceRef = useRef(buyPrice);
+  buyPriceRef.current = buyPrice;
+
+  const livePriceRef = useRef(livePrice);
+  livePriceRef.current = livePrice;
+
   // ── Live price auto-fetch (debounced) ──
   const doFetchLivePrice = useCallback(async (assetName: string, type: AssetType, id: number) => {
     if (!assetName || assetName.trim().length < 2) {
@@ -169,6 +181,22 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         setLivePrice(result.price);
         setLivePriceSymbol(result.symbol || '');
         setCurrentPrice(String(result.price));
+
+        // Dynamically auto-compute units & current value based on latest user input
+        const numInv = parseFloat(investedAmountRef.current);
+        const numUnits = parseFloat(unitsRef.current);
+        const numBuy = parseFloat(buyPriceRef.current);
+
+        if (!isNaN(numUnits) && numUnits > 0) {
+          const computedVal = Math.round(numUnits * result.price * 100) / 100;
+          setCurrentValue(String(computedVal));
+        } else if (!isNaN(numInv) && numInv > 0) {
+          const effPrice = !isNaN(numBuy) && numBuy > 0 ? numBuy : result.price;
+          const derivedUnits = Math.round((numInv / effPrice) * 10000) / 10000;
+          setUnits(String(derivedUnits));
+          const computedVal = Math.round(derivedUnits * result.price * 100) / 100;
+          setCurrentValue(String(computedVal));
+        }
       } else {
         setLivePrice(null);
         setLivePriceSymbol('');
@@ -205,16 +233,96 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     };
   }, [name, assetType, doFetchLivePrice]);
 
-  // ── Auto-compute current value from units × livePrice ──
-  useEffect(() => {
-    if (livePrice && livePrice > 0) {
-      const numUnits = parseFloat(units);
-      if (!isNaN(numUnits) && numUnits > 0) {
-        const computed = Math.round(numUnits * livePrice * 100) / 100;
-        setCurrentValue(String(computed));
+  // Dynamic cross-calculation handlers
+  const handleInvestedAmountChange = (val: string) => {
+    setInvestedAmount(val);
+    const numInv = parseFloat(val);
+    const numBuy = parseFloat(buyPrice);
+    const activePrice = livePrice ?? (currentPrice ? parseFloat(currentPrice) : null);
+    const effPrice = !isNaN(numBuy) && numBuy > 0 ? numBuy : activePrice;
+
+    if (!isNaN(numInv) && numInv > 0 && effPrice && effPrice > 0) {
+      const derivedUnits = Math.round((numInv / effPrice) * 10000) / 10000;
+      setUnits(String(derivedUnits));
+      if (activePrice && activePrice > 0) {
+        const computedVal = Math.round(derivedUnits * activePrice * 100) / 100;
+        setCurrentValue(String(computedVal));
+      } else {
+        setCurrentValue(val);
+      }
+    } else if (!val) {
+      setUnits('');
+      setCurrentValue('');
+    } else if (!effPrice) {
+      if (!currentValue || currentValue === investedAmount) {
+        setCurrentValue(val);
       }
     }
-  }, [units, livePrice]);
+  };
+
+  const handleUnitsChange = (val: string) => {
+    setUnits(val);
+    const numUnits = parseFloat(val);
+    const numBuy = parseFloat(buyPrice);
+    const activePrice = livePrice ?? (currentPrice ? parseFloat(currentPrice) : null);
+
+    if (!isNaN(numUnits) && numUnits > 0) {
+      if (activePrice && activePrice > 0) {
+        const computedVal = Math.round(numUnits * activePrice * 100) / 100;
+        setCurrentValue(String(computedVal));
+      }
+      if (!isNaN(numBuy) && numBuy > 0) {
+        const computedInv = Math.round(numUnits * numBuy * 100) / 100;
+        setInvestedAmount(String(computedInv));
+      } else if (!investedAmount && activePrice && activePrice > 0) {
+        const computedInv = Math.round(numUnits * activePrice * 100) / 100;
+        setInvestedAmount(String(computedInv));
+      }
+    }
+  };
+
+  const handleBuyPriceChange = (val: string) => {
+    setBuyPrice(val);
+    const numBuy = parseFloat(val);
+    const numUnits = parseFloat(units);
+    const numInv = parseFloat(investedAmount);
+    const activePrice = livePrice ?? (currentPrice ? parseFloat(currentPrice) : null);
+
+    if (!isNaN(numBuy) && numBuy > 0) {
+      if (!isNaN(numInv) && numInv > 0) {
+        const derivedUnits = Math.round((numInv / numBuy) * 10000) / 10000;
+        setUnits(String(derivedUnits));
+        const effPrice = activePrice && activePrice > 0 ? activePrice : numBuy;
+        const computedVal = Math.round(derivedUnits * effPrice * 100) / 100;
+        setCurrentValue(String(computedVal));
+      } else if (!isNaN(numUnits) && numUnits > 0) {
+        const computedInv = Math.round(numUnits * numBuy * 100) / 100;
+        setInvestedAmount(String(computedInv));
+      }
+    }
+  };
+
+  const handleCurrentPriceChange = (val: string) => {
+    setCurrentPrice(val);
+    const numPrice = parseFloat(val);
+    if (!isNaN(numPrice) && numPrice > 0) {
+      setLivePrice(numPrice);
+      const numUnits = parseFloat(units);
+      const numInv = parseFloat(investedAmount);
+      const numBuy = parseFloat(buyPrice);
+
+      if (!isNaN(numUnits) && numUnits > 0) {
+        const computedVal = Math.round(numUnits * numPrice * 100) / 100;
+        setCurrentValue(String(computedVal));
+      } else if (!isNaN(numInv) && numInv > 0) {
+        const effBuy = !isNaN(numBuy) && numBuy > 0 ? numBuy : numPrice;
+        const derivedUnits = Math.round((numInv / effBuy) * 10000) / 10000;
+        setUnits(String(derivedUnits));
+        const computedVal = Math.round(derivedUnits * numPrice * 100) / 100;
+        setCurrentValue(String(computedVal));
+      }
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -376,13 +484,8 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                 step="0.01"
                 min="0"
                 value={investedAmount}
-                onChange={(e) => {
-                  setInvestedAmount(e.target.value);
-                  if (!livePrice && (!currentValue || currentValue === investedAmount)) {
-                    setCurrentValue(e.target.value);
-                  }
-                }}
-                placeholder="25000.00"
+                onChange={(e) => handleInvestedAmountChange(e.target.value)}
+                placeholder="0.00"
                 className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black"
                 style={{ color: 'var(--neo-border)' }}
                 required
@@ -408,7 +511,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                 min="0"
                 value={currentValue}
                 onChange={(e) => setCurrentValue(e.target.value)}
-                placeholder="28500.00"
+                placeholder="0.00"
                 className="neo-input pl-8 pr-3 py-2 text-base font-mono font-black"
                 style={{ color: 'var(--neo-green)' }}
                 required
@@ -428,8 +531,8 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
               step="any"
               min="0"
               value={units}
-              onChange={(e) => setUnits(e.target.value)}
-              placeholder="e.g. 50 shares or 0.005 BTC"
+              onChange={(e) => handleUnitsChange(e.target.value)}
+              placeholder="Auto-calculated from amount & NAV"
               className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
             />
           </div>
@@ -443,8 +546,8 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
               step="any"
               min="0"
               value={buyPrice}
-              onChange={(e) => setBuyPrice(e.target.value)}
-              placeholder="e.g. 500.00"
+              onChange={(e) => handleBuyPriceChange(e.target.value)}
+              placeholder="0.00"
               className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
             />
           </div>
@@ -467,11 +570,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
               step="any"
               min="0"
               value={currentPrice}
-              onChange={(e) => {
-                setCurrentPrice(e.target.value);
-                const val = parseFloat(e.target.value);
-                if (!isNaN(val) && val > 0) setLivePrice(val);
-              }}
+              onChange={(e) => handleCurrentPriceChange(e.target.value)}
               placeholder={isFetchingPrice ? 'Fetching...' : 'Auto-fetched'}
               className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
               style={{ color: livePrice ? '#05DF72' : undefined }}
@@ -498,7 +597,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                 min="0"
                 value={sipAmount}
                 onChange={(e) => setSipAmount(e.target.value)}
-                placeholder="e.g. 2000"
+                placeholder="0.00"
                 className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
               />
             </div>
@@ -530,7 +629,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
               type="text"
               value={xirr}
               onChange={(e) => setXirr(e.target.value)}
-              placeholder="e.g. 17.3%"
+              placeholder="—"
               className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
             />
           </div>
@@ -543,7 +642,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. Zerodha / Groww / Folio #12345"
+              placeholder="Optional folio, demat, or notes"
               className="neo-input py-1.5 px-2.5 text-xs font-bold"
             />
           </div>
