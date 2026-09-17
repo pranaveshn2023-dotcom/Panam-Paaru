@@ -14,6 +14,15 @@ import {
   Activity,
   Layers
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid
+} from 'recharts';
 
 interface InsightsPageProps {
   analytics: SpendingAnalytics | null;
@@ -180,17 +189,44 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
     return weeks;
   }, [daysInMonth, firstDayOfWeek, dailySpendingMap]);
 
-  // Daily flow points for spending curve
+  // Daily flow points for spending line curve
   const flowCurvePoints = useMemo(() => {
-    const points: Array<{ day: number; amount: number }> = [];
-    let max = 1;
+    const points: Array<{ day: number; amount: number; count: number }> = [];
+    let max = 0;
+    let total = 0;
+    let activeDays = 0;
     for (let d = 1; d <= daysInMonth; d++) {
       const amt = dailySpendingMap.get(d) || 0;
       if (amt > max) max = amt;
-      points.push({ day: d, amount: amt });
+      if (amt > 0) {
+        total += amt;
+        activeDays += 1;
+      }
+      const dayTxCount = periodTransactions.filter(
+        (t) => t.type === 'expense' && parseInt(t.date.slice(8, 10), 10) === d
+      ).length;
+      points.push({ day: d, amount: amt, count: dayTxCount });
     }
-    return { points, maxAmount: max };
-  }, [daysInMonth, dailySpendingMap]);
+    const avg = activeDays > 0 ? total / activeDays : 0;
+    return { points, maxAmount: max, average: avg, totalSpent: total, activeDays };
+  }, [daysInMonth, dailySpendingMap, periodTransactions]);
+
+  // Formatted data for Recharts Line/Area Graph
+  const flowChartData = useMemo(() => {
+    return flowCurvePoints.points.map((p) => {
+      const dateObj = new Date(selectedYear, selectedMonth, p.day);
+      const weekday = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+      const monthShort = dateObj.toLocaleDateString('en-US', { month: 'short' });
+      return {
+        day: p.day,
+        label: `Day ${p.day}`,
+        shortDate: `${p.day} ${monthShort}`,
+        weekday,
+        amount: p.amount,
+        count: p.count,
+      };
+    });
+  }, [flowCurvePoints.points, selectedYear, selectedMonth]);
 
   // SVG Donut Chart Slices
   const donutSlices = useMemo(() => {
@@ -448,69 +484,138 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
         {/* Right Column: Daily Flow Curve + 7-Day Calendar Matrix (Screenshot 5) */}
         <div className="lg:col-span-6 flex flex-col gap-6">
 
-          {/* Daily Expense Flow Curve (Screenshot 5 Top) */}
+          {/* Daily Expense Flow Line Graph */}
           <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 sm:p-6 flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3">
+            <div className="flex flex-wrap items-center justify-between border-b-2 border-[#121212] pb-3 gap-2">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 bg-[#00F0FF] border-2 border-[#121212] flex items-center justify-center font-black">
+                <div className="w-7 h-7 bg-[#00F0FF] border-2 border-[#121212] flex items-center justify-center font-black shadow-neo-sm">
                   <Activity size={16} />
                 </div>
-                <h3 className="text-sm font-black uppercase text-[#121212] tracking-wider">
-                  Daily Expense Flow
-                </h3>
+                <div>
+                  <h3 className="text-sm font-black uppercase text-[#121212] tracking-wider leading-none">
+                    Daily Expense Flow
+                  </h3>
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-tight">
+                    Day-by-day cash outflows
+                  </span>
+                </div>
               </div>
-              <span className="text-[11px] font-mono font-bold text-neutral-500">
-                Peak: {currencySymbol}{flowCurvePoints.maxAmount.toLocaleString()}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] sm:text-[11px] font-mono font-bold bg-[#FFF1F1] text-[#FF4343] px-2.5 py-1 border-2 border-[#121212] shadow-neo-sm">
+                  Peak: {formatPrivateAmount(flowCurvePoints.maxAmount, currencySymbol)}
+                </span>
+                {flowCurvePoints.average > 0 && (
+                  <span className="text-[10px] sm:text-[11px] font-mono font-bold bg-[#FFE600] text-[#121212] px-2.5 py-1 border-2 border-[#121212] shadow-neo-sm hidden sm:inline-block">
+                    Avg: {formatPrivateAmount(Math.round(flowCurvePoints.average), currencySymbol)}/day
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Professional Recharts Line Graph with Neo-Brutalist styling */}
+            <div className="h-48 sm:h-56 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={flowChartData}
+                  margin={{ top: 10, right: 12, left: -16, bottom: 0 }}
+                  onClick={(e: any) => {
+                    if (e && e.activePayload && e.activePayload[0]) {
+                      setSelectedDay(e.activePayload[0].payload.day);
+                    }
+                  }}
+                >
+                  <defs>
+                    <linearGradient id="expenseFlowGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#FF4343" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#FF4343" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
+                  <XAxis
+                    dataKey="day"
+                    tickLine={false}
+                    axisLine={{ stroke: '#121212', strokeWidth: 1.5 }}
+                    tick={{ fontSize: 10, fill: '#737373', fontFamily: 'monospace', fontWeight: 700 }}
+                    ticks={[1, 5, 10, 15, 20, 25, daysInMonth]}
+                    tickFormatter={(v) => `D${v}`}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 10, fill: '#737373', fontFamily: 'monospace', fontWeight: 700 }}
+                    tickFormatter={(v) => {
+                      if (v >= 1000) return `${currencySymbol}${(v / 1000).toFixed(0)}k`;
+                      return `${currencySymbol}${v}`;
+                    }}
+                    width={44}
+                  />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-white border-2 border-[#121212] shadow-neo p-2.5 min-w-[140px] z-50">
+                            <div className="text-[10px] font-black uppercase text-neutral-500 tracking-wider">
+                              {data.weekday}, {data.shortDate}
+                            </div>
+                            <div className="text-sm font-mono font-black text-[#FF4343] mt-0.5">
+                              {formatPrivateAmount(data.amount, currencySymbol)}
+                            </div>
+                            <div className="text-[10px] font-bold text-neutral-600 mt-0.5">
+                              {data.count > 0
+                                ? `${data.count} transaction${data.count > 1 ? 's' : ''}`
+                                : 'Zero spending'}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="amount"
+                    stroke="#FF4343"
+                    strokeWidth={2.5}
+                    fill="url(#expenseFlowGrad)"
+                    activeDot={{
+                      r: 6,
+                      stroke: '#121212',
+                      strokeWidth: 2,
+                      fill: '#FFE600',
+                    }}
+                    dot={(dotProps: any) => {
+                      const { cx, cy, payload } = dotProps;
+                      if (payload.amount > 0) {
+                        const isSelected = selectedDay === payload.day;
+                        return (
+                          <circle
+                            key={`dot-${payload.day}`}
+                            cx={cx}
+                            cy={cy}
+                            r={isSelected ? 5.5 : 3.5}
+                            fill={isSelected ? '#FFE600' : '#FF4343'}
+                            stroke="#121212"
+                            strokeWidth={isSelected ? 2.5 : 1.5}
+                            className="cursor-pointer transition-all hover:scale-125"
+                          />
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] font-mono font-bold text-neutral-500 border-t-2 border-[#121212] pt-2">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#FF4343] inline-block" />
+                <span>Click any point or day to inspect specific day</span>
               </span>
-            </div>
-
-            {/* Sparkline / Step Chart */}
-            <div className="h-32 w-full pt-4 pb-2">
-              <svg viewBox={`0 0 ${daysInMonth} 80`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
-                {/* Grid Lines */}
-                <line x1="0" y1="20" x2={daysInMonth} y2="20" stroke="#F3F4F6" strokeWidth="1" strokeDasharray="2" />
-                <line x1="0" y1="40" x2={daysInMonth} y2="40" stroke="#F3F4F6" strokeWidth="1" strokeDasharray="2" />
-                <line x1="0" y1="60" x2={daysInMonth} y2="60" stroke="#F3F4F6" strokeWidth="1" strokeDasharray="2" />
-
-                {/* Area Fill */}
-                <polygon
-                  fill="#FF434320"
-                  points={`0,80 ${flowCurvePoints.points
-                    .map((p) => `${p.day - 0.5},${80 - (p.amount / flowCurvePoints.maxAmount) * 70}`)
-                    .join(' ')} ${daysInMonth},80`}
-                />
-
-                {/* Spending Curve Line */}
-                <polyline
-                  fill="none"
-                  stroke="#FF4343"
-                  strokeWidth="2.5"
-                  strokeLinejoin="round"
-                  points={flowCurvePoints.points
-                    .map((p) => `${p.day - 0.5},${80 - (p.amount / flowCurvePoints.maxAmount) * 70}`)
-                    .join(' ')}
-                />
-
-                {/* Dots for active days */}
-                {flowCurvePoints.points
-                  .filter((p) => p.amount > 0)
-                  .map((p) => (
-                    <circle
-                      key={p.day}
-                      cx={p.day - 0.5}
-                      cy={80 - (p.amount / flowCurvePoints.maxAmount) * 70}
-                      r="2"
-                      fill="#121212"
-                      stroke="#FF4343"
-                      strokeWidth="1.5"
-                    />
-                  ))}
-              </svg>
-            </div>
-            <div className="flex justify-between text-[10px] font-mono font-bold text-neutral-400 px-1 border-t border-neutral-200 pt-1">
-              <span>Day 1</span>
-              <span>Day {Math.round(daysInMonth / 2)}</span>
-              <span>Day {daysInMonth}</span>
+              <span>
+                {flowCurvePoints.activeDays} of {daysInMonth} days active
+              </span>
             </div>
           </div>
 
