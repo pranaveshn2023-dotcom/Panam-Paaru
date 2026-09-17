@@ -145,7 +145,7 @@ export const PinLockScreen: React.FC = () => {
         <div className="flex items-center gap-2 bg-[#FFE600] px-3 py-1 border-2 border-[#121212] shadow-neo-sm mb-4">
           <Lock size={16} className="text-[#121212]" strokeWidth={3} />
           <span className="text-xs font-black uppercase tracking-wider text-[#121212]">
-            SECURITY PIN LOCKED
+            PanamPaaru is Locked
           </span>
         </div>
 
