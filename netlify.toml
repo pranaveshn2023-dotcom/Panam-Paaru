@@ -1,9 +1,0 @@
-[build]
-  command = "npm run build"
-  publish = "dist"
-
-# SPA routing redirect rule for React Router / Single Page Apps
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200

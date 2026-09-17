@@ -16,9 +16,6 @@ dist-ssr/
 .env.production.local
 *.local
 
-# Netlify deployment cache
-.netlify/
-
 # Editor & OS files
 .vscode/*
 !.vscode/extensions.json
