@@ -5,6 +5,7 @@ interface BrandLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   showSubtitle?: boolean;
   className?: string;
+  compactOnMobile?: boolean;
 }
 
 /**
@@ -91,6 +92,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
   size = 'md',
   showSubtitle = true,
   className,
+  compactOnMobile = false,
 }) => {
   const iconSizes = {
     sm: 'w-6 h-6 sm:w-7 sm:h-7',
@@ -101,20 +103,20 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
 
   const titleSizes = {
     sm: 'text-xs sm:text-base',
-    md: 'text-sm sm:text-lg md:text-xl',
+    md: 'text-xs min-[400px]:text-sm sm:text-lg md:text-xl',
     lg: 'text-lg sm:text-2xl',
     xl: 'text-2xl sm:text-4xl',
   };
 
   return (
-    <div className={twMerge('flex items-center gap-2 sm:gap-3 select-none cursor-pointer group shrink-0 min-w-0', className)}>
+    <div className={twMerge('flex items-center gap-1.5 sm:gap-3 select-none cursor-pointer group shrink-0 min-w-0', className)}>
       {/* High-Contrast Neo-Brutalist Badge */}
-      <div className="relative bg-[#FFE600] border-[2.5px] border-[#121212] shadow-neo-sm p-1 sm:p-1.5 flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 group-hover:shadow-neo">
+      <div className="relative bg-[#FFE600] border-[2px] sm:border-[2.5px] border-[#121212] shadow-neo-sm p-1 sm:p-1.5 flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 group-hover:shadow-neo">
         <PanamBitcoinIcon className={iconSizes[size]} />
       </div>
 
       {/* Brand Typography */}
-      <div className="flex flex-col justify-center min-w-0">
+      <div className={twMerge('flex flex-col justify-center min-w-0', compactOnMobile ? 'hidden min-[380px]:flex' : 'flex')}>
         <div className="flex items-center gap-1 sm:gap-1.5 leading-none">
           <span className={twMerge('font-black tracking-tight text-[#121212]', titleSizes[size])}>
             Panam

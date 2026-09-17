@@ -167,13 +167,13 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
             </div>
 
             {/* Quick Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <NeoButton
                 variant="outline"
                 size="md"
                 onClick={() => handleStartTransfer()}
                 disabled={wallets.length < 2}
-                className="flex items-center gap-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212]"
+                className="flex items-center justify-center gap-1.5 bg-[#00F0FF] hover:bg-[#38F4FF] text-[#121212] flex-1 sm:flex-initial"
                 title="Transfer between wallets"
               >
                 <ArrowRightLeft size={15} strokeWidth={2.5} />
@@ -183,7 +183,7 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
                 variant="dark"
                 size="md"
                 onClick={handleOpenCreate}
-                className="flex items-center gap-1.5"
+                className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
               >
                 <Plus size={16} strokeWidth={3} className="text-[#05DF72]" />
                 <span>+ Add Account</span>
@@ -192,39 +192,39 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
           </div>
 
           {/* Sub-Stats Bar matching MyMoney Screenshot 4 */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t-2 border-[#121212]">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 pt-3 border-t-2 border-[#121212]">
             <div className="p-3 bg-white border-2 border-[#121212] shadow-neo-sm">
-              <span className="text-[10px] font-black uppercase text-neutral-500 block">
+              <span className="text-[10px] font-black uppercase text-neutral-500 block truncate">
                 TOTAL LIQUID BALANCES
               </span>
-              <span className="text-xl font-mono font-black text-[#121212]">
+              <span className="text-lg sm:text-xl font-mono font-black text-[#121212] truncate block">
                 {isPrivacyMode ? '••••••' : formatPrivateAmount(totalBalance, currencySymbol)}
               </span>
-              <span className="text-[10px] font-bold text-neutral-500 block mt-0.5">
+              <span className="text-[10px] font-bold text-neutral-500 block mt-0.5 truncate">
                 Across {wallets.length} active account{wallets.length === 1 ? '' : 's'}
               </span>
             </div>
 
             <div className="p-3 bg-white border-2 border-[#121212] shadow-neo-sm">
-              <span className="text-[10px] font-black uppercase text-[#FF4343] flex items-center gap-1">
+              <span className="text-[10px] font-black uppercase text-[#FF4343] flex items-center gap-1 truncate">
                 <TrendingDown size={12} /> EXPENSE SO FAR
               </span>
-              <span className="text-xl font-mono font-black text-[#FF4343]">
+              <span className="text-lg sm:text-xl font-mono font-black text-[#FF4343] truncate block">
                 {isPrivacyMode ? '••••••' : formatPrivateAmount(expenseSoFar, currencySymbol)}
               </span>
-              <span className="text-[10px] font-bold text-neutral-500 block mt-0.5">
-                Total spent from all accounts
+              <span className="text-[10px] font-bold text-neutral-500 block mt-0.5 truncate">
+                Total spent from accounts
               </span>
             </div>
 
             <div className="p-3 bg-white border-2 border-[#121212] shadow-neo-sm">
-              <span className="text-[10px] font-black uppercase text-[#0B6B38] flex items-center gap-1">
+              <span className="text-[10px] font-black uppercase text-[#0B6B38] flex items-center gap-1 truncate">
                 <TrendingUp size={12} /> INCOME SO FAR
               </span>
-              <span className="text-xl font-mono font-black text-[#0B6B38]">
+              <span className="text-lg sm:text-xl font-mono font-black text-[#0B6B38] truncate block">
                 {isPrivacyMode ? '••••••' : formatPrivateAmount(incomeSoFar, currencySymbol)}
               </span>
-              <span className="text-[10px] font-bold text-neutral-500 block mt-0.5">
+              <span className="text-[10px] font-bold text-neutral-500 block mt-0.5 truncate">
                 Total received into accounts
               </span>
             </div>
@@ -233,7 +233,7 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
       </div>
 
       {/* Account Type Filters */}
-      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll pb-1 w-full">
         {TYPE_FILTERS.map((tf) => {
           const count = tf.value === 'all'
             ? wallets.length

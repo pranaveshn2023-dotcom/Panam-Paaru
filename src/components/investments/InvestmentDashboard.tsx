@@ -460,55 +460,55 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
-          <span className="text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1">
-            <DollarSign size={12} /> PORTFOLIO VALUE
+      {/* KPI Cards Grid - 2x2 on Mobile, 4 on Desktop */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+        <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
+          <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
+            <DollarSign size={12} /> VALUE
           </span>
-          <span className="text-2xl font-mono font-black text-[#121212]">
+          <span className="text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
             {isPrivacyMode ? '••••••' : formatPrivateAmount(totalCurrentValue, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500">{totalHoldings} holdings</span>
+          <span className="text-[9px] sm:text-[10px] font-bold text-neutral-500 truncate">{totalHoldings} holdings</span>
         </div>
 
-        <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
-          <span className="text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1">
-            <Target size={12} /> TOTAL INVESTED
+        <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
+          <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
+            <Target size={12} /> INVESTED
           </span>
-          <span className="text-2xl font-mono font-black text-[#121212]">
+          <span className="text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
             {isPrivacyMode ? '••••••' : formatPrivateAmount(totalInvested, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500">Principal basis</span>
+          <span className="text-[9px] sm:text-[10px] font-bold text-neutral-500 truncate">Principal basis</span>
         </div>
 
-        <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
-          <span className="text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1">
-            <Sparkles size={12} /> TOTAL RETURNS
+        <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
+          <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
+            <Sparkles size={12} /> RETURNS
           </span>
-          <div className="flex items-baseline gap-2">
-            <span className={`text-2xl font-mono font-black ${isPositiveReturns ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
+          <div className="flex items-baseline gap-1 sm:gap-2 flex-wrap">
+            <span className={`text-lg sm:text-2xl font-mono font-black truncate ${isPositiveReturns ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
               {isPositiveReturns ? '+' : ''}
               {isPrivacyMode ? '••••' : formatPrivateAmount(totalReturns, currencySymbol)}
             </span>
-            <span className={`text-xs font-mono font-black px-1.5 py-0.5 border border-[#121212] ${
+            <span className={`text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.5 border border-[#121212] shrink-0 ${
               isPositiveReturns ? 'bg-[#05DF72] text-[#121212]' : 'bg-[#FF4343] text-white'
             }`}>
               {isPositiveReturns ? '+' : ''}{portfolioGainPercent}%
             </span>
           </div>
-          <span className="text-[10px] font-bold text-neutral-500">Unrealized growth</span>
+          <span className="text-[9px] sm:text-[10px] font-bold text-neutral-500 truncate">Unrealized growth</span>
         </div>
 
-        <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
-          <span className="text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1">
-            <Clock size={12} /> MONTHLY SIPs
+        <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
+          <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
+            <Clock size={12} /> SIPs
           </span>
-          <span className="text-2xl font-mono font-black text-[#00F0FF]">
+          <span className="text-lg sm:text-2xl font-mono font-black text-[#00F0FF] truncate">
             {isPrivacyMode ? '••••' : formatPrivateAmount(totalSip, currencySymbol)}
-            <span className="text-xs font-bold text-neutral-600">/mo</span>
+            <span className="text-[10px] sm:text-xs font-bold text-neutral-600">/mo</span>
           </span>
-          <span className="text-[10px] font-bold text-neutral-500">Automated wealth</span>
+          <span className="text-[9px] sm:text-[10px] font-bold text-neutral-500 truncate">Automated wealth</span>
         </div>
       </div>
 
@@ -596,7 +596,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
         </div>
 
         {/* Bottom Tier: Filter Tabs cleanly spanning full width */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-2 border-t border-neutral-200 w-full">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll pt-2 border-t border-neutral-200 w-full">
           {ASSET_TABS.map((tab) => {
             const count = tab.value === 'all'
               ? investments.length

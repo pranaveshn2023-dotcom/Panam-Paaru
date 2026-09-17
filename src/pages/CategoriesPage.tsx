@@ -140,14 +140,14 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
 
         {/* Stats Pill Badges & Add Button */}
         <div className="flex items-center flex-wrap gap-2 w-full md:w-auto justify-between md:justify-end">
-          <div className="flex items-center gap-1.5 text-xs font-black">
-            <span className="px-2 py-1 bg-neutral-100 border border-[#121212] font-mono">
+          <div className="flex items-center gap-1.5 text-xs font-black flex-wrap">
+            <span className="px-2 py-1 bg-neutral-100 border border-[#121212] font-mono text-[11px]">
               Total: {safeCategories.length}
             </span>
-            <span className="px-2 py-1 bg-[#FF4343]/15 text-[#FF4343] border border-[#FF4343] font-mono">
+            <span className="px-2 py-1 bg-[#FF4343]/15 text-[#FF4343] border border-[#FF4343] font-mono text-[11px]">
               Exp: {expenseCount}
             </span>
-            <span className="px-2 py-1 bg-[#05DF72]/15 text-[#05DF72] border border-[#05DF72] font-mono">
+            <span className="px-2 py-1 bg-[#05DF72]/15 text-[#05DF72] border border-[#05DF72] font-mono text-[11px]">
               Inc: {incomeCount}
             </span>
           </div>
@@ -156,7 +156,7 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
             variant="secondary"
             size="sm"
             onClick={handleOpenAdd}
-            className="flex items-center gap-1.5 px-3 py-2 shrink-0 cursor-pointer"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 shrink-0 cursor-pointer w-full sm:w-auto"
           >
             <Plus size={15} strokeWidth={3} />
             <span>New Category</span>
@@ -167,11 +167,11 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
       {/* Filter Tabs & Search Bar */}
       <div className="p-3 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {/* Type Segmented Switch */}
-        <div className="flex items-center gap-1 bg-neutral-100 p-1 border-2 border-[#121212] self-start sm:self-center">
+        <div className="flex items-center gap-1 bg-neutral-100 p-1 border-2 border-[#121212] w-full sm:w-auto">
           <button
             onClick={() => setFilterType('all')}
             className={clsx(
-              'px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer',
+              'flex-1 sm:flex-initial px-2.5 sm:px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer text-center',
               filterType === 'all'
                 ? 'bg-[#121212] text-white shadow-neo-sm'
                 : 'bg-transparent text-neutral-600 hover:text-black'
@@ -182,7 +182,7 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
           <button
             onClick={() => setFilterType('expense')}
             className={clsx(
-              'px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer',
+              'flex-1 sm:flex-initial px-2.5 sm:px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer text-center',
               filterType === 'expense'
                 ? 'bg-[#FF4343] text-white shadow-neo-sm'
                 : 'bg-transparent text-neutral-600 hover:text-black'
@@ -193,7 +193,7 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
           <button
             onClick={() => setFilterType('income')}
             className={clsx(
-              'px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer',
+              'flex-1 sm:flex-initial px-2.5 sm:px-3 py-1.5 text-xs font-black uppercase transition-all cursor-pointer text-center',
               filterType === 'income'
                 ? 'bg-[#05DF72] text-[#121212] shadow-neo-sm'
                 : 'bg-transparent text-neutral-600 hover:text-black'
@@ -204,7 +204,7 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
         </div>
 
         {/* Search Input */}
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 w-full sm:max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
           <input
             type="text"

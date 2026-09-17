@@ -120,7 +120,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       )}
 
       {/* 1. 6-Digit PIN Security Lock Section */}
-      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 sm:p-6 flex flex-col gap-4">
+      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-6 flex flex-col gap-4">
         <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-[#FFE600] border border-[#121212] flex items-center justify-center">
@@ -143,7 +143,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           The 6-digit security PIN locks the application when left unattended or when switching windows/tabs.
         </p>
 
-        <div className="p-4 bg-[#FFFDF5] border-2 border-[#121212] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="p-3.5 sm:p-4 bg-[#FFFDF5] border-2 border-[#121212] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex flex-col gap-1">
             <span className="text-xs font-black uppercase text-[#121212]">
               PIN Protection Status
@@ -155,14 +155,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             {isPinEnabled ? (
               <>
                 <NeoButton
                   variant="primary"
                   size="sm"
                   onClick={lockNow}
-                  className="flex items-center gap-1.5"
+                  className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
                 >
                   <Lock size={14} />
                   <span>Lock Now</span>
@@ -171,6 +171,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   variant="outline"
                   size="sm"
                   onClick={() => onOpenPinSetup(true)}
+                  className="flex-1 sm:flex-initial text-center justify-center"
                 >
                   Manage / Change
                 </NeoButton>
@@ -180,7 +181,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 variant="secondary"
                 size="sm"
                 onClick={() => onOpenPinSetup(false)}
-                className="flex items-center gap-1.5"
+                className="flex items-center justify-center gap-1.5 w-full sm:w-auto"
               >
                 <KeyRound size={14} />
                 <span>Set 6-Digit PIN</span>
@@ -191,7 +192,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       </div>
 
       {/* 2. Currency & Formatting Section */}
-      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 sm:p-6 flex flex-col gap-4">
+      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-6 flex flex-col gap-4">
         <div className="flex items-center gap-2 border-b-2 border-[#121212] pb-3">
           <div className="w-7 h-7 bg-[#00F0FF] border border-[#121212] flex items-center justify-center">
             <Globe size={16} strokeWidth={2.5} />
@@ -227,7 +228,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       </div>
 
       {/* Categories Management Tile */}
-      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm flex items-center justify-center shrink-0">
             <Tag size={20} className="text-[#121212]" strokeWidth={2.5} />
@@ -244,7 +245,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             variant="secondary"
             size="sm"
             onClick={onNavigateToCategories}
-            className="flex items-center gap-1.5 self-start sm:self-auto"
+            className="flex items-center justify-center gap-1.5 w-full sm:w-auto"
           >
             <Tag size={13} />
             <span>Manage Categories</span>

@@ -105,13 +105,13 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
           />
         </div>
 
-        {/* Type & Category Filters */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Type & Category Filters & Actions */}
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
           {/* Type Filter */}
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as any)}
-            className="neo-input py-2 px-2.5 text-xs font-black uppercase bg-white cursor-pointer w-auto"
+            className="neo-input py-2 px-2.5 text-xs font-black uppercase bg-white cursor-pointer w-full sm:w-auto"
           >
             <option value="all">All Types</option>
             <option value="expense">Expenses Only</option>
@@ -122,7 +122,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="neo-input py-2 px-2.5 text-xs font-black uppercase bg-white cursor-pointer w-auto"
+            className="neo-input py-2 px-2.5 text-xs font-black uppercase bg-white cursor-pointer w-full sm:w-auto"
           >
             <option value="all">All Categories</option>
             {categories.map((c) => (
@@ -136,7 +136,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
           <select
             value={sortOrder}
             onChange={(e) => setSortOrder(e.target.value as any)}
-            className="neo-input py-2 px-2.5 text-xs font-black uppercase bg-white cursor-pointer w-auto"
+            className="neo-input py-2 px-2.5 text-xs font-black uppercase bg-white cursor-pointer w-full sm:w-auto col-span-2 sm:col-span-1"
           >
             <option value="newest">Newest First</option>
             <option value="oldest">Oldest First</option>
@@ -144,32 +144,34 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
             <option value="lowest">Lowest Amount</option>
           </select>
 
-          {/* Statement Button */}
-          {onOpenStatement && (
+          <div className="flex items-center gap-2 col-span-2 sm:col-span-1 w-full sm:w-auto">
+            {/* Statement Button */}
+            {onOpenStatement && (
+              <NeoButton
+                variant="secondary"
+                size="sm"
+                onClick={onOpenStatement}
+                className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+                title="Download Official Account Statement"
+              >
+                <Download size={14} />
+                <span>Statement</span>
+              </NeoButton>
+            )}
+
+            {/* Export CSV Button */}
             <NeoButton
-              variant="secondary"
+              variant="outline"
               size="sm"
-              onClick={onOpenStatement}
-              className="flex items-center gap-1.5 shrink-0"
-              title="Download Official Account Statement"
+              onClick={handleExportCSV}
+              disabled={sorted.length === 0}
+              className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
+              title="Download Transactions CSV"
             >
               <Download size={14} />
-              <span className="hidden sm:inline">Statement</span>
+              <span>CSV</span>
             </NeoButton>
-          )}
-
-          {/* Export CSV Button */}
-          <NeoButton
-            variant="outline"
-            size="sm"
-            onClick={handleExportCSV}
-            disabled={sorted.length === 0}
-            className="flex items-center gap-1.5 shrink-0"
-            title="Download Transactions CSV"
-          >
-            <Download size={14} />
-            <span className="hidden sm:inline">CSV</span>
-          </NeoButton>
+          </div>
         </div>
       </div>
 
@@ -270,7 +272,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
             </div>
 
             {/* Desktop Table View (hidden sm:block) */}
-            <div className="hidden sm:block overflow-x-auto">
+            <div className="hidden sm:block overflow-x-auto no-scrollbar touch-scroll">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-[#FFE600] border-b-[3px] border-[#121212] text-xs font-black uppercase tracking-wider text-[#121212]">

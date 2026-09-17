@@ -144,7 +144,7 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
   return (
     <div className="flex flex-col gap-5 w-full animate-in fade-in duration-150">
       {/* Sleek App-Grade Segmented Control */}
-      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-1.5 flex items-center justify-between gap-1 overflow-x-auto no-scrollbar">
+      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-1 sm:p-1.5 flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar touch-scroll w-full">
         {subTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeSubTab === tab.id;
@@ -153,24 +153,24 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
               key={tab.id}
               onClick={() => onSelectSubTab(tab.id)}
               className={clsx(
-                'flex-1 min-w-[70px] sm:min-w-[120px] py-2 px-2 sm:px-3 text-xs font-black uppercase flex items-center justify-center gap-1.5 border-2 transition-all cursor-pointer whitespace-nowrap',
+                'flex-1 min-w-[76px] sm:min-w-fit py-1.5 sm:py-2 px-2 sm:px-3 text-[11px] sm:text-xs font-black uppercase flex items-center justify-center gap-1 sm:gap-1.5 border-2 transition-all cursor-pointer whitespace-nowrap shrink-0 sm:shrink',
                 isActive
                   ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm'
                   : 'bg-transparent text-neutral-600 border-transparent hover:bg-neutral-100 hover:text-[#121212]'
               )}
             >
               <div
-                className="w-4 h-4 border border-[#121212] flex items-center justify-center shrink-0"
+                className="w-3.5 h-3.5 sm:w-4 sm:h-4 border border-[#121212] flex items-center justify-center shrink-0"
                 style={{ backgroundColor: isActive ? tab.color : '#E5E7EB' }}
               >
                 <Icon size={10} className="text-[#121212]" strokeWidth={3} />
               </div>
-              <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.shortLabel}</span>
+              <span className="hidden md:inline">{tab.label}</span>
+              <span className="md:hidden">{tab.shortLabel}</span>
               {tab.badge !== undefined && (
                 <span
                   className={clsx(
-                    'text-[10px] font-mono font-black px-1.5 py-0.2 rounded-none border',
+                    'text-[9px] sm:text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.2 rounded-none border',
                     isActive
                       ? 'bg-[#FFE600] text-[#121212] border-[#FFE600]'
                       : 'bg-neutral-200 text-neutral-700 border-neutral-300'

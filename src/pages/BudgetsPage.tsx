@@ -66,7 +66,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
           variant="dark"
           size="md"
           onClick={onOpenBudgetModal}
-          className="flex items-center gap-1.5 shrink-0"
+          className="flex items-center justify-center gap-1.5 w-full sm:w-auto shrink-0"
         >
           <Plus size={16} strokeWidth={3} className="text-[#FFE600]" />
           <span>New Budget / Wallet</span>
@@ -74,40 +74,40 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
       </div>
 
       {/* Engine Metrics Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col justify-between gap-1">
-          <span className="text-[10px] font-black uppercase text-neutral-500 block">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4">
+        <div className="p-3.5 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col justify-between gap-1">
+          <span className="text-[10px] font-black uppercase text-neutral-500 block truncate">
             TOTAL LOADED CAPITAL
           </span>
-          <span className="text-2xl font-mono font-black text-[#121212]">
+          <span className="text-xl sm:text-2xl font-mono font-black text-[#121212] truncate">
             {formatPrivateAmount(totalLoaded, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500">Across {budgets.length} active wallets</span>
+          <span className="text-[10px] font-bold text-neutral-500 truncate">Across {budgets.length} active wallets</span>
         </div>
 
-        <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col justify-between gap-1">
-          <span className="text-[10px] font-black uppercase text-neutral-500 block">
+        <div className="p-3.5 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col justify-between gap-1">
+          <span className="text-[10px] font-black uppercase text-neutral-500 block truncate">
             TOTAL SPENT
           </span>
-          <span className="text-2xl font-mono font-black text-[#FF4343]">
+          <span className="text-xl sm:text-2xl font-mono font-black text-[#FF4343] truncate">
             {formatPrivateAmount(totalSpent, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500">Live aggregated budget spend</span>
+          <span className="text-[10px] font-bold text-neutral-500 truncate">Live aggregated budget spend</span>
         </div>
 
-        <div className="p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col justify-between gap-1">
-          <span className="text-[10px] font-black uppercase text-neutral-500 block">
+        <div className="p-3.5 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col justify-between gap-1">
+          <span className="text-[10px] font-black uppercase text-neutral-500 block truncate">
             AVAILABLE REMAINING BALANCE
           </span>
-          <span className="text-2xl font-mono font-black text-[#05DF72]">
+          <span className="text-xl sm:text-2xl font-mono font-black text-[#05DF72] truncate">
             {formatPrivateAmount(totalRemaining, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500">Ready to spend or top-up</span>
+          <span className="text-[10px] font-bold text-neutral-500 truncate">Ready to spend or top-up</span>
         </div>
       </div>
 
       {/* Recurrence Filter Tabs for All, One-Time, Daily, Weekly, Monthly, Quarterly, Yearly */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll pb-1 w-full">
         <span className="text-xs font-black uppercase text-neutral-500 flex items-center gap-1 mr-2 shrink-0">
           <Filter size={13} /> Type:
         </span>

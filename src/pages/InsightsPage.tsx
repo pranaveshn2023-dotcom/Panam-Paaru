@@ -275,11 +275,11 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
           </div>
 
           {/* Month Stepper: < 2026/02 > */}
-          <div className="flex items-center justify-between bg-neutral-900 border-2 border-neutral-700 p-1 self-stretch sm:self-auto shadow-neo-sm">
+          <div className="flex items-center justify-between bg-neutral-900 border-2 border-neutral-700 p-1 w-full sm:w-auto shadow-neo-sm">
             <button
               onClick={handlePrevMonth}
               aria-label="Previous Month"
-              className="p-1.5 hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer"
+              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer"
             >
               <ChevronLeft size={18} strokeWidth={3} />
             </button>
@@ -289,7 +289,7 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
             <button
               onClick={handleNextMonth}
               aria-label="Next Month"
-              className="p-1.5 hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer"
+              className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center hover:bg-neutral-800 text-neutral-300 hover:text-white transition-colors cursor-pointer"
             >
               <ChevronRight size={18} strokeWidth={3} />
             </button>
@@ -298,62 +298,62 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
       </div>
 
       {/* Summary Row (MyMoney Screenshot 1: Expense, Income, Total Net) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         {/* Expense Summary */}
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 flex flex-col justify-between">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-4 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-black uppercase tracking-wider text-neutral-500">
+            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-neutral-500 truncate">
               EXPENSE SO FAR
             </span>
-            <div className="w-7 h-7 bg-[#FF4343] text-white border-2 border-[#121212] flex items-center justify-center font-black">
-              <ArrowUpRight size={16} strokeWidth={3} />
+            <div className="w-6 h-6 sm:w-7 sm:h-7 bg-[#FF4343] text-white border-2 border-[#121212] flex items-center justify-center font-black shrink-0">
+              <ArrowUpRight size={14} strokeWidth={3} />
             </div>
           </div>
-          <span className="text-2xl sm:text-3xl font-mono font-black text-[#FF4343]">
+          <span className="text-xl sm:text-3xl font-mono font-black text-[#FF4343] truncate">
             {formatPrivateAmount(totalExpense, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500 mt-1">
+          <span className="text-[10px] font-bold text-neutral-500 mt-1 truncate">
             {periodTransactions.filter((t) => t.type === 'expense').length} expense transactions
           </span>
         </div>
 
         {/* Income Summary */}
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 flex flex-col justify-between">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-4 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-black uppercase tracking-wider text-neutral-500">
+            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-neutral-500 truncate">
               INCOME SO FAR
             </span>
-            <div className="w-7 h-7 bg-[#05DF72] text-[#121212] border-2 border-[#121212] flex items-center justify-center font-black">
-              <ArrowDownLeft size={16} strokeWidth={3} />
+            <div className="w-6 h-6 sm:w-7 sm:h-7 bg-[#05DF72] text-[#121212] border-2 border-[#121212] flex items-center justify-center font-black shrink-0">
+              <ArrowDownLeft size={14} strokeWidth={3} />
             </div>
           </div>
-          <span className="text-2xl sm:text-3xl font-mono font-black text-[#05DF72]">
+          <span className="text-xl sm:text-3xl font-mono font-black text-[#05DF72] truncate">
             {formatPrivateAmount(totalIncome, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500 mt-1">
+          <span className="text-[10px] font-bold text-neutral-500 mt-1 truncate">
             {periodTransactions.filter((t) => t.type === 'income').length} income credits
           </span>
         </div>
 
         {/* Net Total Summary */}
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 flex flex-col justify-between">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-4 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-black uppercase tracking-wider text-neutral-500">
+            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-neutral-500 truncate">
               NET CASH FLOW
             </span>
-            <div className="w-7 h-7 bg-[#00F0FF] text-[#121212] border-2 border-[#121212] flex items-center justify-center font-black">
-              <Scale size={16} strokeWidth={3} />
+            <div className="w-6 h-6 sm:w-7 sm:h-7 bg-[#00F0FF] text-[#121212] border-2 border-[#121212] flex items-center justify-center font-black shrink-0">
+              <Scale size={14} strokeWidth={3} />
             </div>
           </div>
           <span
-            className={`text-2xl sm:text-3xl font-mono font-black ${
+            className={`text-xl sm:text-3xl font-mono font-black truncate ${
               netCashFlow >= 0 ? 'text-[#05DF72]' : 'text-[#FF4343]'
             }`}
           >
             {netCashFlow >= 0 ? '+' : ''}
             {formatPrivateAmount(netCashFlow, currencySymbol)}
           </span>
-          <span className="text-[10px] font-bold text-neutral-500 mt-1">
+          <span className="text-[10px] font-bold text-neutral-500 mt-1 truncate">
             {netCashFlow >= 0 ? 'Positive savings rate' : 'Net deficit this period'}
           </span>
         </div>
@@ -636,7 +636,7 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
             </div>
 
             {/* Responsive Calendar Matrix Wrapper */}
-            <div className="overflow-x-auto no-scrollbar">
+            <div className="overflow-x-auto no-scrollbar touch-scroll">
               <div className="min-w-[280px] flex flex-col gap-1">
                 {/* Weekday headers: Sun, Mon, Tue, Wed, Thu, Fri, Sat */}
                 <div className="grid grid-cols-7 gap-1 text-center">

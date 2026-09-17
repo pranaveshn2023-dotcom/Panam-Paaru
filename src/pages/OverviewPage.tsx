@@ -125,12 +125,12 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 z-10 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 z-10 shrink-0 w-full sm:w-auto">
           <NeoButton
             variant="dark"
             size="md"
             onClick={() => onOpenAddModal('expense')}
-            className="flex items-center gap-1.5"
+            className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
           >
             <ArrowUpRight size={16} strokeWidth={3} className="text-[#FF4343]" />
             <span>- Expense</span>
@@ -140,7 +140,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             variant="secondary"
             size="md"
             onClick={() => onOpenAddModal('income')}
-            className="flex items-center gap-1.5"
+            className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
           >
             <ArrowDownLeft size={16} strokeWidth={3} className="text-[#121212]" />
             <span>+ Income</span>
@@ -150,10 +150,10 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
 
       {/* Over-Budget Alert Banner if any */}
       {overBudgetItems.length > 0 && (
-        <div className="bg-[#FF4343] text-white p-4 border-[3px] border-[#121212] shadow-neo flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-white text-[#FF4343] border-2 border-[#121212] flex items-center justify-center shrink-0">
-              <AlertTriangle size={20} strokeWidth={3} />
+        <div className="bg-[#FF4343] text-white p-3.5 sm:p-4 border-[3px] border-[#121212] shadow-neo flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 bg-white text-[#FF4343] border-2 border-[#121212] flex items-center justify-center shrink-0">
+              <AlertTriangle size={18} strokeWidth={3} />
             </div>
             <div>
               <span className="text-xs font-black uppercase tracking-wider block">
@@ -166,7 +166,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
           </div>
           <button
             onClick={() => onNavigateToTab('budgets')}
-            className="px-3 py-1.5 bg-white text-[#121212] hover:bg-[#FFE600] text-xs font-black uppercase border-2 border-[#121212] shadow-neo-sm cursor-pointer whitespace-nowrap"
+            className="w-full sm:w-auto text-center px-3 py-1.5 bg-white text-[#121212] hover:bg-[#FFE600] text-xs font-black uppercase border-2 border-[#121212] shadow-neo-sm cursor-pointer whitespace-nowrap"
           >
             Review Budgets →
           </button>
@@ -174,14 +174,14 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
       )}
 
       {/* Smart Accounts / Wallets Widget (Matching MyMoney Screenshot 3) */}
-      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 sm:p-5 flex flex-col gap-3">
+      <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-5 flex flex-col gap-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b-2 border-[#121212] pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-[#FFE600] border-2 border-[#121212] flex items-center justify-center font-black">
+            <div className="w-8 h-8 bg-[#FFE600] border-2 border-[#121212] flex items-center justify-center font-black shrink-0">
               <Wallet size={18} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-black uppercase text-[#121212]">
                   ACCOUNTS & WALLETS
                 </span>
@@ -195,31 +195,31 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full sm:w-auto">
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
             <button
               onClick={() => onOpenTransferModal ? onOpenTransferModal() : onOpenAddModal('transfer')}
-              className="flex-1 sm:flex-initial px-2 sm:px-2.5 py-1.5 bg-[#00F0FF] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center justify-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer text-center"
+              className="px-2 sm:px-2.5 py-1.5 bg-[#00F0FF] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center justify-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer text-center"
             >
               <ArrowLeftRight size={13} strokeWidth={3} />
               <span>Transfer</span>
             </button>
             <button
               onClick={() => onOpenAddModal('income')}
-              className="flex-1 sm:flex-initial px-2 sm:px-2.5 py-1.5 bg-[#05DF72] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center justify-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer text-center"
+              className="px-2 sm:px-2.5 py-1.5 bg-[#05DF72] text-[#121212] border-2 border-[#121212] text-xs font-black uppercase flex items-center justify-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer text-center"
             >
               <ArrowDownLeft size={13} strokeWidth={3} />
               <span>Income</span>
             </button>
             <button
               onClick={() => onOpenAddModal('expense')}
-              className="flex-1 sm:flex-initial px-2 sm:px-2.5 py-1.5 bg-[#FF4343] text-white border-2 border-[#121212] text-xs font-black uppercase flex items-center justify-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer text-center"
+              className="px-2 sm:px-2.5 py-1.5 bg-[#FF4343] text-white border-2 border-[#121212] text-xs font-black uppercase flex items-center justify-center gap-1 shadow-neo-sm hover:translate-x-0.5 hover:-translate-y-0.5 transition-all cursor-pointer text-center"
             >
               <ArrowUpRight size={13} strokeWidth={3} />
               <span>Expense</span>
             </button>
             <button
               onClick={() => onNavigateToTab('wallets')}
-              className="flex-1 sm:flex-initial px-2 sm:px-2.5 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-[#121212] border-2 border-[#121212] text-xs font-black uppercase shadow-neo-sm transition-all cursor-pointer text-center"
+              className="px-2 sm:px-2.5 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-[#121212] border-2 border-[#121212] text-xs font-black uppercase shadow-neo-sm transition-all cursor-pointer text-center"
             >
               Manage →
             </button>
@@ -262,91 +262,91 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
         </div>
       </div>
 
-      {/* Top 4 Key Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Top 4 Key Metrics - 2x2 Grid on Mobile, 4 Cols on Desktop */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
         
         {/* Net Balance with inline Eye Toggle */}
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 flex flex-col justify-between gap-2">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3 sm:p-4 flex flex-col justify-between gap-1.5 sm:gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase text-neutral-500 tracking-wider">
+            <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 tracking-wider truncate">
               NET BALANCE
             </span>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 sm:gap-1.5">
               <button
                 onClick={togglePrivacyMode}
                 title={isPrivacyMode ? 'Show Balances' : 'Hide Balances'}
                 className="p-1 hover:bg-neutral-100 border border-transparent hover:border-[#121212] transition-colors cursor-pointer"
               >
-                {isPrivacyMode ? <EyeOff size={14} className="text-neutral-500" /> : <Eye size={14} className="text-neutral-500" />}
+                {isPrivacyMode ? <EyeOff size={13} className="text-neutral-500" /> : <Eye size={13} className="text-neutral-500" />}
               </button>
-              <div className="w-7 h-7 bg-[#05DF72] border border-[#121212] flex items-center justify-center">
-                <Wallet size={14} className="text-[#121212]" />
+              <div className="w-6 h-6 sm:w-7 sm:h-7 bg-[#05DF72] border border-[#121212] flex items-center justify-center shrink-0">
+                <Wallet size={12} className="text-[#121212]" />
               </div>
             </div>
           </div>
-          <div className="text-2xl font-mono font-black text-[#05DF72]">
+          <div className="text-lg sm:text-2xl font-mono font-black text-[#05DF72] truncate">
             {formatPrivateAmount(totalBalance, currencySymbol)}
           </div>
-          <span className="text-[10px] font-mono font-bold text-neutral-600">
-            All-time cumulative total
+          <span className="text-[9px] sm:text-[10px] font-mono font-bold text-neutral-600 truncate">
+            All-time total
           </span>
         </div>
 
         {/* Monthly Income */}
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 flex flex-col justify-between gap-2">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3 sm:p-4 flex flex-col justify-between gap-1.5 sm:gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase text-neutral-500 tracking-wider">
-              THIS MONTH INFLOW
+            <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 tracking-wider truncate">
+              THIS MONTH IN
             </span>
-            <div className="w-7 h-7 bg-[#05DF72] border border-[#121212] flex items-center justify-center">
-              <TrendingUp size={14} />
+            <div className="w-6 h-6 sm:w-7 sm:h-7 bg-[#05DF72] border border-[#121212] flex items-center justify-center shrink-0">
+              <TrendingUp size={12} />
             </div>
           </div>
-          <div className="text-2xl font-mono font-black text-[#05DF72]">
+          <div className="text-lg sm:text-2xl font-mono font-black text-[#05DF72] truncate">
             {isPrivacyMode ? '••••••' : `+${formatPrivateAmount(monthIncome, currencySymbol)}`}
           </div>
-          <span className="text-[10px] font-mono font-bold text-neutral-600">
+          <span className="text-[9px] sm:text-[10px] font-mono font-bold text-neutral-600 truncate">
             Earned this month
           </span>
         </div>
 
         {/* Monthly Expense */}
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 flex flex-col justify-between gap-2">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3 sm:p-4 flex flex-col justify-between gap-1.5 sm:gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase text-neutral-500 tracking-wider">
-              THIS MONTH OUTFLOW
+            <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 tracking-wider truncate">
+              THIS MONTH OUT
             </span>
-            <div className="w-7 h-7 bg-[#FF4343] text-white border border-[#121212] flex items-center justify-center">
-              <TrendingDown size={14} />
+            <div className="w-6 h-6 sm:w-7 sm:h-7 bg-[#FF4343] text-white border border-[#121212] flex items-center justify-center shrink-0">
+              <TrendingDown size={12} />
             </div>
           </div>
-          <div className="text-2xl font-mono font-black text-[#FF4343]">
+          <div className="text-lg sm:text-2xl font-mono font-black text-[#FF4343] truncate">
             {isPrivacyMode ? '••••••' : `-${formatPrivateAmount(monthExpense, currencySymbol)}`}
           </div>
-          <span className="text-[10px] font-mono font-bold text-neutral-600">
+          <span className="text-[9px] sm:text-[10px] font-mono font-bold text-neutral-600 truncate">
             Spent this month
           </span>
         </div>
 
         {/* Savings Rate */}
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 flex flex-col justify-between gap-2">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3 sm:p-4 flex flex-col justify-between gap-1.5 sm:gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase text-neutral-500 tracking-wider">
+            <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 tracking-wider truncate">
               SAVINGS RATIO
             </span>
-            <div className="w-7 h-7 bg-[#00F0FF] border border-[#121212] flex items-center justify-center">
-              <PiggyBank size={14} />
+            <div className="w-6 h-6 sm:w-7 sm:h-7 bg-[#00F0FF] border border-[#121212] flex items-center justify-center shrink-0">
+              <PiggyBank size={12} />
             </div>
           </div>
-          <div className="text-2xl font-mono font-black text-[#121212]">
+          <div className="text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
             {isPrivacyMode ? '••••' : `${savingsRate}%`}
           </div>
-          <span className="text-[10px] font-mono font-bold text-neutral-600">
+          <span className="text-[9px] sm:text-[10px] font-mono font-bold text-neutral-600 truncate">
             {savingsRate >= 50
-              ? 'Excellent capital retention'
+              ? 'Excellent cushion'
               : savingsRate > 0
-              ? 'Positive savings cushion'
-              : 'Add income to track ratio'}
+              ? 'Positive ratio'
+              : 'Add income to track'}
           </span>
         </div>
 
@@ -356,7 +356,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Active Budgets Preview (2 cols) */}
-        <div className="lg:col-span-2 bg-white border-[3px] border-[#121212] shadow-neo p-5 flex flex-col justify-between">
+        <div className="lg:col-span-2 bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-5 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3 mb-4">
               <div className="flex items-center gap-2">
@@ -395,7 +395,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                   return (
                     <div
                       key={b._id}
-                      className="p-3.5 bg-[#FFFDF5] border-2 border-[#121212] shadow-neo-sm flex flex-col gap-2"
+                      className="p-3 sm:p-3.5 bg-[#FFFDF5] border-2 border-[#121212] shadow-neo-sm flex flex-col gap-2"
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-black uppercase text-[#121212] truncate">
@@ -445,7 +445,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
         </div>
 
         {/* Quick Recent Transactions (1 col) */}
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 flex flex-col justify-between">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-5 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3 mb-4">
               <h3 className="text-sm font-black uppercase text-[#121212] tracking-wider">
