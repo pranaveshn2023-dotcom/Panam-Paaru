@@ -6,7 +6,6 @@ import { NeoButton } from '../ui/NeoButton';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import { offlineStorage } from '../../utils/offlineStorage';
 
 export const PinLockScreen: React.FC = () => {
   const { isLocked, unlockWithPin } = usePinLock();
@@ -217,7 +216,6 @@ export const PinLockScreen: React.FC = () => {
                 size="sm"
                 onClick={() => {
                   sessionStorage.removeItem('panam_pin_configured');
-                  offlineStorage.clearActiveSession();
                   void signOut();
                 }}
                 className="flex items-center justify-center gap-1.5 flex-1 text-xs font-black"
@@ -285,7 +283,6 @@ export const PinLockScreen: React.FC = () => {
           <button
             onClick={() => {
               sessionStorage.removeItem('panam_pin_configured');
-              offlineStorage.clearActiveSession();
               void signOut();
             }}
             className="text-xs font-bold text-neutral-500 hover:text-[#FF4343] flex items-center gap-1.5 cursor-pointer underline transition-colors"

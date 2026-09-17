@@ -5,9 +5,7 @@ import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
 import { Shield, Sparkles, Lock, CheckCircle2, Zap } from 'lucide-react';
 
-interface AuthScreenProps {
-  onDemoLogin?: () => void;
-}
+interface AuthScreenProps {}
 
 export const AuthScreen: React.FC<AuthScreenProps> = () => {
   const { signIn } = useAuthActions();

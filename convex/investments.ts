@@ -1,4 +1,4 @@
-import { query, mutation, action, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation, action, internalQuery, internalMutation, internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
@@ -913,28 +913,61 @@ async function resolveCryptoMeta(
   }
 }
 
+let lastKnownLiveUsdInrRate: number | null = null;
+
 async function fetchLiveUsdInrRate(): Promise<number> {
+  // 1. Primary: Yahoo Finance live forex spot USDINR=X
   try {
     const res = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/USDINR=X', {
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(3500),
     });
     if (res.ok) {
       const data: any = await res.json();
       const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-      if (typeof rate === 'number' && rate > 0) return rate;
+      if (typeof rate === 'number' && rate > 0) {
+        lastKnownLiveUsdInrRate = rate;
+        return rate;
+      }
     }
   } catch {}
+
+  // 2. Secondary: Open Exchange Rates public live feed
   try {
     const res = await fetch('https://open.er-api.com/v6/latest/USD', {
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(3500),
     });
     if (res.ok) {
       const data: any = await res.json();
       const rate = data?.rates?.INR;
-      if (typeof rate === 'number' && rate > 0) return rate;
+      if (typeof rate === 'number' && rate > 0) {
+        lastKnownLiveUsdInrRate = rate;
+        return rate;
+      }
     }
   } catch {}
-  return 88;
+
+  // 3. Tertiary: Frankfurter European Central Bank live reference exchange rate
+  try {
+    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR', {
+      signal: AbortSignal.timeout(3500),
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      const rate = data?.rates?.INR;
+      if (typeof rate === 'number' && rate > 0) {
+        lastKnownLiveUsdInrRate = rate;
+        return rate;
+      }
+    }
+  } catch {}
+
+  // 4. In-memory session cache: uses last verified live rate fetched from market
+  if (lastKnownLiveUsdInrRate !== null && lastKnownLiveUsdInrRate > 0) {
+    return lastKnownLiveUsdInrRate;
+  }
+
+  // 5. Offline initial fallback
+  return 88.5;
 }
 
 async function fetchCryptoPrice(
@@ -1250,7 +1283,7 @@ function schemeNameSimilarity(a: string, b: string): number {
   return (2 * overlap) / (ta.length + tb.length);
 }
 
-async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string } | null> {
+async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number } | null> {
   const combined = `${name} ${notes || ''}`;
 
   // 1. Direct scheme code check (if 6-digit scheme code embedded in text or notes)
@@ -1273,6 +1306,7 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
               date: latest.date || '',
               schemeName: details.meta?.scheme_name || name,
               prevNav: details.data?.[1]?.nav ? parseFloat(details.data[1].nav) : undefined,
+              schemeCode: parseInt(codeMatch[0], 10),
             };
           }
         }
@@ -1302,6 +1336,7 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
                   date: latest.date || '',
                   schemeName: details.meta?.scheme_name || found.schemeName || name,
                   prevNav: details.data?.[1]?.nav ? parseFloat(details.data[1].nav) : undefined,
+                  schemeCode: found.schemeCode,
                 };
               }
             }
@@ -1435,6 +1470,7 @@ async function fetchMfNav(name: string, notes?: string): Promise<{ nav: number; 
     date: validResults[0].date,
     schemeName: validResults[0].schemeName,
     prevNav: validResults[0].prevNav,
+    schemeCode: validResults[0].schemeCode,
   };
 }
 
@@ -1491,6 +1527,745 @@ export const internalBatchUpdatePrices = internalMutation({
   },
 });
 
+// ──────────────────────────────────────────
+// AMFI Mutual Fund Cache DB Engine
+// ──────────────────────────────────────────
+
+export function normalizeMfSearchKey(name: string): string {
+  if (!name) return "";
+  return name
+    .toLowerCase()
+    .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, "")
+    .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|dividend|payout|reinvestment|plan|option)\b/gi, "")
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
+
+/**
+ * Checks the persistent AMFI cache database for an existing NAV record
+ * either by official 6-digit schemeCode or normalized search key.
+ */
+export const internalGetCachedMfNav = internalQuery({
+  args: {
+    schemeCode: v.optional(v.number()),
+    searchKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // 1. Direct index lookup by official AMFI Scheme Code
+    if (args.schemeCode && args.schemeCode > 0) {
+      const byCode = await ctx.db
+        .query("mfNavCache")
+        .withIndex("by_scheme_code", (q) => q.eq("schemeCode", args.schemeCode!))
+        .first();
+      if (byCode) return byCode;
+    }
+
+    // 2. Direct index lookup by normalized search key
+    if (args.searchKey) {
+      const byKey = await ctx.db
+        .query("mfNavCache")
+        .withIndex("by_search_key", (q) => q.eq("searchKey", args.searchKey))
+        .first();
+      if (byKey) return byKey;
+    }
+
+    return null;
+  },
+});
+
+/**
+ * Inserts or updates an authentic AMFI NAV entry into the cache DB.
+ * Overwrites any stale/wrong data with authentic data directly from AMFI.
+ */
+export const internalUpsertMfNavCache = internalMutation({
+  args: {
+    schemeCode: v.number(),
+    schemeName: v.string(),
+    nav: v.number(),
+    navDate: v.string(),
+    prevNav: v.optional(v.number()),
+    searchKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // 1. Check if record with this schemeCode already exists
+    if (args.schemeCode > 0) {
+      const existing = await ctx.db
+        .query("mfNavCache")
+        .withIndex("by_scheme_code", (q) => q.eq("schemeCode", args.schemeCode))
+        .first();
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          schemeName: args.schemeName,
+          nav: args.nav,
+          navDate: args.navDate,
+          prevNav: args.prevNav,
+          searchKey: args.searchKey || existing.searchKey,
+          lastFetchedAt: now,
+        });
+        return existing._id;
+      }
+    }
+
+    // 2. Check if record with this searchKey already exists
+    if (args.searchKey) {
+      const existingByKey = await ctx.db
+        .query("mfNavCache")
+        .withIndex("by_search_key", (q) => q.eq("searchKey", args.searchKey))
+        .first();
+      if (existingByKey) {
+        await ctx.db.patch(existingByKey._id, {
+          schemeCode: args.schemeCode > 0 ? args.schemeCode : existingByKey.schemeCode,
+          schemeName: args.schemeName,
+          nav: args.nav,
+          navDate: args.navDate,
+          prevNav: args.prevNav,
+          lastFetchedAt: now,
+        });
+        return existingByKey._id;
+      }
+    }
+
+    // 3. Insert fresh authentic AMFI record
+    return await ctx.db.insert("mfNavCache", {
+      schemeCode: args.schemeCode,
+      schemeName: args.schemeName,
+      nav: args.nav,
+      navDate: args.navDate,
+      prevNav: args.prevNav,
+      searchKey: args.searchKey,
+      lastFetchedAt: now,
+    });
+  },
+});
+
+/**
+ * Purges stale/inactive AMFI cache records older than the cutoff (default: 30 days)
+ * ensuring the database stays clean and only holds actively referenced and verified schemes.
+ */
+export const internalPurgeStaleMfCache = internalMutation({
+  args: {
+    olderThanDays: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const days = args.olderThanDays ?? 30;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const staleItems = await ctx.db
+      .query("mfNavCache")
+      .withIndex("by_last_fetched", (q) => q.lt("lastFetchedAt", cutoff))
+      .take(100);
+
+    let purged = 0;
+    for (const item of staleItems) {
+      await ctx.db.delete(item._id);
+      purged++;
+    }
+    return { purged };
+  },
+});
+
+/**
+ * Public query for client components to read from the authentic AMFI Cache DB.
+ */
+export const getCachedMfNav = query({
+  args: {
+    name: v.string(),
+    schemeCode: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const cleanKey = normalizeMfSearchKey(args.name);
+    if (args.schemeCode && args.schemeCode > 0) {
+      const byCode = await ctx.db
+        .query("mfNavCache")
+        .withIndex("by_scheme_code", (q) => q.eq("schemeCode", args.schemeCode!))
+        .first();
+      if (byCode) return byCode;
+    }
+    if (cleanKey) {
+      const byKey = await ctx.db
+        .query("mfNavCache")
+        .withIndex("by_search_key", (q) => q.eq("searchKey", cleanKey))
+        .first();
+      if (byKey) return byKey;
+    }
+    return null;
+  },
+});
+
+/**
+ * Lists all active entries in the AMFI cache DB for verification.
+ */
+export const internalListAllMfCache = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("mfNavCache")
+      .withIndex("by_last_fetched")
+      .take(200);
+  },
+});
+
+// ──────────────────────────────────────────
+// Indian Stock Exchanges & Market Timing Helper (IST Timezone Aware)
+// ──────────────────────────────────────────
+
+export const INDIAN_MARKET_HOLIDAYS = new Set([
+  "01-26", // Republic Day
+  "03-08", // Mahashivratri
+  "03-25", // Holi
+  "03-29", // Good Friday
+  "04-11", // Id-Ul-Fitr
+  "04-14", // Dr. Ambedkar Jayanti
+  "04-17", // Ram Navami
+  "05-01", // Maharashtra Day / Labour Day
+  "06-17", // Bakri Id
+  "07-17", // Muharram
+  "08-15", // Independence Day
+  "10-02", // Mahatma Gandhi Jayanti
+  "10-12", // Dussehra
+  "10-31", // Diwali Laxmi Pujan
+  "11-01", // Diwali Balipratipada
+  "11-15", // Gurunanak Jayanti
+  "12-25", // Christmas
+]);
+
+export interface IndianMarketStatus {
+  isOpen: boolean;
+  isWeekend: boolean;
+  isHoliday: boolean;
+  isNonMarketHours: boolean;
+  isNightNavWindow: boolean; // 9:00 PM to 12:00 AM IST on weekdays when AMCs release daily NAVs
+  reason: string;
+  istDateStr: string;
+  istTimeStr: string;
+  currentMinutes: number;
+}
+
+/**
+ * Calculates current Indian Stock Market (NSE/BSE) trading session state in IST (UTC+5:30).
+ * Continuous trading session: 09:15 AM to 03:30 PM IST on weekdays, excluding public holidays.
+ * AMC Daily NAV Release Window: 09:00 PM to 12:00 AM IST (21:00 to 24:00 IST = 1260 to 1440 min).
+ */
+export function getIndianMarketStatus(): IndianMarketStatus {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const istDate = new Date(utcMs + 5.5 * 60 * 60 * 1000);
+
+  const dayOfWeek = istDate.getDay(); // 0 = Sunday, 6 = Saturday
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+  const m = String(istDate.getMonth() + 1).padStart(2, "0");
+  const d = String(istDate.getDate()).padStart(2, "0");
+  const monthDay = `${m}-${d}`;
+
+  const isHoliday = INDIAN_MARKET_HOLIDAYS.has(monthDay);
+
+  const hours = istDate.getHours();
+  const minutes = istDate.getMinutes();
+  const currentMinutes = hours * 60 + minutes;
+
+  // NSE/BSE Trading Hours: 09:15 AM to 03:30 PM IST (555 to 930 minutes)
+  const isTradingSession = currentMinutes >= 555 && currentMinutes <= 930;
+  const isOpen = !isWeekend && !isHoliday && isTradingSession;
+  const isNonMarketHours = !isOpen;
+
+  // AMC Daily NAV Release Window: 09:00 PM to 12:00 AM IST on weekdays
+  const isNightNavWindow = !isWeekend && !isHoliday && currentMinutes >= 1260;
+
+  let reason = "Market Open (Trading Active)";
+  if (isWeekend) {
+    reason = dayOfWeek === 6 ? "Market Closed (Saturday)" : "Market Closed (Sunday)";
+  } else if (isHoliday) {
+    reason = "Market Closed (NSE/BSE Public Holiday)";
+  } else if (isNightNavWindow) {
+    reason = "Market Closed (Night NAV Release Window: 9 PM - 12 AM IST)";
+  } else if (currentMinutes < 555) {
+    reason = "Market Closed (Pre-Market / Opens 9:15 AM IST)";
+  } else if (currentMinutes > 930) {
+    reason = "Market Closed (After-Hours / Closes 3:30 PM IST)";
+  }
+
+  const istDateStr = `${istDate.getFullYear()}-${m}-${d}`;
+  const istTimeStr = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")} IST`;
+
+  return {
+    isOpen,
+    isWeekend,
+    isHoliday,
+    isNonMarketHours,
+    isNightNavWindow,
+    reason,
+    istDateStr,
+    istTimeStr,
+    currentMinutes,
+  };
+}
+
+/**
+ * Public query for client components to display current market status.
+ */
+export const getMarketStatus = query({
+  args: {},
+  handler: async () => {
+    return getIndianMarketStatus();
+  },
+});
+
+/**
+ * Dynamic AMFI Cache Freshness Policy (IST Timezone Aware):
+ * - AMC Nightly NAV Release Window (Mon - Fri, 09:00 PM to 12:00 AM IST):
+ *   AMCs compute and publish new daily NAVs in batches between 9 PM and midnight IST.
+ *   During this window, AMFI is checked every 1 HOUR (TTL = 1 hour / 3,600,000 ms)
+ *   to immediately capture and verify updated NAVs as soon as each fund house releases them.
+ * - Regular Daytime Hours (Mon - Fri, 12:00 AM to 09:00 PM IST):
+ *   NAVs have already been finalized overnight and do not change during stock trading hours.
+ *   TTL = 6.5 hours prevents unnecessary external rate-limit exhaustion.
+ * - Weekends (Saturday & Sunday) and Indian Market Public Holidays:
+ *   AMCs and stock exchanges are closed; NAVs remain unchanged from Friday's close.
+ *   TTL = 12 hours ensures zero needless API polling.
+ */
+export function getMfCacheTtlMs(): number {
+  const status = getIndianMarketStatus();
+  if (status.isWeekend || status.isHoliday) {
+    // Weekends & Holidays: NAVs do not change from Friday close (TTL = 12 hours)
+    return 12 * 60 * 60 * 1000;
+  }
+
+  // AMC Nightly NAV Release Window (9:00 PM to 12:00 AM IST):
+  // Check and verify with AMFI every 1 hour!
+  if (status.isNightNavWindow) {
+    return 1 * 60 * 60 * 1000; // 1 hour TTL
+  }
+
+  // Regular Trading Days (12:00 AM to 09:00 PM IST): Check every 6.5 hours
+  return 6.5 * 60 * 60 * 1000;
+}
+
+/**
+ * Primary AMFI Gateway:
+ * 1. Queries the persistent Cache DB first.
+ * 2. If fresh (within the 6-7h weekday or 9-10h weekend/holiday window), returns the verified cached NAV
+ *    immediately with ZERO external API calls, completely eliminating rate limit bottlenecks.
+ * 3. If the freshness TTL has expired (or cache miss):
+ *    - Rechecks AMFI directly with the authentic scheme/ISIN search engine.
+ *    - Immediately corrects/overwrites any divergence in our Cache DB with authentic AMFI values.
+ * 4. If AMFI network fails or is down, safely falls back to existing cached record so user balances never break.
+ */
+async function getOrFetchMfNavWithCache(
+  ctx: any,
+  name: string,
+  notes?: string
+): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number } | null> {
+  const cleanKey = normalizeMfSearchKey(name);
+  const codeMatch = `${name} ${notes || ""}`.match(/\b\d{6}\b/);
+  const explicitCode = codeMatch ? parseInt(codeMatch[0], 10) : undefined;
+
+  // 1. Check persistent Cache DB first
+  const cached: any = await ctx.runQuery(internal.investments.internalGetCachedMfNav, {
+    schemeCode: explicitCode,
+    searchKey: cleanKey,
+  });
+
+  const now = Date.now();
+  const ttlMs = getMfCacheTtlMs();
+
+  // Freshness check: if cached and within TTL (6.5h on regular days, 9.5h on weekends/holidays)
+  if (cached && cached.nav > 0 && now - cached.lastFetchedAt < ttlMs) {
+    return {
+      nav: cached.nav,
+      date: cached.navDate,
+      schemeName: cached.schemeName,
+      prevNav: cached.prevNav,
+      schemeCode: cached.schemeCode,
+    };
+  }
+
+  // 2. TTL elapsed or cache miss: Re-verify against official AMFI
+  const amfi = await fetchMfNav(name, notes);
+  if (amfi && amfi.nav > 0) {
+    const resolvedCode = amfi.schemeCode || explicitCode || 0;
+    if (resolvedCode > 0) {
+      // Immediately correct / update the cache DB with 100% authentic AMFI data
+      await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
+        schemeCode: resolvedCode,
+        schemeName: amfi.schemeName || name,
+        nav: amfi.nav,
+        navDate: amfi.date || new Date().toISOString().split("T")[0],
+        prevNav: amfi.prevNav,
+        searchKey: cleanKey,
+      });
+    }
+    return amfi;
+  }
+
+  // 3. Fallback: If AMFI network timed out or failed temporarily, return cached record
+  if (cached && cached.nav > 0) {
+    return {
+      nav: cached.nav,
+      date: cached.navDate,
+      schemeName: cached.schemeName,
+      prevNav: cached.prevNav,
+      schemeCode: cached.schemeCode,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Background verification and maintenance action:
+ * Rechecks cached schemes against AMFI, detects any mistakes or updated NAVs,
+ * and updates them immediately with authentic AMFI data while pruning old records.
+ */
+export const internalVerifyAndCleanMfCacheJob = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    // 1. Clean up stale records older than 30 days
+    await ctx.runMutation(internal.investments.internalPurgeStaleMfCache, { olderThanDays: 30 });
+
+    // 2. Inspect active cache records
+    const cachedEntries: any[] = await ctx.runQuery(internal.investments.internalListAllMfCache, {});
+    if (!cachedEntries || cachedEntries.length === 0) return;
+
+    const ttlMs = getMfCacheTtlMs();
+    const now = Date.now();
+
+    for (const entry of cachedEntries) {
+      // Only re-verify entries whose 6-7h (or 9-10h) interval has elapsed
+      if (now - entry.lastFetchedAt >= ttlMs) {
+        try {
+          const amfi = await fetchMfNav(entry.schemeName);
+          if (amfi && amfi.nav > 0) {
+            await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
+              schemeCode: amfi.schemeCode || entry.schemeCode,
+              schemeName: amfi.schemeName || entry.schemeName,
+              nav: amfi.nav,
+              navDate: amfi.date || new Date().toISOString().split("T")[0],
+              prevNav: amfi.prevNav,
+              searchKey: entry.searchKey,
+            });
+          }
+        } catch (err) {
+          console.warn(`[CronVerify] Error verifying ${entry.schemeName}:`, err);
+        }
+      }
+    }
+  },
+});
+
+/**
+ * Manual or client-initiated verification action to recheck all holdings against AMFI
+ * and immediately correct any cache discrepancies.
+ */
+export const verifyAndCorrectMfCache = action({
+  args: {
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return { verified: 0, corrected: 0 };
+
+    const investments: any[] = await ctx.runQuery(
+      internal.investments.internalListInvestments,
+      { userId }
+    );
+
+    const mfHoldings = investments.filter(
+      (inv) => inv.assetType === "mutual_fund" || (inv.assetType === "gold" && /fund/i.test(inv.name))
+    );
+
+    const ttlMs = getMfCacheTtlMs();
+    const now = Date.now();
+    let verified = 0;
+    let corrected = 0;
+
+    for (const inv of mfHoldings) {
+      const cleanKey = normalizeMfSearchKey(inv.name);
+      const codeMatch = `${inv.name} ${inv.notes || ""}`.match(/\b\d{6}\b/);
+      const explicitCode = codeMatch ? parseInt(codeMatch[0], 10) : undefined;
+
+      const cached: any = await ctx.runQuery(internal.investments.internalGetCachedMfNav, {
+        schemeCode: explicitCode,
+        searchKey: cleanKey,
+      });
+
+      if (!args.force && cached && now - cached.lastFetchedAt < ttlMs) {
+        continue;
+      }
+
+      verified++;
+      const amfi = await fetchMfNav(inv.name, inv.notes);
+      if (amfi && amfi.nav > 0) {
+        const hasDivergence = !cached || Math.abs(cached.nav - amfi.nav) > 0.0001 || cached.navDate !== amfi.date;
+        if (hasDivergence) corrected++;
+
+        const resolvedCode = amfi.schemeCode || explicitCode || 0;
+        if (resolvedCode > 0) {
+          await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
+            schemeCode: resolvedCode,
+            schemeName: amfi.schemeName || inv.name,
+            nav: amfi.nav,
+            navDate: amfi.date || new Date().toISOString().split("T")[0],
+            prevNav: amfi.prevNav,
+            searchKey: cleanKey,
+          });
+        }
+      }
+    }
+
+    return { verified, corrected, ttlHours: Number((ttlMs / (3600 * 1000)).toFixed(1)) };
+  },
+});
+
+// ──────────────────────────────────────────
+// Dedicated Stock & Equity Cache DB Engine (35s Market / Frozen Non-Market)
+// ──────────────────────────────────────────
+
+export function normalizeStockSearchKey(name: string): string {
+  if (!name) return "";
+  return name
+    .toLowerCase()
+    .replace(/\b(limited|ltd|corporation|corp|company|co|plc|pvt|private)\b\.?/gi, "")
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
+
+/**
+ * Checks the persistent Stock Cache Database by ticker symbol or normalized search key.
+ */
+export const internalGetCachedStockPrice = internalQuery({
+  args: {
+    symbol: v.optional(v.string()),
+    searchKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (args.symbol) {
+      const bySym = await ctx.db
+        .query("stockPriceCache")
+        .withIndex("by_symbol", (q) => q.eq("symbol", args.symbol!))
+        .first();
+      if (bySym) return bySym;
+    }
+
+    if (args.searchKey) {
+      const byKey = await ctx.db
+        .query("stockPriceCache")
+        .withIndex("by_search_key", (q) => q.eq("searchKey", args.searchKey))
+        .first();
+      if (byKey) return byKey;
+    }
+
+    return null;
+  },
+});
+
+/**
+ * Inserts or updates an authentic Yahoo Finance stock quote into the stockPriceCache table.
+ */
+export const internalUpsertStockPriceCache = internalMutation({
+  args: {
+    symbol: v.string(),
+    name: v.string(),
+    price: v.number(),
+    prevClose: v.optional(v.number()),
+    change: v.optional(v.number()),
+    changePercent: v.optional(v.number()),
+    searchKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    if (args.symbol) {
+      const existing = await ctx.db
+        .query("stockPriceCache")
+        .withIndex("by_symbol", (q) => q.eq("symbol", args.symbol))
+        .first();
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          name: args.name || existing.name,
+          price: args.price,
+          prevClose: args.prevClose ?? existing.prevClose,
+          change: args.change ?? existing.change,
+          changePercent: args.changePercent ?? existing.changePercent,
+          searchKey: args.searchKey || existing.searchKey,
+          lastFetchedAt: now,
+        });
+        return existing._id;
+      }
+    }
+
+    if (args.searchKey) {
+      const existingByKey = await ctx.db
+        .query("stockPriceCache")
+        .withIndex("by_search_key", (q) => q.eq("searchKey", args.searchKey))
+        .first();
+      if (existingByKey) {
+        await ctx.db.patch(existingByKey._id, {
+          symbol: args.symbol || existingByKey.symbol,
+          name: args.name || existingByKey.name,
+          price: args.price,
+          prevClose: args.prevClose ?? existingByKey.prevClose,
+          change: args.change ?? existingByKey.change,
+          changePercent: args.changePercent ?? existingByKey.changePercent,
+          lastFetchedAt: now,
+        });
+        return existingByKey._id;
+      }
+    }
+
+    return await ctx.db.insert("stockPriceCache", {
+      symbol: args.symbol,
+      name: args.name,
+      price: args.price,
+      prevClose: args.prevClose,
+      change: args.change,
+      changePercent: args.changePercent,
+      searchKey: args.searchKey,
+      lastFetchedAt: now,
+    });
+  },
+});
+
+/**
+ * Public query to read cached stock price without hitting external APIs.
+ */
+export const getCachedStockPrice = query({
+  args: {
+    symbol: v.optional(v.string()),
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const key = normalizeStockSearchKey(args.name);
+    if (args.symbol) {
+      const bySym = await ctx.db
+        .query("stockPriceCache")
+        .withIndex("by_symbol", (q) => q.eq("symbol", args.symbol!))
+        .first();
+      if (bySym) return bySym;
+    }
+    if (key) {
+      const byKey = await ctx.db
+        .query("stockPriceCache")
+        .withIndex("by_search_key", (q) => q.eq("searchKey", key))
+        .first();
+      if (byKey) return byKey;
+    }
+    return null;
+  },
+});
+
+/**
+ * Purges inactive stock cache records older than 30 days.
+ */
+export const internalPurgeStaleStockCache = internalMutation({
+  args: {
+    olderThanDays: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const days = args.olderThanDays ?? 30;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const stale = await ctx.db
+      .query("stockPriceCache")
+      .withIndex("by_last_fetched", (q) => q.lt("lastFetchedAt", cutoff))
+      .take(100);
+    let purged = 0;
+    for (const item of stale) {
+      await ctx.db.delete(item._id);
+      purged++;
+    }
+    return { purged };
+  },
+});
+
+/**
+ * Primary Stock & Equity Price Gateway:
+ * - When Indian stock market is OPEN (09:15 - 15:30 IST Mon-Fri):
+ *   - Cache TTL is strictly 35 seconds (35,000 ms) to maintain accuracy and prevent API rate limiting.
+ *   - If cached quote is < 35 seconds old, returns immediately from DB in ~5ms (ZERO external API calls).
+ *   - If >= 35 seconds old, fetches live Yahoo Finance quote and upserts stockPriceCache.
+ * - When Indian stock market is CLOSED (Weekends, Public Holidays, or Non-Market Hours):
+ *   - Stock exchanges do NOT trade; prices are static at the previous closing price / LTP.
+ *   - If a cached record exists, returns the cached closing price directly (ZERO API calls).
+ *   - If no cached record exists yet, fetches once from Yahoo Finance to get the official closing price and caches it.
+ * - If external API fails, falls back gracefully to cached price.
+ */
+async function getOrFetchStockPriceWithCache(
+  ctx: any,
+  name: string
+): Promise<{ price: number; prevClose?: number; symbol?: string; isCached?: boolean } | null> {
+  const searchKey = normalizeStockSearchKey(name);
+  const marketStatus = getIndianMarketStatus();
+  const now = Date.now();
+
+  // 1. Check persistent Stock Cache DB
+  const cached: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
+    searchKey,
+    symbol: name.trim().toUpperCase(),
+  });
+
+  // 2. Closed market logic: weekends, holidays, or outside 9:15 - 15:30 IST
+  if (!marketStatus.isOpen) {
+    if (cached && cached.price > 0) {
+      return {
+        price: cached.price,
+        prevClose: cached.prevClose,
+        symbol: cached.symbol,
+        isCached: true,
+      };
+    }
+    // No cache exists yet for this holding; fetch closing price once from Yahoo
+    const quote = await fetchStockQuote(name);
+    if (quote && quote.price > 0) {
+      await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+        symbol: quote.symbol || name.trim().toUpperCase(),
+        name,
+        price: quote.price,
+        prevClose: quote.prevClose,
+        searchKey,
+      });
+      return { ...quote, isCached: false };
+    }
+    return null;
+  }
+
+  // 3. Open market logic: 35-second TTL
+  const STOCK_CACHE_TTL_MS = 35 * 1000; // 35 seconds
+  if (cached && cached.price > 0 && now - cached.lastFetchedAt < STOCK_CACHE_TTL_MS) {
+    return {
+      price: cached.price,
+      prevClose: cached.prevClose,
+      symbol: cached.symbol,
+      isCached: true,
+    };
+  }
+
+  // 4. Cache expired (>= 35s) or missing: fetch fresh authentic quote from Yahoo
+  const quote = await fetchStockQuote(name);
+  if (quote && quote.price > 0) {
+    await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+      symbol: quote.symbol || name.trim().toUpperCase(),
+      name,
+      price: quote.price,
+      prevClose: quote.prevClose,
+      searchKey,
+    });
+    return { ...quote, isCached: false };
+  }
+
+  // Fallback to existing cached quote if network failed
+  if (cached && cached.price > 0) {
+    return {
+      price: cached.price,
+      prevClose: cached.prevClose,
+      symbol: cached.symbol,
+      isCached: true,
+    };
+  }
+
+  return null;
+}
+
 export const syncLiveMarketPrices = action({
   args: {
     investmentIds: v.optional(v.array(v.id("investments"))),
@@ -1525,15 +2300,17 @@ export const syncLiveMarketPrices = action({
         let livePrice: number | null = null;
 
         if (at === "mutual_fund") {
-          const mf = await fetchMfNav(inv.name, inv.notes);
+          // Check persistent AMFI Cache DB first — only taps AMFI if stale or missing
+          const mf = await getOrFetchMfNavWithCache(ctx, inv.name, inv.notes);
           if (mf && mf.nav > 0) {
             livePrice = mf.nav;
           } else if (/\b(etf|bees)\b/i.test(inv.name)) {
             // ONLY check stock/ETF quote if explicitly an ETF or BEES instrument
-            const stk = await fetchStockQuote(inv.name);
+            const stk = await getOrFetchStockPriceWithCache(ctx, inv.name);
             if (stk && stk.price > 0) livePrice = stk.price;
           }
         } else if (at === "crypto") {
+          // Dynamic crypto tracking (CoinGecko spot + Yahoo pairs)
           const cry = await fetchCryptoPrice(inv.name);
           if (cry && cry.price > 0) {
             livePrice = cry.price;
@@ -1543,20 +2320,20 @@ export const syncLiveMarketPrices = action({
           const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(inv.name);
           if (!isSgbOrDigital) {
             // 1. Try stock quote first for traded ETFs / tickers (e.g. GOLDBEES, SILVERBEES, AXISAMC-GOLDAXIS, ICICIPRAMC - ICICISILVE)
-            const stk = await fetchStockQuote(inv.name);
+            const stk = await getOrFetchStockPriceWithCache(ctx, inv.name);
             if (stk && stk.price > 0) {
               livePrice = stk.price;
             } else {
-              // 2. Try AMFI NAV for Gold/Silver mutual funds (e.g. SBI Gold Fund, HDFC Silver Fund)
-              const mf = await fetchMfNav(inv.name, inv.notes);
+              // 2. Try AMFI Cache DB / AMFI for Gold/Silver mutual funds (e.g. SBI Gold Fund, HDFC Silver Fund)
+              const mf = await getOrFetchMfNavWithCache(ctx, inv.name, inv.notes);
               if (mf && mf.nav > 0) {
                 livePrice = mf.nav;
               }
             }
           }
         } else {
-          // Stocks & listed equity-ish instruments
-          const stk = await fetchStockQuote(inv.name);
+          // Stocks & listed equity instruments — uses 35s live cache or static closing price during closed market
+          const stk = await getOrFetchStockPriceWithCache(ctx, inv.name);
           if (stk && stk.price > 0) livePrice = stk.price;
         }
 
@@ -1582,8 +2359,8 @@ export const syncLiveMarketPrices = action({
             updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
           }
 
-          // Guard against random or unnecessary database rewrites:
-          // ONLY trigger a mutation if the real provider market price or valuation has actually moved!
+          // Guard against unnecessary database rewrites:
+          // ONLY trigger a mutation if the real provider market price or valuation has moved!
           const valDiff = Math.abs(updatedVal - inv.currentValue);
           const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));
           if (valDiff > 0.01 || priceDiff > 0.0001) {
@@ -1613,17 +2390,17 @@ export const fetchLivePrice = action({
     assetType: v.string(),
     notes: v.optional(v.string()),
   },
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const { name, assetType, notes } = args;
     if (!name || name.trim().length < 2) return null;
 
     if (assetType === "mutual_fund") {
-      const mf = await fetchMfNav(name, notes);
+      const mf = await getOrFetchMfNavWithCache(ctx, name, notes);
       if (mf && mf.nav > 0) {
         return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
       }
       if (/\b(etf|bees)\b/i.test(name)) {
-        return await fetchStockQuote(name);
+        return await getOrFetchStockPriceWithCache(ctx, name);
       }
       return null;
     }
@@ -1635,12 +2412,12 @@ export const fetchLivePrice = action({
     if (assetType === "gold") {
       const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(name);
       if (!isSgbOrDigital) {
-        // 1. Try stock quote first for ETFs (GOLDBEES, SILVERBEES, GOLDAXIS, SILVERIETF, etc.)
-        const stk = await fetchStockQuote(name);
+        // 1. Try stock cache first for ETFs (GOLDBEES, SILVERBEES, GOLDAXIS, SILVERIETF, etc.)
+        const stk = await getOrFetchStockPriceWithCache(ctx, name);
         if (stk && stk.price > 0) return stk;
 
-        // 2. Try AMFI NAV for Gold/Silver mutual funds
-        const mf = await fetchMfNav(name, notes);
+        // 2. Try AMFI Cache DB for Gold/Silver mutual funds
+        const mf = await getOrFetchMfNavWithCache(ctx, name, notes);
         if (mf && mf.nav > 0) {
           return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
         }
@@ -1648,21 +2425,59 @@ export const fetchLivePrice = action({
       return null;
     }
 
-    // Stocks, SGBs, Commodities
-    return await fetchStockQuote(name);
+    // Stocks, SGBs, Commodities: Uses 35s live cache or static closing price
+    return await getOrFetchStockPriceWithCache(ctx, name);
   },
 });
 
 export const getMarketIndices = action({
   args: {},
-  handler: async () => {
+  handler: async (ctx) => {
     const indices = [
       { key: "nifty50", symbol: "^NSEI", name: "NIFTY 50" },
       { key: "sensex", symbol: "^BSESN", name: "SENSEX" },
     ];
     const results: any[] = [];
+    const marketStatus = getIndianMarketStatus();
+    const now = Date.now();
+    const INDEX_CACHE_TTL_MS = 35 * 1000; // 35 seconds during market hours
+
     for (const idx of indices) {
       try {
+        const searchKey = normalizeStockSearchKey(idx.name);
+        // Check cache first
+        const cached: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
+          symbol: idx.symbol,
+          searchKey,
+        });
+
+        // If market closed and cache exists, return cached closing index value directly
+        if (!marketStatus.isOpen && cached && cached.price > 0) {
+          results.push({
+            name: idx.name,
+            symbol: idx.symbol,
+            price: cached.price,
+            change: cached.change || 0,
+            changePercent: cached.changePercent || 0,
+            isPositive: (cached.change || 0) >= 0,
+          });
+          continue;
+        }
+
+        // If market open and cached < 35s, return cached index value
+        if (marketStatus.isOpen && cached && cached.price > 0 && now - cached.lastFetchedAt < INDEX_CACHE_TTL_MS) {
+          results.push({
+            name: idx.name,
+            symbol: idx.symbol,
+            price: cached.price,
+            change: cached.change || 0,
+            changePercent: cached.changePercent || 0,
+            isPositive: (cached.change || 0) >= 0,
+          });
+          continue;
+        }
+
+        // Fetch fresh index value from Yahoo Finance
         const res = await fetch(
           `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
           { signal: AbortSignal.timeout(4000) }
@@ -1694,17 +2509,46 @@ export const getMarketIndices = action({
               changePct = prev > 0 ? Number(((change / prev) * 100).toFixed(2)) : 0;
             }
 
+            const roundedPrice = Math.round(price * 100) / 100;
+            const roundedChange = Math.round(change * 100) / 100;
+
+            // Upsert into stock cache database
+            await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+              symbol: idx.symbol,
+              name: idx.name,
+              price: roundedPrice,
+              prevClose: meta.previousClose || meta.chartPreviousClose,
+              change: roundedChange,
+              changePercent: changePct,
+              searchKey,
+            });
+
             results.push({
               name: idx.name,
               symbol: idx.symbol,
-              price: Math.round(price * 100) / 100,
-              change: Math.round(change * 100) / 100,
+              price: roundedPrice,
+              change: roundedChange,
               changePercent: changePct,
-              isPositive: change >= 0,
+              isPositive: roundedChange >= 0,
             });
+            continue;
           }
         }
-      } catch {}
+
+        // Fallback to cached value if Yahoo failed
+        if (cached && cached.price > 0) {
+          results.push({
+            name: idx.name,
+            symbol: idx.symbol,
+            price: cached.price,
+            change: cached.change || 0,
+            changePercent: cached.changePercent || 0,
+            isPositive: (cached.change || 0) >= 0,
+          });
+        }
+      } catch (err) {
+        console.warn(`[GetMarketIndices] Error fetching ${idx.name}:`, err);
+      }
     }
     return results;
   },

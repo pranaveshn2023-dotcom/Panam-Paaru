@@ -7,7 +7,6 @@ import { usePinLock } from '../context/PinLockContext';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
-import { offlineStorage } from '../utils/offlineStorage';
 import {
   Lock,
   Globe,
@@ -304,7 +303,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             variant="danger"
             size="sm"
             onClick={() => {
-              offlineStorage.clearActiveSession();
               void signOut();
             }}
             className="flex items-center gap-1.5"

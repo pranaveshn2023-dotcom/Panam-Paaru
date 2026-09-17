@@ -22,8 +22,7 @@ import {
 // Contexts
 import { PinLockProvider, usePinLock } from './context/PinLockContext';
 import { PrivacyProvider, usePrivacy } from './context/PrivacyContext';
-import { useOffline } from './context/OfflineContext';
-import { offlineStorage } from './utils/offlineStorage';
+import { NoInternetScreen } from './components/ui/NoInternetScreen';
 import { ToastProvider } from './components/ui/ToastProvider';
 import { toast } from 'sonner';
 
@@ -66,9 +65,22 @@ const DEFAULT_CATEGORIES: Category[] = [
 export function AppContent() {
   const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
   const { isPinLoading, isLocked } = usePinLock();
-  const { isOnline, syncOfflineQueue, pendingCount } = useOffline();
-  const [, setLocalTick] = useState(0);
-  const triggerLocalUpdate = useCallback(() => setLocalTick((t) => t + 1), []);
+  const [isOnline, setIsOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [expenseSubTab, setExpenseSubTab] = useState<ExpenseSubTab>('transactions');
@@ -162,14 +174,6 @@ export function AppContent() {
   };
 
   useEffect(() => {
-    if (cloudUser?._id) {
-      offlineStorage.setCurrentUser(cloudUser._id);
-    } else if (!isAuthenticated) {
-      offlineStorage.clearActiveSession();
-    }
-  }, [cloudUser?._id, isAuthenticated]);
-
-  useEffect(() => {
     if (isAuthenticated) {
       initializeUserDataMutation().catch(() => {});
       checkAndRenewRecurringBudgetsMutation().catch(() => {});
@@ -212,83 +216,10 @@ export function AppContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isAuthenticated, isLocked]);
 
-  // --- OFFLINE PERSISTENCE: Cache cloud snapshots locally ---
-  useEffect(() => {
-    if (cloudTransactions && cloudTransactions.length > 0) {
-      offlineStorage.saveTransactions(cloudTransactions);
-    }
-  }, [cloudTransactions]);
-
-  useEffect(() => {
-    if (cloudBudgets && cloudBudgets.length > 0) {
-      offlineStorage.saveBudgets(cloudBudgets);
-    }
-  }, [cloudBudgets]);
-
-  useEffect(() => {
-    if (cloudWalletsData?.wallets && cloudWalletsData.wallets.length > 0) {
-      offlineStorage.saveWallets(cloudWalletsData.wallets as Wallet[]);
-    }
-  }, [cloudWalletsData]);
-
-  useEffect(() => {
-    if (cloudCategories && cloudCategories.length > 0) {
-      offlineStorage.saveCategories(cloudCategories);
-    }
-  }, [cloudCategories]);
-
-  useEffect(() => {
-    if (cloudInvestments && cloudInvestments.length > 0) {
-      offlineStorage.saveInvestments(cloudInvestments);
-    }
-  }, [cloudInvestments]);
-
-  useEffect(() => {
-    if (cloudUser) {
-      offlineStorage.saveUser(cloudUser);
-    }
-  }, [cloudUser]);
-
-  useEffect(() => {
-    if (cloudStats && cloudStats.transactionCount > 0) {
-      offlineStorage.saveStats(cloudStats);
-    }
-  }, [cloudStats]);
-
-  // --- AUTO-SYNC QUEUE WHEN NETWORK RESTORED ---
-  useEffect(() => {
-    if (isOnline && pendingCount > 0) {
-      syncOfflineQueue({
-        addTransaction: (data) => addTransactionMutation(data),
-        updateTransaction: (data) => updateTransactionMutation(data),
-        deleteTransaction: (id) => removeTransactionMutation({ id: id as any }),
-        addBudget: (data) => createBudgetMutation(data),
-        updateBudget: (data) => updateBudgetMutation(data),
-        deleteBudget: (id) => removeBudgetMutation({ id: id as any }),
-        topUpBudget: (data) => topUpBudgetMutation(data),
-        addWallet: (data) => createWalletMutation(data),
-        updateWallet: (data) => updateWalletMutation(data),
-        deleteWallet: (id) => removeWalletMutation({ id: id as any }),
-        transferFunds: (data) => transferFundsMutation(data),
-        addCategory: (data) => createCategoryMutation(data),
-        updateCategory: (data) => updateCategoryMutation(data),
-        deleteCategory: (data) => removeCategoryMutation(data),
-      }).catch((err) => console.warn('[App] Auto-sync queue error:', err));
-    }
-  }, [isOnline, pendingCount, syncOfflineQueue]);
-
-  // --- DATA RESOLUTION: Cloud first with instant offline fallback ---
-  const transactions: Transaction[] = (isOnline && (cloudTransactions?.length ?? 0) > 0)
-    ? cloudTransactions
-    : ((offlineStorage.getTransactions()?.length ?? 0) > 0 ? offlineStorage.getTransactions() : (cloudTransactions ?? []));
-
-  const budgets: Budget[] = (isOnline && (cloudBudgets?.length ?? 0) > 0)
-    ? cloudBudgets
-    : ((offlineStorage.getBudgets()?.length ?? 0) > 0 ? offlineStorage.getBudgets() : (cloudBudgets ?? []));
-
-  const wallets: Wallet[] = (isOnline && (cloudWalletsData?.wallets?.length ?? 0) > 0)
-    ? (cloudWalletsData.wallets as Wallet[])
-    : ((offlineStorage.getWallets()?.length ?? 0) > 0 ? offlineStorage.getWallets() : ((cloudWalletsData?.wallets as Wallet[]) ?? []));
+  // --- DIRECT CLOUD DATA RESOLUTION (Zero Offline Storage) ---
+  const transactions: Transaction[] = cloudTransactions ?? [];
+  const budgets: Budget[] = cloudBudgets ?? [];
+  const wallets: Wallet[] = (cloudWalletsData?.wallets as Wallet[]) ?? [];
 
   const walletSummary: WalletSummary = (cloudWalletsData?.wallets && cloudWalletsData.wallets.length > 0)
     ? cloudWalletsData
@@ -299,45 +230,43 @@ export function AppContent() {
         incomeSoFar: 0,
       };
 
-  const categories: Category[] = (isOnline && (cloudCategories?.length ?? 0) > 0)
-    ? cloudCategories
-    : ((offlineStorage.getCategories()?.length ?? 0) > 0 ? offlineStorage.getCategories() : DEFAULT_CATEGORIES);
-
-  const investments: Investment[] = (isOnline && (cloudInvestments?.length ?? 0) > 0)
-    ? cloudInvestments
-    : ((offlineStorage.getInvestments()?.length ?? 0) > 0 ? offlineStorage.getInvestments() : (cloudInvestments ?? []));
-
+  const categories: Category[] = cloudCategories ?? DEFAULT_CATEGORIES;
+  const investments: Investment[] = cloudInvestments ?? [];
   const portfolioSummary: PortfolioSummary | null = cloudPortfolioSummary ?? null;
-  const user: UserProfile | null = cloudUser ?? offlineStorage.getUser();
+  const user: UserProfile | null = cloudUser ?? null;
 
   const currencySymbol = user?.settings?.currencySymbol || '₹';
   const currentCurrency = user?.settings?.currency || 'INR';
 
-  const stats: FinancialStats = (isOnline && cloudStats && cloudStats.transactionCount > 0)
+  const stats: FinancialStats = (cloudStats && cloudStats.transactionCount > 0)
     ? cloudStats
-    : offlineStorage.calculateOfflineStats(transactions, wallets);
+    : {
+        totalBalance: (wallets || []).reduce((acc, w) => acc + (w.balance || 0), 0),
+        totalIncome: 0,
+        totalExpense: 0,
+        thisMonthIncome: 0,
+        thisMonthExpense: 0,
+        savingsRate: 0,
+        transactionCount: transactions.length,
+      };
 
-  const analytics: SpendingAnalytics = (isOnline && cloudAnalytics && cloudAnalytics.categoryBreakdown.length > 0)
+  const analytics: SpendingAnalytics = (cloudAnalytics && cloudAnalytics.categoryBreakdown.length > 0)
     ? cloudAnalytics
-    : offlineStorage.calculateOfflineAnalytics(transactions, categories);
+    : {
+        categoryBreakdown: [],
+        monthlyTrends: [],
+        dailyAverageExpense: 0,
+        highestExpenseCategory: null,
+        totalExpensesThisMonth: 0,
+        totalIncomeThisMonth: 0,
+      };
 
-  // --- OFFLINE-AWARE ACTION HANDLERS ---
+  // --- DIRECT LIVE ACTION HANDLERS ---
   const handleSaveTransaction = async (data: {
     title: string; amount: number; type: TransactionType; category: string;
     date: string; notes?: string; walletId?: string; transferToWalletId?: string;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
-    if (!isOnline) {
-      offlineStorage.applyOptimisticTransaction(data, editingTransaction?._id);
-      offlineStorage.queueMutation(
-        editingTransaction ? 'update_transaction' : 'add_transaction',
-        editingTransaction ? { id: editingTransaction._id, ...data } : data
-      );
-      triggerLocalUpdate();
-      toast.success('Transaction saved offline • Will sync when connected');
-      return;
-    }
 
     try {
       if (editingTransaction) {
@@ -347,21 +276,18 @@ export function AppContent() {
           walletId: data.walletId as any,
           transferToWalletId: data.transferToWalletId as any,
         });
+        toast.success('Transaction updated');
       } else {
         await addTransactionMutation({
           ...data,
           walletId: data.walletId as any,
           transferToWalletId: data.transferToWalletId as any,
         });
+        toast.success('Transaction added');
       }
-    } catch {
-      offlineStorage.applyOptimisticTransaction(data, editingTransaction?._id);
-      offlineStorage.queueMutation(
-        editingTransaction ? 'update_transaction' : 'add_transaction',
-        editingTransaction ? { id: editingTransaction._id, ...data } : data
-      );
-      triggerLocalUpdate();
-      toast.warning('Network issue: Transaction saved offline • Queued for sync');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save transaction');
+      return;
     }
 
     // Simple, direct notification when an expense causes a budget alert limit to be reached
@@ -369,7 +295,6 @@ export function AppContent() {
       const matchedBudget = budgets.find((b) => {
         const matchCategory = b.category === data.category || b.category === 'All Categories';
         if (!matchCategory) return false;
-        // If budget is linked to an account, it only tracks expenses from that account
         if (b.sourceWalletId && data.walletId && b.sourceWalletId !== data.walletId) {
           return false;
         }
@@ -415,22 +340,11 @@ export function AppContent() {
 
   const handleDeleteTransaction = async (id: string) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
-    if (!isOnline) {
-      offlineStorage.applyOptimisticDeleteTransaction(id);
-      offlineStorage.queueMutation('delete_transaction', { id });
-      triggerLocalUpdate();
-      toast.success('Transaction deleted offline • Queued for sync');
-      return;
-    }
-
     try {
       await removeTransactionMutation({ id: id as any });
-    } catch {
-      offlineStorage.applyOptimisticDeleteTransaction(id);
-      offlineStorage.queueMutation('delete_transaction', { id });
-      triggerLocalUpdate();
-      toast.warning('Network issue: Deleted locally • Queued for sync');
+      toast.success('Transaction deleted');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete transaction');
     }
   };
 
@@ -450,52 +364,26 @@ export function AppContent() {
       isDefault: data.isDefault ?? false,
     };
 
-    if (!isOnline) {
-      offlineStorage.applyOptimisticWallet(payload, editingWallet?._id);
-      offlineStorage.queueMutation(
-        editingWallet ? 'update_wallet' : 'add_wallet',
-        editingWallet ? { id: editingWallet._id, ...payload } : payload
-      );
-      triggerLocalUpdate();
-      toast.success('Account saved offline • Queued for sync');
-      return;
-    }
-
     try {
       if (editingWallet) {
         await updateWalletMutation({ id: editingWallet._id as any, ...payload });
+        toast.success('Account updated');
       } else {
         await createWalletMutation(payload);
+        toast.success('Account created');
       }
-    } catch {
-      offlineStorage.applyOptimisticWallet(payload, editingWallet?._id);
-      offlineStorage.queueMutation(
-        editingWallet ? 'update_wallet' : 'add_wallet',
-        editingWallet ? { id: editingWallet._id, ...payload } : payload
-      );
-      triggerLocalUpdate();
-      toast.warning('Network issue: Saved locally • Queued for sync');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save account');
     }
   };
 
   const handleDeleteWallet = async (id: string) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
-    if (!isOnline) {
-      offlineStorage.applyOptimisticDeleteWallet(id);
-      offlineStorage.queueMutation('delete_wallet', { id });
-      triggerLocalUpdate();
-      toast.success('Account deleted offline • Queued for sync');
-      return;
-    }
-
     try {
       await removeWalletMutation({ id: id as any });
-    } catch {
-      offlineStorage.applyOptimisticDeleteWallet(id);
-      offlineStorage.queueMutation('delete_wallet', { id });
-      triggerLocalUpdate();
-      toast.warning('Network issue: Deleted locally • Queued for sync');
+      toast.success('Account deleted');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete account');
     }
   };
 
@@ -507,14 +395,6 @@ export function AppContent() {
     date?: string;
   }) => {
     if (navigator.vibrate) navigator.vibrate(30);
-
-    if (!isOnline) {
-      offlineStorage.queueMutation('transfer_funds', data);
-      triggerLocalUpdate();
-      toast.success('Transfer recorded offline • Will sync when connected');
-      return;
-    }
-
     try {
       await transferFundsMutation({
         fromWalletId: data.fromWalletId as any,
@@ -523,10 +403,9 @@ export function AppContent() {
         notes: data.notes,
         date: data.date,
       });
-    } catch {
-      offlineStorage.queueMutation('transfer_funds', data);
-      triggerLocalUpdate();
-      toast.warning('Network issue: Transfer recorded offline • Queued for sync');
+      toast.success('Transfer complete');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to transfer funds');
     }
   };
 
@@ -540,17 +419,6 @@ export function AppContent() {
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
 
-    if (!isOnline) {
-      offlineStorage.applyOptimisticBudget(data, editingBudget?._id);
-      offlineStorage.queueMutation(
-        editingBudget ? 'update_budget' : 'add_budget',
-        editingBudget ? { id: editingBudget._id, ...data } : data
-      );
-      triggerLocalUpdate();
-      toast.success('Budget saved offline • Will sync when connected');
-      return;
-    }
-
     try {
       if (editingBudget) {
         await updateBudgetMutation({
@@ -559,58 +427,36 @@ export function AppContent() {
           ...data,
           sourceWalletId: data.sourceWalletId as any,
         });
+        toast.success('Budget updated');
       } else {
         await createBudgetMutation({
           ...data,
           sourceWalletId: data.sourceWalletId as any,
         });
+        toast.success('Budget created');
       }
-    } catch {
-      offlineStorage.applyOptimisticBudget(data, editingBudget?._id);
-      offlineStorage.queueMutation(
-        editingBudget ? 'update_budget' : 'add_budget',
-        editingBudget ? { id: editingBudget._id, ...data } : data
-      );
-      triggerLocalUpdate();
-      toast.warning('Network issue: Budget saved offline • Queued for sync');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save budget');
     }
   };
 
   const handleTopUpBudget = async (id: string, topUpAmount: number, walletId?: string) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
-    if (!isOnline) {
-      offlineStorage.queueMutation('topup_budget', { id, topUpAmount, walletId });
-      toast.success('Top-up recorded offline • Will sync when connected');
-      return;
-    }
-
     try {
       await topUpBudgetMutation({ id: id as any, topUpAmount, walletId: walletId as any });
-    } catch {
-      offlineStorage.queueMutation('topup_budget', { id, topUpAmount, walletId });
-      toast.warning('Network issue: Top-up queued for sync');
+      toast.success('Budget topped up');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to top up budget');
     }
   };
 
   const handleDeleteBudget = async (id: string) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
-    if (!isOnline) {
-      offlineStorage.applyOptimisticDeleteBudget(id);
-      offlineStorage.queueMutation('delete_budget', { id });
-      triggerLocalUpdate();
-      toast.success('Budget deleted offline • Queued for sync');
-      return;
-    }
-
     try {
       await removeBudgetMutation({ id: id as any });
-    } catch {
-      offlineStorage.applyOptimisticDeleteBudget(id);
-      offlineStorage.queueMutation('delete_budget', { id });
-      triggerLocalUpdate();
-      toast.warning('Network issue: Deleted locally • Queued for sync');
+      toast.success('Budget deleted');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete budget');
     }
   };
 
@@ -621,22 +467,11 @@ export function AppContent() {
     icon: string;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
-    if (!isOnline) {
-      offlineStorage.applyOptimisticCategory(data);
-      offlineStorage.queueMutation('add_category', data);
-      triggerLocalUpdate();
-      toast.success('Category created offline • Will sync when connected');
-      return;
-    }
-
     try {
       await createCategoryMutation(data);
-    } catch {
-      offlineStorage.applyOptimisticCategory(data);
-      offlineStorage.queueMutation('add_category', data);
-      triggerLocalUpdate();
-      toast.warning('Network issue: Category created locally • Queued for sync');
+      toast.success('Category created');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to create category');
     }
   };
 
@@ -648,15 +483,6 @@ export function AppContent() {
     icon: string;
   }) => {
     if (navigator.vibrate) navigator.vibrate(20);
-
-    if (!isOnline) {
-      offlineStorage.applyOptimisticCategory(data, data.id);
-      offlineStorage.queueMutation('update_category', data);
-      triggerLocalUpdate();
-      toast.success('Category updated offline • Will sync when connected');
-      return;
-    }
-
     try {
       await updateCategoryMutation({
         id: data.id as any,
@@ -665,32 +491,19 @@ export function AppContent() {
         color: data.color,
         icon: data.icon,
       });
-    } catch {
-      offlineStorage.applyOptimisticCategory(data, data.id);
-      offlineStorage.queueMutation('update_category', data);
-      triggerLocalUpdate();
-      toast.warning('Network issue: Category updated locally • Queued for sync');
+      toast.success('Category updated');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update category');
     }
   };
 
   const handleDeleteCategory = async (id: string, reassignTo?: string) => {
     if (navigator.vibrate) navigator.vibrate(30);
-
-    if (!isOnline) {
-      offlineStorage.applyOptimisticDeleteCategory(id);
-      offlineStorage.queueMutation('delete_category', { id, reassignTo });
-      triggerLocalUpdate();
-      toast.success('Category deleted offline • Queued for sync');
-      return;
-    }
-
     try {
       await removeCategoryMutation({ id: id as any, reassignTo });
-    } catch {
-      offlineStorage.applyOptimisticDeleteCategory(id);
-      offlineStorage.queueMutation('delete_category', { id, reassignTo });
-      triggerLocalUpdate();
-      toast.warning('Network issue: Deleted locally • Queued for sync');
+      toast.success('Category deleted');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete category');
     }
   };
 
@@ -803,6 +616,11 @@ export function AppContent() {
       />
     )
   );
+
+  // 0. Offline Guard: "no internet no app opening"
+  if (!isOnline) {
+    return <NoInternetScreen />;
+  }
 
   // 1. Loading authentication state
   if (isAuthLoading) {

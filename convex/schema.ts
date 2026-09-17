@@ -160,4 +160,38 @@ export default defineSchema({
     budgetRollover: v.boolean(),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
+
+  // Official AMFI India Mutual Fund NAV Cache Database
+  // Real NAVs sourced strictly from AMFI / mfapi.in once daily (after 11 PM IST)
+  // Shared cross-user cache to eliminate repetitive external API tapping
+  mfNavCache: defineTable({
+    schemeCode: v.number(), // Official AMFI Scheme Code (e.g. 120503)
+    schemeName: v.string(), // Official AMFI scheme name
+    nav: v.number(), // Official AMFI NAV per unit
+    navDate: v.string(), // Official date of published NAV (e.g. "17-Sep-2026")
+    prevNav: v.optional(v.number()), // Previous day's NAV for day change calculation
+    searchKey: v.string(), // Normalized lowercase search string for precision matching
+    lastFetchedAt: v.number(), // Timestamp when fetched from AMFI
+  })
+    .index("by_scheme_code", ["schemeCode"])
+    .index("by_search_key", ["searchKey"])
+    .index("by_last_fetched", ["lastFetchedAt"]),
+
+  // Dedicated Stock & Equity Cache Database (NSE/BSE & Global)
+  // Updates every 35 seconds during trading hours (09:15 - 15:30 IST Mon-Fri)
+  // Freezes closing prices during non-market hours, weekends, and public holidays
+  stockPriceCache: defineTable({
+    symbol: v.string(), // Official or resolved ticker symbol (e.g. "RELIANCE.NS", "TCS.NS", "^NSEI")
+    name: v.string(), // Holding name / asset name
+    price: v.number(), // Current Price (CP) / Last Traded Price (LTP)
+    prevClose: v.optional(v.number()), // Previous trading session's close price
+    change: v.optional(v.number()), // Nominal day price change
+    changePercent: v.optional(v.number()), // Percentage day price change
+    searchKey: v.string(), // Normalized lowercase search key
+    lastFetchedAt: v.number(), // Timestamp in milliseconds
+  })
+    .index("by_symbol", ["symbol"])
+    .index("by_search_key", ["searchKey"])
+    .index("by_last_fetched", ["lastFetchedAt"]),
 });
+

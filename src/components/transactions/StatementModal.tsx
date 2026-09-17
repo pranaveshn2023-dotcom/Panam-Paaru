@@ -303,7 +303,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
 
         <div class="footer-note">
           <span>This is an official computer-generated account statement from PanamPaaru.</span>
-          <span>Authentication Ref: ${Math.random().toString(36).substring(2, 10).toUpperCase()} · End of Statement</span>
+          <span>Authentication Ref: PP-${Date.now().toString(36).toUpperCase()}-${(user?._id || 'ACC').slice(-4).toUpperCase()}-${statementRows.length.toString(16).padStart(4, '0').toUpperCase()} · End of Statement</span>
         </div>
 
         <script>

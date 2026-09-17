@@ -527,13 +527,77 @@ function parseYahooQuoteMeta(meta: any): { price: number; prevClose?: number } |
   return { price: meta.regularMarketPrice, prevClose: typeof prevClose === 'number' ? prevClose : undefined };
 }
 
+export function isIndianStockMarketOpen(): { isOpen: boolean; isNightNavWindow: boolean; reason: string } {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const istDate = new Date(utcMs + 5.5 * 60 * 60 * 1000);
+
+  const dayOfWeek = istDate.getDay(); // 0 = Sunday, 6 = Saturday
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+  const m = String(istDate.getMonth() + 1).padStart(2, '0');
+  const d = String(istDate.getDate()).padStart(2, '0');
+  const monthDay = `${m}-${d}`;
+
+  const INDIAN_MARKET_HOLIDAYS = new Set([
+    '01-26', '03-08', '03-25', '03-29', '04-11', '04-14', '04-17',
+    '05-01', '06-17', '07-17', '08-15', '10-02', '10-12', '10-31',
+    '11-01', '11-15', '12-25'
+  ]);
+
+  const isHoliday = INDIAN_MARKET_HOLIDAYS.has(monthDay);
+  const currentMinutes = istDate.getHours() * 60 + istDate.getMinutes();
+  const isTradingSession = currentMinutes >= 555 && currentMinutes <= 930; // 09:15 to 15:30 IST
+  const isNightNavWindow = !isWeekend && !isHoliday && currentMinutes >= 1260; // 09:00 PM to 12:00 AM IST
+
+  const isOpen = !isWeekend && !isHoliday && isTradingSession;
+  let reason = 'Market Open';
+  if (isWeekend) {
+    reason = dayOfWeek === 6 ? 'Market Closed (Saturday)' : 'Market Closed (Sunday)';
+  } else if (isHoliday) {
+    reason = 'Market Closed (NSE/BSE Public Holiday)';
+  } else if (isNightNavWindow) {
+    reason = 'Market Closed (AMC Nightly NAV Release Window)';
+  } else if (currentMinutes < 555) {
+    reason = 'Market Closed (Pre-Market / Opens 9:15 AM IST)';
+  } else if (currentMinutes > 930) {
+    reason = 'Market Closed (Closes 3:30 PM IST)';
+  }
+
+  return { isOpen, isNightNavWindow, reason };
+}
+
+interface ClientStockCacheEntry {
+  price: number;
+  prevClose?: number;
+  symbol?: string;
+  timestamp: number;
+}
+
+const clientStockPriceCache = new Map<string, ClientStockCacheEntry>();
+
 /**
- * Fetch live stock/ETF/commodity quote dynamically with ZERO hardcoding
+ * Fetch live stock/ETF/commodity quote dynamically with ZERO hardcoding.
+ * Respects Indian market hours (35s TTL during trading; frozen closing price during non-market/weekend/holiday).
  */
 export async function fetchLiveStockPrice(
   nameOrSymbol: string
 ): Promise<{ price: number; prevClose?: number; symbol?: string } | null> {
   const clean = nameOrSymbol.trim().toUpperCase();
+  const market = isIndianStockMarketOpen();
+  const cached = clientStockPriceCache.get(clean);
+  const now = Date.now();
+
+  // 1. Closed market: Prices do not change on weekends, holidays, or after-hours
+  if (!market.isOpen && cached && cached.price > 0) {
+    return { price: cached.price, prevClose: cached.prevClose, symbol: cached.symbol };
+  }
+
+  // 2. Open market: Cache valid for 35 seconds to maintain accuracy and prevent API rate limits
+  if (market.isOpen && cached && cached.price > 0 && now - cached.timestamp < 35000) {
+    return { price: cached.price, prevClose: cached.prevClose, symbol: cached.symbol };
+  }
+
   const candidates: string[] = [];
 
   const strippedCorporate = clean
@@ -601,35 +665,75 @@ export async function fetchLiveStockPrice(
     const meta = data?.chart?.result?.[0]?.meta;
     const parsed = meta ? parseYahooQuoteMeta(meta) : null;
     if (parsed && parsed.price > 0) {
-      return { price: parsed.price, prevClose: parsed.prevClose, symbol: sym };
+      const result = { price: parsed.price, prevClose: parsed.prevClose, symbol: sym };
+      clientStockPriceCache.set(clean, { ...result, timestamp: Date.now() });
+      return result;
     }
+  }
+
+  // Fallback to cached value if network failed
+  if (cached && cached.price > 0) {
+    return { price: cached.price, prevClose: cached.prevClose, symbol: cached.symbol };
   }
 
   return null;
 }
 
+let clientLastKnownLiveUsdInrRate: number | null = null;
+
 export async function fetchLiveUsdInrRate(): Promise<number> {
+  // 1. Primary: Yahoo Finance live forex spot USDINR=X
   try {
     const res = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/USDINR=X', {
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(3500),
     });
     if (res.ok) {
       const data: any = await res.json();
       const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-      if (typeof rate === 'number' && rate > 0) return rate;
+      if (typeof rate === 'number' && rate > 0) {
+        clientLastKnownLiveUsdInrRate = rate;
+        return rate;
+      }
     }
   } catch {}
+
+  // 2. Secondary: Open Exchange Rates public live feed
   try {
     const res = await fetch('https://open.er-api.com/v6/latest/USD', {
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(3500),
     });
     if (res.ok) {
       const data: any = await res.json();
       const rate = data?.rates?.INR;
-      if (typeof rate === 'number' && rate > 0) return rate;
+      if (typeof rate === 'number' && rate > 0) {
+        clientLastKnownLiveUsdInrRate = rate;
+        return rate;
+      }
     }
   } catch {}
-  return 88;
+
+  // 3. Tertiary: Frankfurter European Central Bank live reference exchange rate
+  try {
+    const res = await fetch('https://api.frankfurter.app/latest?from=USD&to=INR', {
+      signal: AbortSignal.timeout(3500),
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      const rate = data?.rates?.INR;
+      if (typeof rate === 'number' && rate > 0) {
+        clientLastKnownLiveUsdInrRate = rate;
+        return rate;
+      }
+    }
+  } catch {}
+
+  // 4. In-memory session cache: uses last verified live rate fetched from market
+  if (clientLastKnownLiveUsdInrRate !== null && clientLastKnownLiveUsdInrRate > 0) {
+    return clientLastKnownLiveUsdInrRate;
+  }
+
+  // 5. Offline initial fallback
+  return 88.5;
 }
 
 /**

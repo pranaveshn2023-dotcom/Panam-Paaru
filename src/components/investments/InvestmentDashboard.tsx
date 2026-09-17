@@ -7,7 +7,7 @@ import { AllocationChart } from './InvestmentChart';
 import { ReturnsChart } from './InvestmentChart';
 import { PortfolioTrendChart } from './InvestmentChart';
 import { InvestmentCard } from './InvestmentCard';
-import { useMutation, useAction } from 'convex/react';
+import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { fetchAmfiNav, fetchLiveStockPrice, fetchLiveCryptoPrice } from '../../utils/liveMarketService';
 import {
@@ -83,6 +83,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     { name: string; symbol: string; price: number; change: number; changePercent: number; isPositive: boolean }[]
   >([]);
 
+  const marketStatus = useQuery(api.investments.getMarketStatus);
   const batchUpdateLivePricesMutation = useMutation(api.investments.batchUpdateLivePrices);
   const autoClassifyCommoditiesMutation = useMutation(api.investments.autoClassifyCommodities);
   const autoDeduplicateHoldingsMutation = useMutation(api.investments.autoDeduplicateExistingHoldings);
@@ -270,13 +271,18 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     if (!isAutoSyncEnabled) return;
 
     const timer = setInterval(() => {
+      // During non-market hours (weekends, holidays, after-hours),
+      // stock prices are completely halted and cannot change.
+      // Do NOT trigger periodic background live market fetches during closed hours!
+      if (!marketStatus?.isOpen) return;
+
       if (investments.length > 0) {
         handleSyncLiveMarket(true);
       }
-    }, 45000);
+    }, 35000);
 
     return () => clearInterval(timer);
-  }, [isAutoSyncEnabled, investments.length, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation]);
+  }, [isAutoSyncEnabled, investments.length, marketStatus?.isOpen, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation]);
 
   const ASSET_TABS: { label: string; value: 'all' | AssetType }[] = [
     { label: 'All', value: 'all' },
@@ -308,6 +314,32 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
                 <span className="text-[10px] font-black bg-[#00F0FF] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
                   <Activity size={11} className="text-[#121212]" /> REAL-TIME VALUATION
                 </span>
+                {marketStatus?.isOpen ? (
+                  <span className="text-[10px] font-black bg-[#05DF72] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#121212] animate-ping" />
+                    NSE/BSE OPEN (35s LIVE)
+                  </span>
+                ) : marketStatus?.isNightNavWindow ? (
+                  <span
+                    className="text-[10px] font-black bg-[#00F0FF] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1"
+                    title="AMCs release daily NAVs between 9 PM and 12 AM IST (Hourly verification active)"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#121212] animate-pulse" />
+                    AMC NAV RELEASE (9PM-12AM IST)
+                  </span>
+                ) : (
+                  <span
+                    className="text-[10px] font-black bg-[#FFFDF5] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1"
+                    title={marketStatus?.reason ? `${marketStatus.reason} (${marketStatus.istTimeStr})` : 'Market Closed'}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#64748B]" />
+                    {marketStatus?.isWeekend
+                      ? 'MARKET CLOSED (WEEKEND)'
+                      : marketStatus?.isHoliday
+                      ? 'MARKET CLOSED (HOLIDAY)'
+                      : 'MARKET CLOSED (PRICES FROZEN)'}
+                  </span>
+                )}
                 {totalReturnsPercent >= 12 && (
                   <span className="text-[10px] font-black bg-[#05DF72] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
                     <Sparkles size={11} /> HIGH ALPHA
