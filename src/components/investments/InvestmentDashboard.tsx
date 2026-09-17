@@ -314,37 +314,6 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
                 <span className="text-[10px] font-black bg-[#00F0FF] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
                   <Activity size={11} className="text-[#121212]" /> REAL-TIME VALUATION
                 </span>
-                {marketStatus?.isOpen ? (
-                  <span className="text-[10px] font-black bg-[#05DF72] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#121212] animate-ping" />
-                    NSE/BSE OPEN (35s LIVE)
-                  </span>
-                ) : marketStatus?.isNightNavWindow ? (
-                  <span
-                    className="text-[10px] font-black bg-[#00F0FF] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1"
-                    title="AMCs release daily NAVs between 9 PM and 12 AM IST (Hourly verification active)"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#121212] animate-pulse" />
-                    AMC NAV RELEASE (9PM-12AM IST)
-                  </span>
-                ) : (
-                  <span
-                    className="text-[10px] font-black bg-[#FFFDF5] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1"
-                    title={marketStatus?.reason ? `${marketStatus.reason} (${marketStatus.istTimeStr})` : 'Market Closed'}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#64748B]" />
-                    {marketStatus?.isWeekend
-                      ? 'MARKET CLOSED (WEEKEND)'
-                      : marketStatus?.isHoliday
-                      ? 'MARKET CLOSED (HOLIDAY)'
-                      : 'MARKET CLOSED (PRICES FROZEN)'}
-                  </span>
-                )}
-                {totalReturnsPercent >= 12 && (
-                  <span className="text-[10px] font-black bg-[#05DF72] text-[#121212] px-2 py-0.5 border border-[#121212] flex items-center gap-1">
-                    <Sparkles size={11} /> HIGH ALPHA
-                  </span>
-                )}
                 <button
                   onClick={togglePrivacyMode}
                   className="p-1 bg-[#121212] text-[#FFE600] hover:bg-[#FFE600] hover:text-[#121212] border border-[#121212] transition-all cursor-pointer"
