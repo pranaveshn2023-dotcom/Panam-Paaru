@@ -1988,16 +1988,16 @@ export function getIndianMarketStatus(): IndianMarketStatus {
   const isOpen = !isWeekend && !isHoliday && isTradingSession;
   const isNonMarketHours = !isOpen;
 
-  // AMC Daily NAV Release Window: 09:00 PM to 12:00 AM IST on weekdays
-  const isNightNavWindow = !isWeekend && !isHoliday && currentMinutes >= 1260;
+  // AMC Daily NAV Release Window: 09:00 PM to 12:00 AM IST (active all 7 days including weekends)
+  const isNightNavWindow = currentMinutes >= 1260;
 
   let reason = "Market Open (Trading Active)";
-  if (isWeekend) {
+  if (isNightNavWindow) {
+    reason = "Market Closed (Night NAV Release Window: 9 PM - 12 AM IST)";
+  } else if (isWeekend) {
     reason = dayOfWeek === 6 ? "Market Closed (Saturday)" : "Market Closed (Sunday)";
   } else if (isHoliday) {
     reason = "Market Closed (NSE/BSE Public Holiday)";
-  } else if (isNightNavWindow) {
-    reason = "Market Closed (Night NAV Release Window: 9 PM - 12 AM IST)";
   } else if (currentMinutes < 555) {
     reason = "Market Closed (Pre-Market / Opens 9:15 AM IST)";
   } else if (currentMinutes > 930) {
@@ -2092,12 +2092,15 @@ export function parseNavDateToMs(dateStr: string): number {
  */
 export function getMfCacheTtlMs(): number {
   const status = getIndianMarketStatus();
+  // 1. Night NAV release window (09:00 PM to 12:00 AM IST) - 25-minute TTL to verify every 30-min cron cycle
+  if (status.isNightNavWindow) {
+    return 25 * 60 * 1000;
+  }
+  // 2. Daytime weekends / holidays (NAV does not change intraday)
   if (status.isWeekend || status.isHoliday) {
     return 12 * 60 * 60 * 1000;
   }
-  if (status.isNightNavWindow) {
-    return 1 * 60 * 60 * 1000;
-  }
+  // 3. Regular weekday market hours
   return 6.5 * 60 * 60 * 1000;
 }
 
@@ -2214,34 +2217,93 @@ async function getOrFetchMfNavWithCache(
 }
 
 /**
+ * Automatically propagates authentic fresh NAVs from mfNavCache into matching user investment holdings.
+ */
+export const internalSyncHoldingsFromMfCache = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const allCache = await ctx.db.query("mfNavCache").collect();
+    if (allCache.length === 0) return { updated: 0 };
+
+    const cacheBySchemeCode = new Map<number, (typeof allCache)[0]>();
+    const cacheByIsin = new Map<string, (typeof allCache)[0]>();
+    const cacheByKey = new Map<string, (typeof allCache)[0]>();
+
+    for (const c of allCache) {
+      if (c.schemeCode > 0) cacheBySchemeCode.set(c.schemeCode, c);
+      if (c.isin) cacheByIsin.set(c.isin.toUpperCase(), c);
+      if (c.searchKey) cacheByKey.set(c.searchKey, c);
+    }
+
+    const investments = await ctx.db.query("investments").collect();
+    let updated = 0;
+    const now = Date.now();
+
+    for (const inv of investments) {
+      if (inv.assetType !== "mutual_fund" && !(inv.assetType === "gold" && /fund/i.test(inv.name))) {
+        continue;
+      }
+      let match: (typeof allCache)[0] | undefined;
+      if (inv.schemeCode && cacheBySchemeCode.has(inv.schemeCode)) {
+        match = cacheBySchemeCode.get(inv.schemeCode);
+      } else if (inv.isin && cacheByIsin.has(inv.isin.toUpperCase())) {
+        match = cacheByIsin.get(inv.isin.toUpperCase());
+      } else {
+        const key = normalizeMfSearchKey(inv.name);
+        if (key && cacheByKey.has(key)) {
+          match = cacheByKey.get(key);
+        }
+      }
+
+      if (match && match.nav > 0) {
+        const units = inv.units || (inv.currentPrice ? inv.currentValue / inv.currentPrice : 0);
+        const newCurrentValue = units > 0 ? Number((units * match.nav).toFixed(2)) : inv.currentValue;
+
+        if (inv.currentPrice !== match.nav || inv.currentValue !== newCurrentValue) {
+          await ctx.db.patch(inv._id, {
+            currentPrice: match.nav,
+            currentValue: newCurrentValue,
+            schemeCode: match.schemeCode || inv.schemeCode,
+            isin: match.isin || inv.isin,
+            updatedAt: now,
+          });
+          updated++;
+        }
+      }
+    }
+    return { updated };
+  },
+});
+
+/**
  * Background verification and maintenance action:
  * Rechecks cached schemes against AMFI, detects any outdated dates or updated NAVs,
  * and updates them immediately with authentic AMFI data while pruning old records.
+ * During 9 PM - 12 AM IST (including weekends), runs every 30 mins to capture newly uploaded AMC NAVs.
  */
 export const internalVerifyAndCleanMfCacheJob = internalAction({
   args: {},
   handler: async (ctx) => {
-    // 1. Clean up stale records older than 30 days
-    await ctx.runMutation(internal.investments.internalPurgeStaleMfCache, { olderThanDays: 30 });
-
-    // 2. Inspect active cache records
+    // 1. Inspect active cache records
     const cachedEntries: any[] = await ctx.runQuery(internal.investments.internalListAllMfCache, {});
     if (!cachedEntries || cachedEntries.length === 0) return;
 
     const expectedDate = getLatestExpectedMfNavDate();
     const expectedDateMs = parseNavDateToMs(expectedDate);
     const now = Date.now();
+    const ttlMs = getMfCacheTtlMs();
 
     for (const entry of cachedEntries) {
       const cachedDateMs = entry.navDate ? parseNavDateToMs(entry.navDate) : 0;
       const isDateStale = !entry.navDate || cachedDateMs < expectedDateMs;
 
-      // Re-verify if date is stale or if more than 6 hours have elapsed
-      if (isDateStale || now - entry.lastFetchedAt >= 6 * 60 * 60 * 1000) {
+      // Re-verify if date is stale or if TTL has elapsed (25 mins during 9 PM - 12 AM night window)
+      if (isDateStale || now - entry.lastFetchedAt >= ttlMs) {
         try {
-          const amfi = await fetchMfNav(entry.schemeName, undefined, entry.schemeCode);
+          const amfi = await fetchMfNav(entry.schemeName, undefined, entry.schemeCode, entry.isin);
           if (amfi && amfi.nav > 0) {
             await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
+              isin: amfi.isin || entry.isin,
               schemeCode: amfi.schemeCode || entry.schemeCode,
               schemeName: amfi.schemeName || entry.schemeName,
               nav: amfi.nav,
@@ -2255,6 +2317,9 @@ export const internalVerifyAndCleanMfCacheJob = internalAction({
         }
       }
     }
+
+    // 3. Propagate updated NAVs to matching user holdings
+    await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
   },
 });
 
@@ -3142,3 +3207,5 @@ export const autoDeduplicateExistingHoldings = mutation({
     return { removedCount };
   },
 });
+
+

@@ -60,15 +60,15 @@ The user interface is segmented into four primary operational domains:
 #### Nightly AMC Mutual Fund Synchronization
 - **AMC Release Window**: Indian Asset Management Companies (AMCs) calculate and publish final day NAVs to AMFI between 09:00 PM and 12:00 AM IST.
 - **Dynamic AMFI TTL**:
-  - **Night Window (21:00 - 24:00 IST)**: 1-hour cache TTL to rapidly ingest new NAV releases.
+  - **Night Window (21:00 - 24:00 IST)**: 25-minute cache TTL active all 7 days (including weekends) to rapidly ingest new NAV releases.
   - **Daytime (09:15 - 15:30 IST)**: 6.5-hour TTL (NAV does not change intraday).
-  - **Off-Hours & Weekends**: 12-hour TTL.
-- **Automated Convex Crons**: Built-in scheduled functions (`convex/crons.ts`) run nightly sweeps at:
-  - `21:30 IST` (16:00 UTC)
-  - `22:30 IST` (17:00 UTC)
-  - `23:30 IST` (18:00 UTC)
-  - `00:30 IST` (19:00 UTC)
-  - Plus every 6 hours for daytime maintenance.
+  - **Off-Hours**: 12-hour TTL during non-release hours.
+- **Automated Convex Crons**: Built-in scheduled functions (`convex/crons.ts`) run every 30 minutes between 9:00 PM and 12:00 AM IST (inclusive) across all 7 days:
+  - `21:00 IST` (15:30 UTC), `21:30 IST` (16:00 UTC)
+  - `22:00 IST` (16:30 UTC), `22:30 IST` (17:00 UTC)
+  - `23:00 IST` (17:30 UTC), `23:30 IST` (18:00 UTC)
+  - `00:00 IST` (18:30 UTC)
+- **Automatic Portfolio Sync**: Each nightly run updates `mfNavCache` with authentic AMFI NAVs and immediately propagates the new valuations into the user's holdings.
 
 #### 100% Server-Side Execution
 All external fetching (Yahoo Finance / Google Finance / AMFI portal endpoints), rate-limiting, and candidate scoring execute entirely inside the Convex cloud backend. The client frontend remains clean and decoupled from external scraping mechanisms.
