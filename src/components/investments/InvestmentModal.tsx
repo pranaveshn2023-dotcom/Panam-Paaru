@@ -198,12 +198,12 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       let result: { price: number; prevClose?: number; symbol?: string } | null = null;
 
       if (type === 'mutual_fund') {
-        const mf = await fetchAmfiNav(assetName);
+        const mf = await fetchAmfiNav(assetName, notes);
         if (mf && mf.nav > 0) {
           result = { price: mf.nav, symbol: mf.schemeName };
         } else {
           try {
-            const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
+            const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes });
             if (serverRes && serverRes.price > 0) result = serverRes;
           } catch { }
         }
@@ -217,12 +217,12 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         }
       } else {
         try {
-          const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type });
+          const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes });
           if (serverRes && serverRes.price > 0) result = serverRes;
         } catch { }
 
         if (!result || result.price <= 0) {
-          result = await fetchLiveStockPrice(assetName);
+          result = await fetchLiveStockPrice(assetName, notes);
         }
       }
 

@@ -106,6 +106,9 @@ export interface Investment {
   units?: number;
   buyPrice?: number;
   currentPrice?: number;
+  schemeCode?: number;
+  isin?: string;
+  ticker?: string;
   sipAmount?: number;
   sipDay?: number;
   xirr?: string;

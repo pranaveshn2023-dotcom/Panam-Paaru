@@ -205,7 +205,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 livePrice = live.nav;
                 liveDate = live.date;
               } else if (/\b(etf|bees)\b/i.test(holding.name)) {
-                const liveStock = await fetchLiveStockPrice(holding.name);
+                const liveStock = await fetchLiveStockPrice(holding.name, holding.notes, holding.isin);
                 if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
               }
             } else if (at === 'crypto') {
@@ -214,7 +214,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             } else if (at === 'gold') {
               const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(holding.name);
               if (!isSgbOrDigital) {
-                const liveStock = await fetchLiveStockPrice(holding.name);
+                const liveStock = await fetchLiveStockPrice(holding.name, holding.notes, holding.isin);
                 if (liveStock && liveStock.price > 0) {
                   livePrice = liveStock.price;
                 } else {
@@ -227,18 +227,19 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 }
               }
             } else {
-              // stocks & equities
-              const live = await fetchLiveStockPrice(holding.name);
+              // stocks & equities: addressed by unique ISIN
+              const live = await fetchLiveStockPrice(holding.name, holding.notes, holding.isin);
               if (live && live.price > 0) livePrice = live.price;
             }
 
             // Unblocked server action fallback for live prices if direct client query was blocked
             if (livePrice === null || livePrice <= 0) {
               try {
-                const serverRes = await fetchLivePriceAction({
+                const serverRes = await (fetchLivePriceAction as any)({
                   name: holding.name,
                   assetType: at,
-                  notes: holding.notes || (holding.isin ? `ISIN: ${holding.isin}` : undefined),
+                  notes: holding.notes,
+                  isin: holding.isin,
                 });
                 if (serverRes && serverRes.price > 0) {
                   livePrice = serverRes.price;
@@ -332,7 +333,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           livePrice = live.nav;
           liveDate = live.date;
         } else if (/\b(etf|bees)\b/i.test(assetName)) {
-          const liveStock = await fetchLiveStockPrice(assetName);
+          const liveStock = await fetchLiveStockPrice(assetName, notesOrIsin);
           if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
         }
       } else if (targetType === 'crypto') {
@@ -341,7 +342,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       } else if (targetType === 'gold') {
         const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(assetName);
         if (!isSgbOrDigital) {
-          const liveStock = await fetchLiveStockPrice(assetName);
+          const liveStock = await fetchLiveStockPrice(assetName, notesOrIsin);
           if (liveStock && liveStock.price > 0) {
             livePrice = liveStock.price;
           } else {
@@ -353,7 +354,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           }
         }
       } else {
-        const liveStock = await fetchLiveStockPrice(assetName);
+        const liveStock = await fetchLiveStockPrice(assetName, notesOrIsin);
         if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
       }
 

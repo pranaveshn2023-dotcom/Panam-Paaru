@@ -99,6 +99,9 @@ export default defineSchema({
     units: v.optional(v.number()), // Quantity / units / shares / grams
     buyPrice: v.optional(v.number()), // Purchase price per unit
     currentPrice: v.optional(v.number()), // Current market price per unit
+    schemeCode: v.optional(v.number()), // Official AMFI Scheme Code (100% unique primary identifier for mutual funds)
+    isin: v.optional(v.string()), // Official 12-char ISIN (e.g. "INE002A01018" - primary database mapping key for NSE/BSE stocks & mutual funds)
+    ticker: v.optional(v.string()), // Live market ticker with exchange suffix (e.g. "RELIANCE.NS" or "TCS.BO")
     sipAmount: v.optional(v.number()), // Monthly SIP amount if active
     sipDay: v.optional(v.number()), // Day of month for SIP (1-28)
     subType: v.optional(v.string()), // e.g. "Equity Mutual Fund", "Hybrid Mutual Fund", "Debt Mutual Fund"
@@ -112,7 +115,9 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_user_asset_type", ["userId", "assetType"])
-    .index("by_user_batch", ["userId", "importBatchId"]),
+    .index("by_user_batch", ["userId", "importBatchId"])
+    .index("by_scheme_code", ["schemeCode"])
+    .index("by_isin", ["isin"]),
 
   // Statement & Portfolio Import Batches for 1-Click Rollback / Undo
   importBatches: defineTable({
@@ -171,16 +176,19 @@ export default defineSchema({
     navDate: v.string(), // Official date of published NAV (e.g. "17-Sep-2026")
     prevNav: v.optional(v.number()), // Previous day's NAV for day change calculation
     searchKey: v.string(), // Normalized lowercase search string for precision matching
+    isin: v.optional(v.string()), // Official ISIN for mutual fund scheme (e.g. "INF879O01027")
     lastFetchedAt: v.number(), // Timestamp when fetched from AMFI
   })
     .index("by_scheme_code", ["schemeCode"])
     .index("by_search_key", ["searchKey"])
+    .index("by_isin", ["isin"])
     .index("by_last_fetched", ["lastFetchedAt"]),
 
   // Dedicated Stock & Equity Cache Database (NSE/BSE & Global)
   // Updates every 35 seconds during trading hours (09:15 - 15:30 IST Mon-Fri)
   // Freezes closing prices during non-market hours, weekends, and public holidays
   stockPriceCache: defineTable({
+    isin: v.optional(v.string()), // Official 12-char ISIN (e.g. "INE002A01018" - primary database mapping key)
     symbol: v.string(), // Official or resolved ticker symbol (e.g. "RELIANCE.NS", "TCS.NS", "^NSEI")
     name: v.string(), // Holding name / asset name
     price: v.number(), // Current Price (CP) / Last Traded Price (LTP)
@@ -190,6 +198,7 @@ export default defineSchema({
     searchKey: v.string(), // Normalized lowercase search key
     lastFetchedAt: v.number(), // Timestamp in milliseconds
   })
+    .index("by_isin", ["isin"])
     .index("by_symbol", ["symbol"])
     .index("by_search_key", ["searchKey"])
     .index("by_last_fetched", ["lastFetchedAt"]),

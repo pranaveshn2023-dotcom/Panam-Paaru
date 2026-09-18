@@ -83,7 +83,6 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     { name: string; symbol: string; price: number; change: number; changePercent: number; isPositive: boolean }[]
   >([]);
 
-  const marketStatus = useQuery(api.investments.getMarketStatus);
   const batchUpdateLivePricesMutation = useMutation(api.investments.batchUpdateLivePrices);
   const autoClassifyCommoditiesMutation = useMutation(api.investments.autoClassifyCommodities);
   const autoDeduplicateHoldingsMutation = useMutation(api.investments.autoDeduplicateExistingHoldings);
@@ -163,7 +162,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       // 2. Call Convex backend action to sync holdings with live market
       let updatedCount = 0;
       try {
-        const res = await syncLiveMarketPricesAction({});
+        const res = await syncLiveMarketPricesAction({ force: !silent });
         updatedCount = res.count || 0;
       } catch (actionErr) {
         console.warn('Backend sync action failed, falling back to client-side sync:', actionErr);
@@ -181,7 +180,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             if (live && live.nav > 0) {
               livePrice = live.nav;
             } else if (/\b(etf|bees)\b/i.test(inv.name)) {
-              const liveStock = await fetchLiveStockPrice(inv.name);
+              const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin);
               if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
             }
           } else if (at === 'crypto') {
@@ -191,7 +190,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(inv.name);
             if (!isSgbOrDigital) {
               // 1. Try stock quote first for traded ETFs / tickers (e.g. GOLDBEES, SILVERBEES, AXISAMC-GOLDAXIS, ICICIPRAMC - ICICISILVE)
-              const liveStock = await fetchLiveStockPrice(inv.name);
+              const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin);
               if (liveStock && liveStock.price > 0) {
                 livePrice = liveStock.price;
               } else {
@@ -201,8 +200,8 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
               }
             }
           } else {
-            const live = await fetchLiveStockPrice(inv.name);
-            if (live && live.price > 0) livePrice = live.price;
+            const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin);
+            if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
           }
 
           if (livePrice !== null && livePrice > 0) {
@@ -271,18 +270,13 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     if (!isAutoSyncEnabled) return;
 
     const timer = setInterval(() => {
-      // During non-market hours (weekends, holidays, after-hours),
-      // stock prices are completely halted and cannot change.
-      // Do NOT trigger periodic background live market fetches during closed hours!
-      if (!marketStatus?.isOpen) return;
-
       if (investments.length > 0) {
         handleSyncLiveMarket(true);
       }
-    }, 35000);
+    }, 45000);
 
     return () => clearInterval(timer);
-  }, [isAutoSyncEnabled, investments.length, marketStatus?.isOpen, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation]);
+  }, [isAutoSyncEnabled, investments.length, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation]);
 
   const ASSET_TABS: { label: string; value: 'all' | AssetType }[] = [
     { label: 'All', value: 'all' },
