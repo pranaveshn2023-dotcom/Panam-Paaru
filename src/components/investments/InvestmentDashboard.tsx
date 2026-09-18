@@ -153,7 +153,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
 
       // 1. Fetch benchmark indices (NIFTY 50 & SENSEX)
       try {
-        const indices = await getMarketIndicesAction({});
+        const indices = await getMarketIndicesAction({ force: !silent });
         if (indices && indices.length > 0) {
           setMarketIndices(indices);
         }
@@ -379,9 +379,9 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             {marketIndices.map((idx) => (
               <div key={idx.symbol} className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-700 px-2.5 py-1 text-xs font-mono shrink-0">
                 <span className="font-bold text-neutral-400">{idx.name}:</span>
-                <span className="font-black text-white">₹{idx.price.toLocaleString('en-IN')}</span>
+                <span className="font-black text-white">₹{idx.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 <span className={`text-[10px] font-black flex items-center ${idx.isPositive ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
-                  {idx.isPositive ? '+' : ''}{idx.change} ({idx.isPositive ? '+' : ''}{idx.changePercent}%)
+                  {idx.change > 0 ? '+' : ''}{idx.change.toFixed(2)} ({idx.changePercent > 0 ? '+' : ''}{idx.changePercent.toFixed(2)}%)
                 </span>
               </div>
             ))}

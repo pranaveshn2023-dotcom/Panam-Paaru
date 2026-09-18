@@ -42,4 +42,18 @@ crons.cron(
   internal.investments.internalVerifyAndCleanMfCacheJob
 );
 
+/**
+ * Post-Market Close Stock & Index Sync (3:40 PM IST = 10:10 UTC, Mon-Fri):
+ * Runs once every weekday at 15:40 IST (after 15:30 market close and official settlement).
+ * Calls the stock API once to fetch and freeze the final closing prices.
+ * Once saved, prices do not change until the next trading day at 09:15 AM IST.
+ * Automatically skips on weekends and public market holidays.
+ */
+crons.cron(
+  "stock-post-close-sync-1540-ist",
+  "10 10 * * 1-5",
+  internal.investments.internalSyncPostMarketCloseJob
+);
+
 export default crons;
+

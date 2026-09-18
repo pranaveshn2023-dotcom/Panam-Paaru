@@ -2036,6 +2036,43 @@ export const getMarketStatus = query({
 });
 
 /**
+ * Calculates the UTC timestamp (ms) of the most recent completed market trading session close (15:30 IST).
+ * - If called after 15:30 IST on a weekday trading day, returns today at 15:30 IST.
+ * - If called before 15:30 IST on a trading day or on weekend/holiday, rolls backwards to the prior trading session's close.
+ */
+export function getLatestMarketCloseTimeMs(customNow?: Date): number {
+  const now = customNow || new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const istDate = new Date(utcMs + 5.5 * 60 * 60 * 1000);
+
+  const hours = istDate.getHours();
+  const minutes = istDate.getMinutes();
+  const currentMinutes = hours * 60 + minutes;
+
+  const target = new Date(istDate);
+  // If today is a trading day but it's before 15:30 IST (930 mins),
+  // today's session has not closed yet; latest closed session was previous trading day.
+  if (currentMinutes < 930) {
+    target.setDate(target.getDate() - 1);
+  }
+
+  for (let i = 0; i < 14; i++) {
+    const day = target.getDay();
+    const m = String(target.getMonth() + 1).padStart(2, "0");
+    const d = String(target.getDate()).padStart(2, "0");
+    const monthDay = `${m}-${d}`;
+    const isWeekend = day === 0 || day === 6;
+    const isHoliday = INDIAN_MARKET_HOLIDAYS.has(monthDay);
+    if (!isWeekend && !isHoliday) {
+      // 15:30 IST on target date in UTC is 10:00 UTC (15:30 - 5:30)
+      return Date.UTC(target.getFullYear(), target.getMonth(), target.getDate(), 10, 0, 0);
+    }
+    target.setDate(target.getDate() - 1);
+  }
+  return 0;
+}
+
+/**
  * Calculates the latest expected published AMFI trade date in "DD-MM-YYYY" format based on IST timezone.
  * - AMCs compute and release new NAV batches each weekday starting at 09:00 PM IST (1260 mins).
  * - Before 09:00 PM IST on a trading day, today's NAV is not published yet; the latest expected date is the PREVIOUS trading session.
@@ -2717,10 +2754,14 @@ async function getOrFetchStockPriceWithCache(
     cached.isin = resolvedIsin;
   }
 
-  // 2. Closed market logic: weekends, holidays, or outside 9:15 - 15:30 IST.
-  // Exchanges are closed; closing price / LTP is immutable. NEVER call Yahoo if already cached!
+  const latestCloseTime = getLatestMarketCloseTimeMs();
+
+  // 2. Closed market logic: weekends, holidays, or outside 09:15 - 15:30 IST.
+  // Exchanges are closed; official closing prices are static and immutable.
+  // Once recorded after today's 15:30 IST close, the data will NOT change until the next trading day at 09:15 AM IST.
+  // On weekends and public holidays, the market is closed/leave; previous session close remains locked.
   if (!marketStatus.isOpen) {
-    if (cached && cached.price > 0) {
+    if (cached && cached.price > 0 && cached.lastFetchedAt >= latestCloseTime) {
       return {
         price: cached.price,
         prevClose: cached.prevClose,
@@ -2729,7 +2770,7 @@ async function getOrFetchStockPriceWithCache(
         isCached: true,
       };
     }
-    // No cache exists yet for this holding; fetch closing price once from Yahoo
+    // Closing price not recorded yet after 3:30 PM: fetch once from Yahoo Finance and freeze it
     const quote = await fetchStockQuote(name, options?.notes, resolvedIsin);
     if (quote && quote.price > 0) {
       const finalIsin = quote.isin || resolvedIsin;
@@ -2743,13 +2784,14 @@ async function getOrFetchStockPriceWithCache(
       });
       return { ...quote, isin: finalIsin, isCached: false };
     }
-    return null;
+    return cached && cached.price > 0
+      ? { price: cached.price, prevClose: cached.prevClose, symbol: cached.symbol, isin: cached.isin || resolvedIsin, isCached: true }
+      : null;
   }
 
-  // 3. Open market logic (09:15 - 15:30 IST): Strict throttle to prevent rate-limit exhaustion.
-  // Normal auto-sync: 35s throttle. Manual sync click: 15s throttle against button spamming.
-  const THROTTLE_MS = options?.force ? 15 * 1000 : 35 * 1000;
-  if (cached && cached.price > 0 && now - cached.lastFetchedAt < THROTTLE_MS) {
+  // 3. Open market logic (09:15 - 15:30 IST Mon-Fri): 45-second live API refresh feature.
+  const THROTTLE_MS = 45 * 1000;
+  if (!options?.force && marketStatus.isOpen && cached && cached.price > 0 && now - cached.lastFetchedAt < THROTTLE_MS) {
     return {
       price: cached.price,
       prevClose: cached.prevClose,
@@ -2759,7 +2801,7 @@ async function getOrFetchStockPriceWithCache(
     };
   }
 
-  // 4. Cache expired (>= 35s), force requested, or missing: fetch fresh authentic quote from Yahoo
+  // 4. Cache expired (>= 35s), force requested, missing, or pre-close: fetch fresh authentic quote from Yahoo
   const quote = await fetchStockQuote(name, options?.notes, resolvedIsin);
   if (quote && quote.price > 0) {
     const finalIsin = quote.isin || resolvedIsin;
@@ -3151,15 +3193,18 @@ export const fetchLivePrice = action({
 });
 
 export const getMarketIndices = action({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
     const indices = [
       { key: "nifty50", symbol: "^NSEI", name: "NIFTY 50" },
       { key: "sensex", symbol: "^BSESN", name: "SENSEX" },
     ];
     const marketStatus = getIndianMarketStatus();
     const now = Date.now();
-    const INDEX_CACHE_TTL_MS = 35 * 1000; // 35 seconds during market hours
+    const INDEX_CACHE_TTL_MS = 45 * 1000; // 45 seconds during market hours
+    const latestCloseTime = getLatestMarketCloseTimeMs();
 
     const fetchSingleIndex = async (idx: (typeof indices)[0]) => {
       try {
@@ -3171,8 +3216,9 @@ export const getMarketIndices = action({
           searchKey,
         });
 
-        // If market closed and cache exists, return cached closing index value directly
-        if (!marketStatus.isOpen && cached && cached.price > 0) {
+        // If market closed and cache exists from AFTER the latest session close (15:30 IST),
+        // data will not change until the next trading day at 09:15 AM IST (and all weekends/holidays).
+        if (!marketStatus.isOpen && cached && cached.price > 0 && cached.lastFetchedAt >= latestCloseTime) {
           return {
             name: idx.name,
             symbol: idx.symbol,
@@ -3183,8 +3229,8 @@ export const getMarketIndices = action({
           };
         }
 
-        // If market open and cached < 35s, return cached index value
-        if (marketStatus.isOpen && cached && cached.price > 0 && now - cached.lastFetchedAt < INDEX_CACHE_TTL_MS) {
+        // If market open and cached < 45s, return cached index value without calling API
+        if (!args.force && marketStatus.isOpen && cached && cached.price > 0 && now - cached.lastFetchedAt < INDEX_CACHE_TTL_MS) {
           return {
             name: idx.name,
             symbol: idx.symbol,
@@ -3195,18 +3241,29 @@ export const getMarketIndices = action({
           };
         }
 
-        // 2. Fetch fresh index value from Yahoo Finance
-        const res = await fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
-          { signal: AbortSignal.timeout(4000) }
-        );
-        if (res.ok) {
+        // 2. Fetch fresh index value from Yahoo Finance (with secondary mirror fallback)
+        let res: Response | null = null;
+        try {
+          res = await fetch(
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
+            { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(4000) }
+          );
+        } catch {
+          try {
+            res = await fetch(
+              `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
+              { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(4000) }
+            );
+          } catch {}
+        }
+
+        if (res && res.ok) {
           const d: any = await res.json();
           const meta = d?.chart?.result?.[0]?.meta;
           if (meta && typeof meta.regularMarketPrice === 'number') {
             const price = meta.regularMarketPrice;
 
-            // Use Yahoo Finance's exact live change & percent to prevent false divergence from stale chartPreviousClose
+            // Use Yahoo Finance's exact live change & percent to match Groww / NSE official settlement
             let change = 0;
             if (typeof meta.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
               change = meta.fulldayChange;
@@ -3229,13 +3286,14 @@ export const getMarketIndices = action({
 
             const roundedPrice = Math.round(price * 100) / 100;
             const roundedChange = Math.round(change * 100) / 100;
+            const derivedPrevClose = Math.round((price - change) * 100) / 100;
 
             // Upsert into stock cache database
             await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
               symbol: idx.symbol,
               name: idx.name,
               price: roundedPrice,
-              prevClose: meta.previousClose || meta.chartPreviousClose,
+              prevClose: derivedPrevClose,
               change: roundedChange,
               changePercent: changePct,
               searchKey,
@@ -3368,5 +3426,44 @@ export const autoDeduplicateExistingHoldings = mutation({
     return { removedCount };
   },
 });
+
+/**
+ * Post-Market Close Action:
+ * Triggers after 3:30 PM (at 3:40 PM IST = 10:10 UTC, Mon-Fri) to capture and record
+ * the official closing prices for benchmark indices and all active user stock holdings.
+ * Once recorded, prices are permanently locked until the next trading day at 09:15 AM IST.
+ * Skips automatically on weekends and public market holidays.
+ */
+export const internalSyncPostMarketCloseJob = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const marketStatus = getIndianMarketStatus();
+    // Weekends and public holidays: market is leave/closed; skip
+    if (marketStatus.isWeekend || marketStatus.isHoliday) {
+      console.log(`[PostCloseSync] Market closed today (${marketStatus.reason}). Skipping.`);
+      return { skipped: true, reason: marketStatus.reason };
+    }
+
+    console.log("[PostCloseSync] Capturing official closing prices for indices and stock holdings...");
+
+    // 1. Fetch and store official closing prices for benchmark indices (NIFTY 50 & SENSEX)
+    try {
+      await ctx.runAction(api.investments.getMarketIndices, { force: true });
+    } catch (e: any) {
+      console.warn("[PostCloseSync] Failed to sync market indices:", e?.message);
+    }
+
+    // 2. Fetch and store official closing prices for all users' invested stocks/ETFs
+    try {
+      const res = await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+      console.log(`[PostCloseSync] Successfully locked closing prices for ${res.count || 0} holdings.`);
+      return { success: true, count: res.count || 0 };
+    } catch (e: any) {
+      console.warn("[PostCloseSync] Failed to sync stock holdings:", e?.message);
+      return { success: false, error: e?.message };
+    }
+  },
+});
+
 
 

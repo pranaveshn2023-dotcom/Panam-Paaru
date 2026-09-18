@@ -74,7 +74,7 @@ The user interface is segmented into four primary operational domains:
 #### High-Efficiency Pricing Architecture
 To keep external API calls minimal and reduce portfolio sync latency:
 - **Database-Backed Caching**: Leverages persistent `stockPriceCache` and `mfNavCache` tables with indexed lookup by ISIN, symbol, and scheme code.
-- **Market Hours Throttling**: Stocks are throttled to 35 seconds during market hours and stay completely static/frozen when the market is closed (zero API calls). Mutual funds are validated against the expected AMFI release date.
+- **Market Hours Throttling**: Stocks and benchmark indices are throttled to 45 seconds during live market hours (09:15 AM - 03:30 PM IST, Mon-Fri). After market close, a single sync captures official closing prices at 15:40 IST and permanently freezes them until next day 09:15 AM IST (and throughout all weekends and public market holidays, with zero external API calls). Mutual funds are validated against the expected AMFI release date and verified in night batches.
 - **Unique Asset Deduplication & Parallel Sync**: Multiple SIPs or lots of the same scheme/ticker are deduplicated into a single lookup and fetched concurrently in parallel, reducing portfolio sync latency from ~5s down to sub-second.
 
 #### 100% Server-Side Execution

@@ -566,6 +566,41 @@ export function isIndianStockMarketOpen(): { isOpen: boolean; isNightNavWindow: 
   return { isOpen, isNightNavWindow, reason };
 }
 
+export function getLatestMarketCloseTimeMs(customNow?: Date): number {
+  const now = customNow || new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const istDate = new Date(utcMs + 5.5 * 60 * 60 * 1000);
+
+  const hours = istDate.getHours();
+  const minutes = istDate.getMinutes();
+  const currentMinutes = hours * 60 + minutes;
+
+  const target = new Date(istDate);
+  if (currentMinutes < 930) {
+    target.setDate(target.getDate() - 1);
+  }
+
+  const INDIAN_MARKET_HOLIDAYS = new Set([
+    '01-26', '03-08', '03-25', '03-29', '04-11', '04-14', '04-17',
+    '05-01', '06-17', '07-17', '08-15', '10-02', '10-12', '10-31',
+    '11-01', '11-15', '12-25'
+  ]);
+
+  for (let i = 0; i < 14; i++) {
+    const day = target.getDay();
+    const m = String(target.getMonth() + 1).padStart(2, '0');
+    const d = String(target.getDate()).padStart(2, '0');
+    const monthDay = `${m}-${d}`;
+    const isWeekend = day === 0 || day === 6;
+    const isHoliday = INDIAN_MARKET_HOLIDAYS.has(monthDay);
+    if (!isWeekend && !isHoliday) {
+      return Date.UTC(target.getFullYear(), target.getMonth(), target.getDate(), 10, 0, 0);
+    }
+    target.setDate(target.getDate() - 1);
+  }
+  return 0;
+}
+
 interface ClientStockCacheEntry {
   price: number;
   prevClose?: number;
@@ -591,9 +626,11 @@ export async function fetchLiveStockPrice(
   const market = isIndianStockMarketOpen();
   const cached = clientStockPriceCache.get(cacheKey) || clientStockPriceCache.get(clean);
   const now = Date.now();
+  const latestCloseTime = getLatestMarketCloseTimeMs();
 
   // 1. Closed market: Prices do not change on weekends, holidays, or after-hours
-  if (!market.isOpen && cached && cached.price > 0) {
+  // Cache valid only if recorded after latest trading session close (15:30 IST)
+  if (!market.isOpen && cached && cached.price > 0 && cached.timestamp >= latestCloseTime) {
     return { price: cached.price, prevClose: cached.prevClose, symbol: cached.symbol, isin: isinMatch };
   }
 
