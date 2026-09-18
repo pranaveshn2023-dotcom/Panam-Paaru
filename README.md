@@ -1,23 +1,21 @@
 # Panam Paaru (பணம் பாரு)
 
-Personal Wealth Dashboard and Cashflow Management Engine
+> **See Your Money, Control Your Spending**
 
-Panam Paaru ("Look at Your Money") is a real-time personal finance and portfolio tracking platform engineered for high-precision visibility over net worth, cashflow, and investments. It consolidates banking accounts, multi-asset portfolios, and calendar-aware recurring budgets into a unified, reactive interface backed by a dedicated Convex cloud infrastructure.
+Panam Paaru ("Look at Your Money") is a real-time personal finance and portfolio tracking platform engineered for high-precision visibility over liquid cashflow, recurring budgets, and multi-asset wealth. Built with a high-contrast Neo-Brutalist design language, it combines atomic double-entry banking accounts, calendar-aware budget cycles, and an intelligent Indian market valuation engine backed by a reactive Convex cloud backend.
 
 ---
 
-## System Overview
+## Key Highlights
 
-Traditional personal finance tools often suffer from stale manual data entry, complex multi-page navigation, or fragile client-side browser storage. Panam Paaru solves these limitations through:
-
-1. **Zero-Baseline Initialization**: Clean ledger state upon account creation without synthetic dummy records or default placeholder clutter.
-2. **Dedicated Cloud Market Caching**: Server-side persistent caching for Indian Equities (`stockPriceCache`) and Mutual Funds (`mfNavCache`), reducing redundant external API calls while guaranteeing fresh data.
-3. **IST Market-Hours Intelligent Engine**: Dynamically adapts polling behavior to the Indian Stock Market (09:15 AM to 03:30 PM IST). Features high-frequency 35-second live ticks during active market hours, while completely eliminating wasteful external API polling during weekends, public holidays, and after-hours.
-4. **Nightly AMC NAV Release Synchronization**: Specialized 1-hour cache TTL and automated Convex cron jobs scheduled during the nightly AMC NAV publishing window (09:00 PM to 12:00 AM IST) to capture official mutual fund valuations.
-5. **Strict Cloud-First Architecture**: 100% server-authoritative state via Convex. Eliminates fragile browser storage; enforces real-time transactional cloud persistence with an automated network-guard (`NoInternetScreen`).
-6. **Automated Statement Ingestion**: Direct extraction and parsing of CAMS, KFintech, and brokerage statements (PDF, XLSX, CSV).
-7. **Calendar-Aware Budget Cycles**: Accurate leap-year and variable month-end rollover logic (28, 29, 30, and 31-day months).
-8. **Enterprise Privacy & Security**: 6-digit cloud-salted master PIN enforcement with virtual keypad and configurable inactivity screen locks.
+- **Zero-Baseline Ledger**: Clean, verifiable account setup with zero placeholder clutter or synthetic mock balances.
+- **Dedicated Server Caching Engine**: Persistent database-backed caching in Convex for Indian Equities (`stockPriceCache`) and Mutual Funds (`mfNavCache`), reducing redundant external API calls while guaranteeing fresh data.
+- **IST Market-Hours Engine**: Dynamically synchronizes with the Indian Stock Market (09:15 AM to 03:30 PM IST, Mon–Fri). Features high-frequency 35-second live ticks during active market hours, while completely eliminating wasteful external API polling during weekends, public holidays, and after-hours.
+- **Nightly AMC NAV Synchronization**: Specialized 1-hour cache TTL and automated Convex cron jobs scheduled during the nightly AMC NAV publishing window (09:00 PM to 12:00 AM IST) to capture official mutual fund valuations.
+- **Calendar-Aware Budget Engine**: Deterministic leap-year and variable month-end rollover calculations (28, 29, 30, and 31-day months) that prevent end-of-month configuration drift.
+- **Strict Cloud-First Resilience**: 100% server-authoritative state via Convex. Eliminates fragile browser storage; enforces real-time transactional persistence with a network connectivity guard (`NoInternetScreen`).
+- **Universal Statement Ingestion**: Direct client-side parsing of CAMS, KFintech, Zerodha, and Groww statements (PDF, XLSX, CSV) via keyboard shortcut (`Ctrl + U` / `Cmd + U`).
+- **Enterprise Privacy & Security**: 6-digit cloud-salted master PIN enforcement with virtual keypad, configurable inactivity screen lockout, and instant numeric privacy blur.
 
 ---
 
@@ -26,11 +24,12 @@ Traditional personal finance tools often suffer from stale manual data entry, co
 | Feature / Workflow | Conventional Tools | Panam Paaru |
 | :--- | :--- | :--- |
 | **Initial Setup** | Populated with mock data and arbitrary assumptions | Zero-balance initialization using verified user inputs |
+| **Branding & Tagline** | Cluttered descriptions with redundant slogans | Clean **Panam Paaru** — *"See your money, control your spending"* |
 | **Market Data Caching** | Direct client-side calls or un-cached API flooding | Server-side Convex DB caches (`stockPriceCache` & `mfNavCache`) |
 | **Trading Hours Logic** | Naive continuous polling 24/7 or manual refresh | Indian Market Hours engine (35s live ticks; 0 calls off-hours/holidays) |
 | **Mutual Fund NAVs** | Stale end-of-day checks or static entries | Nightly AMC release sync window (9 PM - 12 AM IST) with automated crons |
 | **Data Persistence** | Client-side local storage prone to browser cache wipes | Transactional Convex cloud database with instant reactive subscriptions |
-| **Offline Resilience** | Hybrid offline sync prone to conflicting writes | Cloud-authoritative with proactive `NoInternetScreen` connectivity guard |
+| **Offline Resilience** | Fragile offline sync prone to conflicting writes | Cloud-authoritative with proactive `NoInternetScreen` connectivity guard |
 | **Statement Processing** | Manual line-by-line spreadsheet entry | Automated file parsing for CAMS/KFintech PDFs, XLSX, and CSV formats |
 | **Budget Rollover** | Rigid 30-day approximations causing end-of-month drift | Deterministic calendar snapping for month-end and leap years |
 | **Screen Privacy & PIN** | Plaintext access or simple 4-digit client pins | 6-digit master PIN with cloud-salted hashing and quick privacy blur |
@@ -41,9 +40,9 @@ Traditional personal finance tools often suffer from stale manual data entry, co
 
 ### 1. Unified Command Hubs
 The user interface is segmented into four primary operational domains:
-- **Overview**: High-level financial telemetry, total net worth aggregates, portfolio valuations, recent ledger activity, and rapid action triggers (Income, Expense, Transfer).
+- **Overview**: High-level financial telemetry, net worth aggregates, asset allocation breakdowns, recent ledger activity, and rapid action triggers (Income, Expense, Transfer).
 - **Cashflow**: Daily financial operations containing the transaction ledger, multi-account manager, recurring budget allocations, and categorical spend analysis.
-- **Investments**: Multi-asset portfolio management, profit/loss attribution, allocation distribution metrics, live index benchmarks, and real-time market status badges.
+- **Investments**: Multi-asset portfolio management, profit/loss attribution, allocation distribution metrics, live index benchmarks (NIFTY 50 / SENSEX), and real-time market status badges.
 - **Settings & Security**: 6-digit PIN management, auto-lock timeout configuration, display currency formatting, and real-time Convex cloud connection status.
 
 ### 2. Market Timing & Caching Engine
@@ -53,7 +52,7 @@ The user interface is segmented into four primary operational domains:
 - **Holiday Calendar**: Integrated with official NSE/BSE trading holidays (Republic Day, Mahashivratri, Holi, Diwali, etc.).
 - **Live 35s Market-Hour Ticks**: During trading hours, the frontend polls on a 35-second heartbeat, matching the server-side cache TTL of 35 seconds.
 - **Zero Waste Off-Hours Policy**: When the market is closed, on weekends, or on trading holidays, external API fetching is completely halted. Closing prices are served directly from the persistent `stockPriceCache` table.
-- **Live Status Badging**: Displays dynamic visual indicators in the UI:
+- **Dynamic Status Badging**: Displays live visual indicators in the UI:
   - `NSE/BSE OPEN (35s LIVE)`: Pulsing emerald badge indicating active market hours.
   - `AMC NAV RELEASE (9PM-12AM IST)`: Amber badge indicating the nightly mutual fund publishing window.
   - `MARKET CLOSED`: Slate badge indicating frozen closing prices.
@@ -72,15 +71,15 @@ The user interface is segmented into four primary operational domains:
   - Plus every 6 hours for daytime maintenance.
 
 #### 100% Server-Side Execution
-All external fetching (Yahoo Finance / Google Finance / AMFI portal endpoints), error handling, rate-limiting, and candidate scoring execute entirely inside the Convex cloud backend. The client frontend remains clean and decoupled from external scraping mechanisms.
+All external fetching (Yahoo Finance / Google Finance / AMFI portal endpoints), rate-limiting, and candidate scoring execute entirely inside the Convex cloud backend. The client frontend remains clean and decoupled from external scraping mechanisms.
 
-### 3. Multi-Account Management
+### 3. Multi-Account Management (`convex/wallets.ts`)
 Maintains accurate account separation across all asset locations:
 - **Supported Account Types**: Bank accounts, physical cash on hand, credit lines, brokerage balances, and dedicated savings wallets.
 - **Atomic Fund Transfers**: Double-entry consistency ensuring simultaneous balance adjustments between source and destination accounts.
 - **Zero Discrepancy Baseline**: Explicit tracking without arbitrary initial values.
 
-### 4. Calendar-Aware Recurring Budgets
+### 4. Calendar-Aware Recurring Budgets (`convex/engine/recurrence.ts`)
 Enforces strict budget limits that adapt to real-world calendar constraints:
 - **Cadence Options**: Daily, Weekly, Monthly, Quarterly, and Annual intervals.
 - **Boundary Handling**: Month-end configurations (e.g., January 31) automatically normalize to February 28/29 and snap back to March 31 without configuration drift.
@@ -99,7 +98,7 @@ Continuously updates portfolio holding values across asset classes:
 Eliminates manual portfolio data entry through client-side parsing:
 - **Supported Formats**: CAMS CAS PDFs, KFintech PDFs, Zerodha CSV exports, and Groww Excel workbooks (XLSX).
 - **Normalization Pipeline**: Automatic identification and mapping of scheme names, folio references, transaction dates, unit counts, acquisition costs, and current valuations.
-- **Global Shortcut**: Accessible via Ctrl + U (Windows/Linux) or Cmd + U (macOS) from any screen.
+- **Global Shortcut**: Accessible via `Ctrl + U` (Windows/Linux) or `Cmd + U` (macOS) from any screen.
 
 ### 7. Security and Screen Privacy
 Designed for secure usage in corporate or public spaces:
@@ -114,6 +113,16 @@ Designed for secure usage in corporate or public spaces:
 
 ---
 
+## Neo-Brutalist Design System
+
+Panam Paaru features an unapologetic, high-contrast Neo-Brutalist aesthetic designed for tactile clarity and visual weight:
+- **Signature Monogram**: Slanted capital 'P' integrated with Bitcoin currency prongs (₿) and an emerald wealth node sparkle.
+- **Color Palette**: Electric Sunny Gold (`#FFE600`), Deep Carbon Black (`#121212`), Off-White Parchment (`#FFFDF5`), Emerald Profit Green (`#05DF72`), and Hot Pink Alert (`#FF4D8D`).
+- **Typography**: Google Fonts [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) for bold uppercase brand headlines and [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono) for high-precision financial numerals and telemetry.
+- **Tactile UI**: Hard 2px/3px borders, solid drop shadows (`shadow-neo`), and dynamic press transforms (`translate-x-[2px] translate-y-[2px]`).
+
+---
+
 ## Technology Stack
 
 | Layer | Technology | Purpose |
@@ -122,7 +131,8 @@ Designed for secure usage in corporate or public spaces:
 | **Language** | TypeScript | Static typing and interface contracts |
 | **Build Tool** | Vite | Fast module bundling and local development server |
 | **Backend & Database** | Convex | Reactive document database, cloud mutations, actions, and crons |
-| **Styling** | Tailwind CSS | Utility-first styling with structured dark/light design tokens |
+| **Authentication** | Convex Auth (`@convex-dev/auth`) | Passwordless Google OAuth and email/password authentication |
+| **Styling** | Tailwind CSS | Utility-first styling with structured design tokens |
 | **Visualizations** | Recharts | Portfolio allocation, asset breakdowns, and cashflow charts |
 | **Document Parsing** | PDF.js, XLSX, PapaParse | Client-side statement ingestion and schema mapping |
 | **Icons** | Lucide React | Standardized system iconography |
@@ -184,6 +194,7 @@ The compiled output will be generated in the `dist` directory.
 ## Architecture Changelog
 
 ### Version 1.2.0 (Current)
+- **Branding & PWA Alignment**: Set official tagline to *"Panam Paaru - See Your Money, Control Your Spending"*; cleaned up PWA manifest and browser titles.
 - **Dedicated Server Caching (`stockPriceCache` & `mfNavCache`)**: Added database-backed persistent caching in Convex to minimize external rate limits.
 - **Indian Market Hours & Holiday Engine**: 35-second live tick updates during NSE/BSE market hours (09:15 to 15:30 IST); zero wasteful external API calls on weekends, holidays, and after-hours.
 - **Nightly AMC NAV Crons**: Scheduled automated Convex crons at 21:30, 22:30, 23:30, and 00:30 IST to capture freshly published AMFI mutual fund NAVs with a 1-hour active window TTL.
@@ -194,7 +205,7 @@ The compiled output will be generated in the `dist` directory.
 - Added automated AMFI NAV, equity, and crypto market price synchronization.
 - Added live market benchmark monitoring for NIFTY 50 and BSE SENSEX.
 - Integrated universal statement ingestion engine supporting CAMS/KFintech PDF, XLSX, and CSV sources.
-- Configured keyboard shortcut (Ctrl + U / Cmd + U) for statement ingestion.
+- Configured keyboard shortcut (`Ctrl + U` / `Cmd + U`) for statement ingestion.
 
 ### Version 1.0.0
 - Implemented four-hub primary layout: Overview, Cashflow, Investments, and Settings.
