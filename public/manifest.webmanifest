@@ -1,7 +1,7 @@
 {
-  "name": "PanamPaaru - See Your Money, Control Your Spending",
-  "short_name": "PanamPaaru",
-  "description": "the unified dashboard for your liquid cash flow and live asset portfolio.",
+  "name": "Panam Paaru - See Your Money, Control Your Spending",
+  "short_name": "Panam Paaru",
+  "description": "See your money, control your spending",
   "start_url": "/",
   "id": "/",
   "display": "standalone",
