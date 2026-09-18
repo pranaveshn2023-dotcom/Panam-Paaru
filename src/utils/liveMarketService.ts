@@ -667,10 +667,11 @@ export async function fetchLiveStockPrice(
   if (hasSuffix) {
     if (!candidates.includes(clean)) candidates.push(clean);
   } else {
-    // Direct NSE/BSE attempts for bare tickers (e.g. 'RELIANCE', 'INFY', 'NIFTYBEES')
+    // Direct NSE/BSE attempts for bare tickers (e.g. 'RELIANCE', 'INFY', 'NIFTYBEES', 'AAPL', 'VOO')
     if (/^[A-Z0-9]{1,14}$/.test(clean)) {
       if (!candidates.includes(`${clean}.NS`)) candidates.push(`${clean}.NS`);
       if (!candidates.includes(`${clean}.BO`)) candidates.push(`${clean}.BO`);
+      if (!candidates.includes(clean)) candidates.push(clean);
     }
     const compact = strippedCorporate.replace(/[^A-Z0-9]/g, '');
     if (compact.length >= 2 && compact.length <= 14) {
@@ -688,28 +689,28 @@ export async function fetchLiveStockPrice(
     }
   }
 
-  // Dynamic Yahoo search for unhandled symbols if no candidates
-  if (candidates.length === 0) {
-    const searchQueries = [clean];
-    if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
-      searchQueries.push(strippedCorporate);
-    }
-    if (tokens.length > 1) {
-      searchQueries.push(tokens.join(' '));
-      for (const t of tokens) {
-        if (t.length >= 4 && !searchQueries.includes(t)) {
-          searchQueries.push(t);
-        }
-      }
-    }
+  // Universal Dynamic Yahoo search for any stock, ETF, or fund name
+  const searchQueries: string[] = [];
+  if (clean) searchQueries.push(clean);
+  if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
+    searchQueries.push(strippedCorporate);
+  }
+  if (tokens.length > 1) {
+    searchQueries.push(tokens.join(' '));
+  }
 
-    for (const sq of searchQueries) {
-      const quotes = await fetchYahooSearch(sq);
-      if (quotes) {
-        for (const q of quotes) {
-          if (q.symbol && !candidates.includes(q.symbol)) {
-            candidates.push(q.symbol);
-          }
+  for (const sq of searchQueries) {
+    const quotes = await fetchYahooSearch(sq);
+    if (quotes) {
+      for (const q of quotes) {
+        if (!q.symbol || q.symbol.includes('=F')) continue;
+        const sym = q.symbol.toUpperCase();
+        if (sym.endsWith('.BO')) {
+          const nseFromBse = sym.replace(/\.BO$/, '.NS');
+          if (!candidates.includes(nseFromBse)) candidates.push(nseFromBse);
+        }
+        if (!candidates.includes(sym)) {
+          candidates.push(sym);
         }
       }
     }

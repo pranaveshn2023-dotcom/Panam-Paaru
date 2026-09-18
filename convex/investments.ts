@@ -885,15 +885,19 @@ async function fetchStockQuote(
   const isin = knownIsin || extractStockIsin(combined) || extractSecurityIsin(combined);
   const candidates: string[] = [];
 
+  const addCandidate = (sym?: string) => {
+    if (!sym) return;
+    const s = sym.trim().toUpperCase();
+    if (!candidates.includes(s)) candidates.push(s);
+  };
+
   // 1. If explicit ticker known from holding or notes, prioritize NSE version
   if (knownTicker) {
     const kt = knownTicker.trim().toUpperCase();
     if (kt.endsWith(".BO")) {
-      const nseEquivalent = kt.replace(/\.BO$/, ".NS");
-      candidates.push(nseEquivalent, kt);
-    } else {
-      candidates.push(kt);
+      addCandidate(kt.replace(/\.BO$/, ".NS"));
     }
+    addCandidate(kt);
   }
 
   // 2. Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
@@ -901,10 +905,9 @@ async function fetchStockQuote(
     const resolvedTicker = await resolveTickerFromIsin(isin);
     if (resolvedTicker) {
       if (resolvedTicker.endsWith(".BO")) {
-        const nseEquivalent = resolvedTicker.replace(/\.BO$/, ".NS");
-        if (!candidates.includes(nseEquivalent)) candidates.push(nseEquivalent);
+        addCandidate(resolvedTicker.replace(/\.BO$/, ".NS"));
       }
-      if (!candidates.includes(resolvedTicker)) candidates.push(resolvedTicker);
+      addCandidate(resolvedTicker);
     }
   }
 
@@ -914,16 +917,17 @@ async function fetchStockQuote(
     .trim();
 
   if (clean.endsWith(".NS") || clean.endsWith(".BO") || clean.endsWith("-INR") || clean.endsWith("-USD")) {
-    if (!candidates.includes(clean)) candidates.push(clean);
+    addCandidate(clean);
   } else {
     if (/^[A-Z0-9]{1,14}$/.test(clean)) {
-      if (!candidates.includes(`${clean}.NS`)) candidates.push(`${clean}.NS`);
-      if (!candidates.includes(`${clean}.BO`)) candidates.push(`${clean}.BO`);
+      addCandidate(`${clean}.NS`);
+      addCandidate(`${clean}.BO`);
+      addCandidate(clean);
     }
     const compact = strippedCorporate.replace(/[^A-Z0-9]/g, "");
     if (compact.length >= 2 && compact.length <= 14) {
-      if (!candidates.includes(`${compact}.NS`)) candidates.push(`${compact}.NS`);
-      if (!candidates.includes(`${compact}.BO`)) candidates.push(`${compact}.BO`);
+      addCandidate(`${compact}.NS`);
+      addCandidate(`${compact}.BO`);
     }
   }
 
@@ -931,45 +935,43 @@ async function fetchStockQuote(
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
   for (const t of tokens) {
     if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
-      if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
-      if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
+      addCandidate(`${t}.NS`);
+      addCandidate(`${t}.BO`);
     }
   }
 
-  // If no candidates yet or no ISIN, query Yahoo Finance search
-  if (candidates.length === 0) {
-    const searchQueries = [clean];
-    if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
-      searchQueries.push(strippedCorporate);
-    }
-    if (tokens.length > 1) {
-      searchQueries.push(tokens.join(" "));
-      for (const t of tokens) {
-        if (t.length >= 4 && !searchQueries.includes(t)) {
-          searchQueries.push(t);
+  // 3. Dynamic Yahoo Finance Search: Universal resolution for ANY stock, ETF, or fund
+  // Runs dynamically for all names/queries to resolve official ticker (e.g. 'State Bank of India' -> SBIN.NS)
+  const searchQueries: string[] = [];
+  if (clean) searchQueries.push(clean);
+  if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
+    searchQueries.push(strippedCorporate);
+  }
+  if (tokens.length > 1) {
+    searchQueries.push(tokens.join(" "));
+  }
+
+  for (const sq of searchQueries) {
+    try {
+      const searchRes = await fetch(
+        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
+        { signal: AbortSignal.timeout(3500) }
+      );
+      if (searchRes.ok) {
+        const data: any = await searchRes.json();
+        for (const q of data?.quotes || []) {
+          if (!q.symbol || q.symbol.includes("=F")) continue;
+          const sym = q.symbol.toUpperCase();
+          if (sym.endsWith(".BO")) {
+            addCandidate(sym.replace(/\.BO$/, ".NS"));
+          }
+          addCandidate(sym);
         }
       }
-    }
-
-    for (const sq of searchQueries) {
-      try {
-        const searchRes = await fetch(
-          `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
-          { signal: AbortSignal.timeout(3500) }
-        );
-        if (searchRes.ok) {
-          const data: any = await searchRes.json();
-          for (const q of data?.quotes || []) {
-            if (q.symbol && !candidates.includes(q.symbol)) {
-              candidates.push(q.symbol);
-            }
-          }
-        }
-      } catch { }
-    }
+    } catch { }
   }
 
-  // Strict priority: Indian NSE (.NS) MUST be first, then BSE (.BO), then any other INR
+  // Strict priority: Indian NSE (.NS) MUST be first, then BSE (.BO), then US/Global
   candidates.sort((a, b) => {
     const aNse = a.endsWith(".NS");
     const bNse = b.endsWith(".NS");
@@ -984,30 +986,48 @@ async function fetchStockQuote(
     return 0;
   });
 
-    // Make live price API call to existing Yahoo Finance chart endpoint using resolved ticker (.NS or .BO)
-    for (const sym of candidates) {
-      try {
-        const chartRes = await fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
-          { signal: AbortSignal.timeout(4000) }
-        );
-        if (!chartRes.ok) continue;
-        const data: any = await chartRes.json();
-        const meta = data?.chart?.result?.[0]?.meta;
-        if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
-          const change = typeof meta.fulldayChange === "number" ? meta.fulldayChange : typeof meta.regularMarketChange === "number" ? meta.regularMarketChange : undefined;
-          const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
-          return {
-            price: meta.regularMarketPrice,
-            prevClose,
-            symbol: sym,
-            isin: isin || undefined,
-          };
-        }
-      } catch { }
-    }
+  // Make live price API call to existing Yahoo Finance chart endpoint using resolved ticker
+  for (const sym of candidates) {
+    try {
+      const chartRes = await fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (!chartRes.ok) continue;
+      const data: any = await chartRes.json();
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
+        let price = meta.regularMarketPrice;
+        let change =
+          typeof meta.fulldayChange === "number"
+            ? meta.fulldayChange
+            : typeof meta.regularMarketChange === "number"
+              ? meta.regularMarketChange
+              : undefined;
 
-    return null;
+        if (meta.currency === "USD") {
+          const usdInr = await fetchLiveUsdInrRate();
+          price = Math.round(price * usdInr * 100) / 100;
+          if (change !== undefined) {
+            change = Math.round(change * usdInr * 100) / 100;
+          }
+        }
+
+        const prevClose =
+          change !== undefined
+            ? price - change
+            : meta.previousClose || meta.chartPreviousClose;
+        return {
+          price,
+          prevClose,
+          symbol: sym,
+          isin: isin || undefined,
+        };
+      }
+    } catch { }
+  }
+
+  return null;
 }
 
 // ──────────────────────────────────────────
@@ -2963,7 +2983,9 @@ export const syncLiveMarketPrices = action({
               livePrice = mf.nav;
               if (mf.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = mf.schemeCode;
               if (mf.isin && !resolvedIsin) resolvedIsin = mf.isin;
-            } else if (/\b(etf|bees)\b/i.test(task.name)) {
+            } else {
+              // Universal dynamic fallback: if not in AMFI (e.g. an ETF entered under mutual_fund),
+              // resolve via Yahoo Finance!
               const stk = await getOrFetchStockPriceWithCache(ctx, task.name, {
                 force: args.force,
                 notes: task.notes,
@@ -3018,6 +3040,19 @@ export const syncLiveMarketPrices = action({
               livePrice = stk.price;
               if (stk.symbol) resolvedTicker = stk.symbol;
               if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
+            } else {
+              // Universal dynamic fallback: if not on Yahoo (e.g. mutual fund categorized under stocks),
+              // resolve via AMFI!
+              const mf = await getOrFetchMfNavWithCache(ctx, task.name, task.notes, {
+                force: args.force,
+                knownSchemeCode: resolvedSchemeCode,
+                knownIsin: resolvedIsin,
+              });
+              if (mf && mf.nav > 0) {
+                livePrice = mf.nav;
+                if (mf.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = mf.schemeCode;
+                if (mf.isin && !resolvedIsin) resolvedIsin = mf.isin;
+              }
             }
           }
 
