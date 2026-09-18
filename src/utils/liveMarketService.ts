@@ -648,8 +648,10 @@ export async function fetchLiveStockPrice(
       const nse = isinQuotes.find((q) => q.symbol && q.symbol.toUpperCase().endsWith('.NS'));
       if (nse?.symbol) candidates.push(nse.symbol.toUpperCase());
       const bse = isinQuotes.find((q) => q.symbol && q.symbol.toUpperCase().endsWith('.BO'));
-      if (bse?.symbol && !candidates.includes(bse.symbol.toUpperCase())) {
-        candidates.push(bse.symbol.toUpperCase());
+      if (bse?.symbol) {
+        const nseFromBse = bse.symbol.toUpperCase().replace(/\.BO$/, '.NS');
+        if (!candidates.includes(nseFromBse)) candidates.push(nseFromBse);
+        if (!candidates.includes(bse.symbol.toUpperCase())) candidates.push(bse.symbol.toUpperCase());
       }
       if (candidates.length === 0 && isinQuotes[0]?.symbol) {
         candidates.push(isinQuotes[0].symbol.toUpperCase());
@@ -713,12 +715,18 @@ export async function fetchLiveStockPrice(
     }
   }
 
-  // Prioritize Indian NSE/BSE & INR symbols so an American lookalike doesn't win
+  // Strict priority: Indian NSE (.NS) MUST be first, then BSE (.BO), then any other INR
   candidates.sort((a, b) => {
-    const aInr = a.endsWith('.NS') || a.endsWith('.BO') || a.endsWith('-INR');
-    const bInr = b.endsWith('.NS') || b.endsWith('.BO') || b.endsWith('-INR');
-    if (aInr && !bInr) return -1;
-    if (!aInr && bInr) return 1;
+    const aNse = a.endsWith('.NS');
+    const bNse = b.endsWith('.NS');
+    if (aNse && !bNse) return -1;
+    if (!aNse && bNse) return 1;
+
+    const aBse = a.endsWith('.BO');
+    const bBse = b.endsWith('.BO');
+    if (aBse && !bBse) return -1;
+    if (!aBse && bBse) return 1;
+
     return 0;
   });
 

@@ -854,11 +854,17 @@ export async function resolveTickerFromIsin(isin: string): Promise<string | null
     if (res.ok) {
       const data: any = await res.json();
       const quotes: any[] = data?.quotes || [];
-      // Prioritize NSE (.NS) as primary high-volume Indian exchange, then BSE (.BO)
+      // 1. Direct NSE (.NS) match - primary high-volume Indian exchange
       const nse = quotes.find((q) => q.symbol && q.symbol.toUpperCase().endsWith(".NS"));
       if (nse?.symbol) return nse.symbol.toUpperCase();
+
+      // 2. If BSE (.BO) returned, the dual-listed equity on NSE is TICKER.NS
       const bse = quotes.find((q) => q.symbol && q.symbol.toUpperCase().endsWith(".BO"));
-      if (bse?.symbol) return bse.symbol.toUpperCase();
+      if (bse?.symbol) {
+        const base = bse.symbol.toUpperCase().replace(/\.BO$/, "");
+        return `${base}.NS`;
+      }
+
       if (quotes.length > 0 && quotes[0].symbol) {
         return quotes[0].symbol.toUpperCase();
       }
@@ -872,89 +878,111 @@ export async function resolveTickerFromIsin(isin: string): Promise<string | null
 async function fetchStockQuote(
   name: string,
   notes?: string,
-  knownIsin?: string
+  knownIsin?: string,
+  knownTicker?: string
 ): Promise<{ price: number; prevClose?: number; symbol?: string; isin?: string } | null> {
   const combined = `${name} ${notes || ""}`;
   const isin = knownIsin || extractStockIsin(combined) || extractSecurityIsin(combined);
   const candidates: string[] = [];
 
-    // Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
-    if (isin) {
-      const resolvedTicker = await resolveTickerFromIsin(isin);
-      if (resolvedTicker) {
-        candidates.push(resolvedTicker);
-      }
-    }
-
-    const clean = name.trim().toUpperCase();
-    const strippedCorporate = clean
-      .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, "")
-      .trim();
-
-    if (clean.endsWith(".NS") || clean.endsWith(".BO") || clean.endsWith("-INR") || clean.endsWith("-USD")) {
-      if (!candidates.includes(clean)) candidates.push(clean);
+  // 1. If explicit ticker known from holding or notes, prioritize NSE version
+  if (knownTicker) {
+    const kt = knownTicker.trim().toUpperCase();
+    if (kt.endsWith(".BO")) {
+      const nseEquivalent = kt.replace(/\.BO$/, ".NS");
+      candidates.push(nseEquivalent, kt);
     } else {
-      if (/^[A-Z0-9]{1,14}$/.test(clean)) {
-        if (!candidates.includes(`${clean}.NS`)) candidates.push(`${clean}.NS`);
-        if (!candidates.includes(`${clean}.BO`)) candidates.push(`${clean}.BO`);
-      }
-      const compact = strippedCorporate.replace(/[^A-Z0-9]/g, "");
-      if (compact.length >= 2 && compact.length <= 14) {
-        if (!candidates.includes(`${compact}.NS`)) candidates.push(`${compact}.NS`);
-        if (!candidates.includes(`${compact}.BO`)) candidates.push(`${compact}.BO`);
-      }
+      candidates.push(kt);
     }
+  }
 
-    // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
-    const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
-    for (const t of tokens) {
-      if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
-        if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
-        if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
+  // 2. Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
+  if (isin) {
+    const resolvedTicker = await resolveTickerFromIsin(isin);
+    if (resolvedTicker) {
+      if (resolvedTicker.endsWith(".BO")) {
+        const nseEquivalent = resolvedTicker.replace(/\.BO$/, ".NS");
+        if (!candidates.includes(nseEquivalent)) candidates.push(nseEquivalent);
       }
+      if (!candidates.includes(resolvedTicker)) candidates.push(resolvedTicker);
     }
+  }
 
-    // If no candidates yet or no ISIN, query Yahoo Finance search
-    if (candidates.length === 0) {
-      const searchQueries = [clean];
-      if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
-        searchQueries.push(strippedCorporate);
-      }
-      if (tokens.length > 1) {
-        searchQueries.push(tokens.join(" "));
-        for (const t of tokens) {
-          if (t.length >= 4 && !searchQueries.includes(t)) {
-            searchQueries.push(t);
-          }
+  const clean = name.trim().toUpperCase();
+  const strippedCorporate = clean
+    .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, "")
+    .trim();
+
+  if (clean.endsWith(".NS") || clean.endsWith(".BO") || clean.endsWith("-INR") || clean.endsWith("-USD")) {
+    if (!candidates.includes(clean)) candidates.push(clean);
+  } else {
+    if (/^[A-Z0-9]{1,14}$/.test(clean)) {
+      if (!candidates.includes(`${clean}.NS`)) candidates.push(`${clean}.NS`);
+      if (!candidates.includes(`${clean}.BO`)) candidates.push(`${clean}.BO`);
+    }
+    const compact = strippedCorporate.replace(/[^A-Z0-9]/g, "");
+    if (compact.length >= 2 && compact.length <= 14) {
+      if (!candidates.includes(`${compact}.NS`)) candidates.push(`${compact}.NS`);
+      if (!candidates.includes(`${compact}.BO`)) candidates.push(`${compact}.BO`);
+    }
+  }
+
+  // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
+  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
+  for (const t of tokens) {
+    if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
+      if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
+      if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
+    }
+  }
+
+  // If no candidates yet or no ISIN, query Yahoo Finance search
+  if (candidates.length === 0) {
+    const searchQueries = [clean];
+    if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
+      searchQueries.push(strippedCorporate);
+    }
+    if (tokens.length > 1) {
+      searchQueries.push(tokens.join(" "));
+      for (const t of tokens) {
+        if (t.length >= 4 && !searchQueries.includes(t)) {
+          searchQueries.push(t);
         }
       }
-
-      for (const sq of searchQueries) {
-        try {
-          const searchRes = await fetch(
-            `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
-            { signal: AbortSignal.timeout(3500) }
-          );
-          if (searchRes.ok) {
-            const data: any = await searchRes.json();
-            for (const q of data?.quotes || []) {
-              if (q.symbol && !candidates.includes(q.symbol)) {
-                candidates.push(q.symbol);
-              }
-            }
-          }
-        } catch { }
-      }
     }
 
-    // Prioritize Indian NSE/BSE symbols (.NS and .BO)
-    candidates.sort((a, b) => {
-      const aInr = a.endsWith(".NS") || a.endsWith(".BO") || a.endsWith("-INR");
-      const bInr = b.endsWith(".NS") || b.endsWith(".BO") || b.endsWith("-INR");
-      if (aInr && !bInr) return -1;
-      if (!aInr && bInr) return 1;
-      return 0;
-    });
+    for (const sq of searchQueries) {
+      try {
+        const searchRes = await fetch(
+          `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
+          { signal: AbortSignal.timeout(3500) }
+        );
+        if (searchRes.ok) {
+          const data: any = await searchRes.json();
+          for (const q of data?.quotes || []) {
+            if (q.symbol && !candidates.includes(q.symbol)) {
+              candidates.push(q.symbol);
+            }
+          }
+        }
+      } catch { }
+    }
+  }
+
+  // Strict priority: Indian NSE (.NS) MUST be first, then BSE (.BO), then any other INR
+  candidates.sort((a, b) => {
+    const aNse = a.endsWith(".NS");
+    const bNse = b.endsWith(".NS");
+    if (aNse && !bNse) return -1;
+    if (!aNse && bNse) return 1;
+
+    const aBse = a.endsWith(".BO");
+    const bBse = b.endsWith(".BO");
+    if (aBse && !bBse) return -1;
+    if (!aBse && bBse) return 1;
+
+    return 0;
+  });
 
     // Make live price API call to existing Yahoo Finance chart endpoint using resolved ticker (.NS or .BO)
     for (const sym of candidates) {
@@ -2760,8 +2788,10 @@ async function getOrFetchStockPriceWithCache(
   // Exchanges are closed; official closing prices are static and immutable.
   // Once recorded after today's 15:30 IST close, the data will NOT change until the next trading day at 09:15 AM IST.
   // On weekends and public holidays, the market is closed/leave; previous session close remains locked.
+  // Exception: If cache was saved with a secondary BSE (.BO) symbol or force is requested, re-query NSE (.NS).
+  const isBseOutdated = cached?.symbol && cached.symbol.endsWith(".BO");
   if (!marketStatus.isOpen) {
-    if (cached && cached.price > 0 && cached.lastFetchedAt >= latestCloseTime) {
+    if (!options?.force && !isBseOutdated && cached && cached.price > 0 && cached.lastFetchedAt >= latestCloseTime) {
       return {
         price: cached.price,
         prevClose: cached.prevClose,
@@ -2770,8 +2800,8 @@ async function getOrFetchStockPriceWithCache(
         isCached: true,
       };
     }
-    // Closing price not recorded yet after 3:30 PM: fetch once from Yahoo Finance and freeze it
-    const quote = await fetchStockQuote(name, options?.notes, resolvedIsin);
+    // Closing price not recorded yet after 3:30 PM (or stale BSE): fetch once from Yahoo Finance (prioritizing NSE) and freeze it
+    const quote = await fetchStockQuote(name, options?.notes, resolvedIsin, options?.knownTicker);
     if (quote && quote.price > 0) {
       const finalIsin = quote.isin || resolvedIsin;
       await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
@@ -2791,7 +2821,7 @@ async function getOrFetchStockPriceWithCache(
 
   // 3. Open market logic (09:15 - 15:30 IST Mon-Fri): 45-second live API refresh feature.
   const THROTTLE_MS = 45 * 1000;
-  if (!options?.force && marketStatus.isOpen && cached && cached.price > 0 && now - cached.lastFetchedAt < THROTTLE_MS) {
+  if (!options?.force && !isBseOutdated && marketStatus.isOpen && cached && cached.price > 0 && now - cached.lastFetchedAt < THROTTLE_MS) {
     return {
       price: cached.price,
       prevClose: cached.prevClose,
@@ -2801,8 +2831,8 @@ async function getOrFetchStockPriceWithCache(
     };
   }
 
-  // 4. Cache expired (>= 35s), force requested, missing, or pre-close: fetch fresh authentic quote from Yahoo
-  const quote = await fetchStockQuote(name, options?.notes, resolvedIsin);
+  // 4. Cache expired (>= 45s), force requested, missing, or pre-close: fetch fresh authentic quote from Yahoo
+  const quote = await fetchStockQuote(name, options?.notes, resolvedIsin, options?.knownTicker);
   if (quote && quote.price > 0) {
     const finalIsin = quote.isin || resolvedIsin;
     await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
@@ -2942,7 +2972,7 @@ export const syncLiveMarketPrices = action({
               });
               if (stk && stk.price > 0) {
                 livePrice = stk.price;
-                if (stk.symbol && !resolvedTicker) resolvedTicker = stk.symbol;
+                if (stk.symbol) resolvedTicker = stk.symbol;
                 if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
               }
             }
@@ -2962,7 +2992,7 @@ export const syncLiveMarketPrices = action({
               });
               if (stk && stk.price > 0) {
                 livePrice = stk.price;
-                if (stk.symbol && !resolvedTicker) resolvedTicker = stk.symbol;
+                if (stk.symbol) resolvedTicker = stk.symbol;
                 if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
               } else {
                 const mf = await getOrFetchMfNavWithCache(ctx, task.name, task.notes, {
@@ -2986,7 +3016,7 @@ export const syncLiveMarketPrices = action({
             });
             if (stk && stk.price > 0) {
               livePrice = stk.price;
-              if (stk.symbol && !resolvedTicker) resolvedTicker = stk.symbol;
+              if (stk.symbol) resolvedTicker = stk.symbol;
               if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
             }
           }
