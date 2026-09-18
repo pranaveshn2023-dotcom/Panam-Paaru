@@ -58,17 +58,24 @@ The user interface is segmented into four primary operational domains:
   - `MARKET CLOSED`: Slate badge indicating frozen closing prices.
 
 #### Nightly AMC Mutual Fund Synchronization
-- **AMC Release Window**: Indian Asset Management Companies (AMCs) calculate and publish final day NAVs to AMFI between 09:00 PM and 12:00 AM IST.
+- **AMC Release Window**: Indian Asset Management Companies (AMCs) calculate and publish final day NAVs to AMFI between 09:00 PM and 12:00 AM IST on regular trading weekdays.
+- **Weekend & Holiday Policy**: On weekends (Saturday and Sunday) and official NSE/BSE holidays, AMCs do not calculate or publish new NAVs. Background crons and API calls are completely halted.
 - **Dynamic AMFI TTL**:
-  - **Night Window (21:00 - 24:00 IST)**: 25-minute cache TTL active all 7 days (including weekends) to rapidly ingest new NAV releases.
+  - **Weekday Night Window (21:00 - 24:00 IST)**: 50-minute cache TTL to verify fresh NAV releases on every 1-hour cron cycle.
   - **Daytime (09:15 - 15:30 IST)**: 6.5-hour TTL (NAV does not change intraday).
-  - **Off-Hours**: 12-hour TTL during non-release hours.
-- **Automated Convex Crons**: Built-in scheduled functions (`convex/crons.ts`) run every 30 minutes between 9:00 PM and 12:00 AM IST (inclusive) across all 7 days:
-  - `21:00 IST` (15:30 UTC), `21:30 IST` (16:00 UTC)
-  - `22:00 IST` (16:30 UTC), `22:30 IST` (17:00 UTC)
-  - `23:00 IST` (17:30 UTC), `23:30 IST` (18:00 UTC)
+  - **Weekends & Off-Hours**: 24-hour frozen TTL.
+- **Automated Convex Crons**: Built-in scheduled functions (`convex/crons.ts`) run every 1 hour between 9:00 PM and 12:00 AM IST on trading weekdays (Monday through Friday):
+  - `21:00 IST` (15:30 UTC)
+  - `22:00 IST` (16:30 UTC)
+  - `23:00 IST` (17:30 UTC)
   - `00:00 IST` (18:30 UTC)
-- **Automatic Portfolio Sync**: Each nightly run updates `mfNavCache` with authentic AMFI NAVs and immediately propagates the new valuations into the user's holdings.
+- **All-User Portfolio Synchronization**: Evaluates all mutual fund schemes held across **every user in the application**, updates `mfNavCache` in-place, and immediately propagates the verified authentic NAV to each user's holdings.
+
+#### High-Efficiency Pricing Architecture
+To keep external API calls minimal and reduce portfolio sync latency:
+- **Database-Backed Caching**: Leverages persistent `stockPriceCache` and `mfNavCache` tables with indexed lookup by ISIN, symbol, and scheme code.
+- **Market Hours Throttling**: Stocks are throttled to 35 seconds during market hours and stay completely static/frozen when the market is closed (zero API calls). Mutual funds are validated against the expected AMFI release date.
+- **Unique Asset Deduplication & Parallel Sync**: Multiple SIPs or lots of the same scheme/ticker are deduplicated into a single lookup and fetched concurrently in parallel, reducing portfolio sync latency from ~5s down to sub-second.
 
 #### 100% Server-Side Execution
 All external fetching (Yahoo Finance / Google Finance / AMFI portal endpoints), rate-limiting, and candidate scoring execute entirely inside the Convex cloud backend. The client frontend remains clean and decoupled from external scraping mechanisms.

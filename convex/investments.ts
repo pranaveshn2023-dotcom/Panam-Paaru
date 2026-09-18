@@ -838,21 +838,17 @@ export const remove = mutation({
   },
 });
 
-// ──────────────────────────────────────────
-// Real-Time Market Feed Helpers (NSE/BSE & AMFI)
-// ──────────────────────────────────────────
-// Real-Time Market Feed Helpers (NSE/BSE, Crypto & AMFI) — ZERO HARDCODING
-// ──────────────────────────────────────────
-
 /**
  * Resolves an Indian stock ISIN (e.g. INE002A01018) to official NSE (.NS) or BSE (.BO) ticker
- * using the existing Yahoo Finance search API with zero hardcoding.
+ * using Yahoo Finance search API with zero hardcoding.
  */
 export async function resolveTickerFromIsin(isin: string): Promise<string | null> {
   if (!isin) return null;
+  const upper = isin.toUpperCase();
+
   try {
     const res = await fetch(
-      `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(isin)}&quotesCount=6`,
+      `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(upper)}&quotesCount=6`,
       { signal: AbortSignal.timeout(4000) }
     );
     if (res.ok) {
@@ -868,7 +864,7 @@ export async function resolveTickerFromIsin(isin: string): Promise<string | null
       }
     }
   } catch (err) {
-    console.warn(`[YahooSearch] Error resolving ISIN ${isin}:`, err);
+    console.warn(`[YahooSearch] Error resolving ISIN ${upper}:`, err);
   }
   return null;
 }
@@ -882,108 +878,108 @@ async function fetchStockQuote(
   const isin = knownIsin || extractStockIsin(combined) || extractSecurityIsin(combined);
   const candidates: string[] = [];
 
-  // Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
-  if (isin) {
-    const resolvedTicker = await resolveTickerFromIsin(isin);
-    if (resolvedTicker) {
-      candidates.push(resolvedTicker);
-    }
-  }
-
-  const clean = name.trim().toUpperCase();
-  const strippedCorporate = clean
-    .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, "")
-    .trim();
-
-  if (clean.endsWith(".NS") || clean.endsWith(".BO") || clean.endsWith("-INR") || clean.endsWith("-USD")) {
-    if (!candidates.includes(clean)) candidates.push(clean);
-  } else {
-    if (/^[A-Z0-9]{1,14}$/.test(clean)) {
-      if (!candidates.includes(`${clean}.NS`)) candidates.push(`${clean}.NS`);
-      if (!candidates.includes(`${clean}.BO`)) candidates.push(`${clean}.BO`);
-    }
-    const compact = strippedCorporate.replace(/[^A-Z0-9]/g, "");
-    if (compact.length >= 2 && compact.length <= 14) {
-      if (!candidates.includes(`${compact}.NS`)) candidates.push(`${compact}.NS`);
-      if (!candidates.includes(`${compact}.BO`)) candidates.push(`${compact}.BO`);
-    }
-  }
-
-  // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
-  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
-  for (const t of tokens) {
-    if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
-      if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
-      if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
-    }
-  }
-
-  // If no candidates yet or no ISIN, query Yahoo Finance search
-  if (candidates.length === 0) {
-    const searchQueries = [clean];
-    if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
-      searchQueries.push(strippedCorporate);
-    }
-    if (tokens.length > 1) {
-      searchQueries.push(tokens.join(" "));
-      for (const t of tokens) {
-        if (t.length >= 4 && !searchQueries.includes(t)) {
-          searchQueries.push(t);
-        }
+    // Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
+    if (isin) {
+      const resolvedTicker = await resolveTickerFromIsin(isin);
+      if (resolvedTicker) {
+        candidates.push(resolvedTicker);
       }
     }
 
-    for (const sq of searchQueries) {
-      try {
-        const searchRes = await fetch(
-          `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
-          { signal: AbortSignal.timeout(3500) }
-        );
-        if (searchRes.ok) {
-          const data: any = await searchRes.json();
-          for (const q of data?.quotes || []) {
-            if (q.symbol && !candidates.includes(q.symbol)) {
-              candidates.push(q.symbol);
+    const clean = name.trim().toUpperCase();
+    const strippedCorporate = clean
+      .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, "")
+      .trim();
+
+    if (clean.endsWith(".NS") || clean.endsWith(".BO") || clean.endsWith("-INR") || clean.endsWith("-USD")) {
+      if (!candidates.includes(clean)) candidates.push(clean);
+    } else {
+      if (/^[A-Z0-9]{1,14}$/.test(clean)) {
+        if (!candidates.includes(`${clean}.NS`)) candidates.push(`${clean}.NS`);
+        if (!candidates.includes(`${clean}.BO`)) candidates.push(`${clean}.BO`);
+      }
+      const compact = strippedCorporate.replace(/[^A-Z0-9]/g, "");
+      if (compact.length >= 2 && compact.length <= 14) {
+        if (!candidates.includes(`${compact}.NS`)) candidates.push(`${compact}.NS`);
+        if (!candidates.includes(`${compact}.BO`)) candidates.push(`${compact}.BO`);
+      }
+    }
+
+    // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
+    const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
+    for (const t of tokens) {
+      if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
+        if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
+        if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
+      }
+    }
+
+    // If no candidates yet or no ISIN, query Yahoo Finance search
+    if (candidates.length === 0) {
+      const searchQueries = [clean];
+      if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
+        searchQueries.push(strippedCorporate);
+      }
+      if (tokens.length > 1) {
+        searchQueries.push(tokens.join(" "));
+        for (const t of tokens) {
+          if (t.length >= 4 && !searchQueries.includes(t)) {
+            searchQueries.push(t);
+          }
+        }
+      }
+
+      for (const sq of searchQueries) {
+        try {
+          const searchRes = await fetch(
+            `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
+            { signal: AbortSignal.timeout(3500) }
+          );
+          if (searchRes.ok) {
+            const data: any = await searchRes.json();
+            for (const q of data?.quotes || []) {
+              if (q.symbol && !candidates.includes(q.symbol)) {
+                candidates.push(q.symbol);
+              }
             }
           }
+        } catch { }
+      }
+    }
+
+    // Prioritize Indian NSE/BSE symbols (.NS and .BO)
+    candidates.sort((a, b) => {
+      const aInr = a.endsWith(".NS") || a.endsWith(".BO") || a.endsWith("-INR");
+      const bInr = b.endsWith(".NS") || b.endsWith(".BO") || b.endsWith("-INR");
+      if (aInr && !bInr) return -1;
+      if (!aInr && bInr) return 1;
+      return 0;
+    });
+
+    // Make live price API call to existing Yahoo Finance chart endpoint using resolved ticker (.NS or .BO)
+    for (const sym of candidates) {
+      try {
+        const chartRes = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+          { signal: AbortSignal.timeout(4000) }
+        );
+        if (!chartRes.ok) continue;
+        const data: any = await chartRes.json();
+        const meta = data?.chart?.result?.[0]?.meta;
+        if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
+          const change = typeof meta.fulldayChange === "number" ? meta.fulldayChange : typeof meta.regularMarketChange === "number" ? meta.regularMarketChange : undefined;
+          const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
+          return {
+            price: meta.regularMarketPrice,
+            prevClose,
+            symbol: sym,
+            isin: isin || undefined,
+          };
         }
       } catch { }
     }
-  }
 
-  // Prioritize Indian NSE/BSE symbols (.NS and .BO)
-  candidates.sort((a, b) => {
-    const aInr = a.endsWith(".NS") || a.endsWith(".BO") || a.endsWith("-INR");
-    const bInr = b.endsWith(".NS") || b.endsWith(".BO") || b.endsWith("-INR");
-    if (aInr && !bInr) return -1;
-    if (!aInr && bInr) return 1;
-    return 0;
-  });
-
-  // Make live price API call to existing Yahoo Finance chart endpoint using resolved ticker (.NS or .BO)
-  for (const sym of candidates) {
-    try {
-      const chartRes = await fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
-        { signal: AbortSignal.timeout(4000) }
-      );
-      if (!chartRes.ok) continue;
-      const data: any = await chartRes.json();
-      const meta = data?.chart?.result?.[0]?.meta;
-      if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
-        const change = typeof meta.fulldayChange === "number" ? meta.fulldayChange : typeof meta.regularMarketChange === "number" ? meta.regularMarketChange : undefined;
-        const prevClose = change !== undefined ? meta.regularMarketPrice - change : (meta.previousClose || meta.chartPreviousClose);
-        return {
-          price: meta.regularMarketPrice,
-          prevClose,
-          symbol: sym,
-          isin: isin || undefined,
-        };
-      }
-    } catch { }
-  }
-
-  return null;
+    return null;
 }
 
 // ──────────────────────────────────────────
@@ -1051,8 +1047,14 @@ async function resolveCryptoMeta(
 }
 
 let lastKnownLiveUsdInrRate: number | null = null;
+let lastUsdInrFetchedAt = 0;
 
 async function fetchLiveUsdInrRate(): Promise<number> {
+  const now = Date.now();
+  if (lastKnownLiveUsdInrRate !== null && now - lastUsdInrFetchedAt < 10 * 60 * 1000) {
+    return lastKnownLiveUsdInrRate;
+  }
+
   // 1. Primary: Yahoo Finance live forex spot USDINR=X
   try {
     const res = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/USDINR=X', {
@@ -1063,6 +1065,7 @@ async function fetchLiveUsdInrRate(): Promise<number> {
       const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
       if (typeof rate === 'number' && rate > 0) {
         lastKnownLiveUsdInrRate = rate;
+        lastUsdInrFetchedAt = now;
         return rate;
       }
     }
@@ -1078,6 +1081,7 @@ async function fetchLiveUsdInrRate(): Promise<number> {
       const rate = data?.rates?.INR;
       if (typeof rate === 'number' && rate > 0) {
         lastKnownLiveUsdInrRate = rate;
+        lastUsdInrFetchedAt = now;
         return rate;
       }
     }
@@ -1093,6 +1097,7 @@ async function fetchLiveUsdInrRate(): Promise<number> {
       const rate = data?.rates?.INR;
       if (typeof rate === 'number' && rate > 0) {
         lastKnownLiveUsdInrRate = rate;
+        lastUsdInrFetchedAt = now;
         return rate;
       }
     }
@@ -1113,138 +1118,138 @@ async function fetchCryptoPrice(
   const { coinId, symbol } = await resolveCryptoMeta(name);
   const targetSymbol = (symbol || name).trim().toUpperCase();
 
-  // 1. Primary: Real-time Indian Crypto Exchange (CoinDCX public live ticker)
-  // Exactly matches the domestic INR spot price seen on Indian apps like CoinSwitch (e.g. ~76.71L)
-  if (targetSymbol) {
-    try {
-      const dcxRes = await fetch('https://api.coindcx.com/exchange/ticker', {
-        signal: AbortSignal.timeout(4000),
-      });
-      if (dcxRes.ok) {
-        const list: any[] = await dcxRes.json();
-        const match = list.find((t: any) => t.market === `${targetSymbol}INR`);
-        if (match && typeof match.last_price === 'string' && parseFloat(match.last_price) > 0) {
-          const price = parseFloat(match.last_price);
-          const changePct = parseFloat(match.change_24_hour || '0');
-          const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
-          return { price, prevClose, symbol: match.market };
+    // 1. Primary: Real-time Indian Crypto Exchange (CoinDCX public live ticker)
+    // Exactly matches the domestic INR spot price seen on Indian apps like CoinSwitch (e.g. ~76.71L)
+    if (targetSymbol) {
+      try {
+        const dcxRes = await fetch('https://api.coindcx.com/exchange/ticker', {
+          signal: AbortSignal.timeout(4000),
+        });
+        if (dcxRes.ok) {
+          const list: any[] = await dcxRes.json();
+          const match = list.find((t: any) => t.market === `${targetSymbol}INR`);
+          if (match && typeof match.last_price === 'string' && parseFloat(match.last_price) > 0) {
+            const price = parseFloat(match.last_price);
+            const changePct = parseFloat(match.change_24_hour || '0');
+            const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
+            return { price, prevClose, symbol: match.market };
+          }
         }
-      }
-    } catch { }
+      } catch { }
 
-    // 2. Secondary: TradingView Scanner API (Global Benchmark: BINANCE:BTCUSDT / BYBIT:BTCUSDT)
-    try {
-      const tvRes = await fetch('https://scanner.tradingview.com/crypto/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbols: {
-            tickers: [
-              `BINANCE:${targetSymbol}USDT`,
-              `BYBIT:${targetSymbol}USDT`,
-              `COINBASE:${targetSymbol}USD`,
-            ],
-          },
-          columns: ['close', 'change', 'description'],
-        }),
-        signal: AbortSignal.timeout(4000),
-      });
-      if (tvRes.ok) {
-        const tvData: any = await tvRes.json();
-        const rows: any[] = tvData?.data || [];
-        const best = rows.find(
-          (r) => r.d && typeof r.d[0] === 'number' && r.d[0] > 0
+      // 2. Secondary: TradingView Scanner API (Global Benchmark: BINANCE:BTCUSDT / BYBIT:BTCUSDT)
+      try {
+        const tvRes = await fetch('https://scanner.tradingview.com/crypto/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            symbols: {
+              tickers: [
+                `BINANCE:${targetSymbol}USDT`,
+                `BYBIT:${targetSymbol}USDT`,
+                `COINBASE:${targetSymbol}USD`,
+              ],
+            },
+            columns: ['close', 'change', 'description'],
+          }),
+          signal: AbortSignal.timeout(4000),
+        });
+        if (tvRes.ok) {
+          const tvData: any = await tvRes.json();
+          const rows: any[] = tvData?.data || [];
+          const best = rows.find(
+            (r) => r.d && typeof r.d[0] === 'number' && r.d[0] > 0
+          );
+          if (best) {
+            const usdPrice = best.d[0];
+            const changePct = best.d[1] || 0;
+            const usdInr = await fetchLiveUsdInrRate();
+            const inrPrice = Math.round(usdPrice * usdInr * 100) / 100;
+            const prevClose = changePct !== 0 ? inrPrice / (1 + changePct / 100) : undefined;
+            return { price: inrPrice, prevClose, symbol: best.s };
+          }
+        }
+      } catch { }
+
+      // 3. Tertiary Indian exchange ticker (WazirX public ticker)
+      try {
+        const wzRes = await fetch('https://api.wazirx.com/sapi/v1/tickers/24hr', {
+          signal: AbortSignal.timeout(4000),
+        });
+        if (wzRes.ok) {
+          const list: any[] = await wzRes.json();
+          const lowerSym = targetSymbol.toLowerCase();
+          const match = list.find((t: any) => t.symbol === `${lowerSym}inr`);
+          if (match && typeof match.lastPrice === 'string' && parseFloat(match.lastPrice) > 0) {
+            const price = parseFloat(match.lastPrice);
+            return { price, symbol: match.symbol.toUpperCase() };
+          }
+        }
+      } catch { }
+    }
+
+    // 4. Global Spot Fallback: CoinGecko INR conversion
+    if (coinId) {
+      try {
+        const res = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=inr&include_24hr_change=true`,
+          { signal: AbortSignal.timeout(4000) }
         );
-        if (best) {
-          const usdPrice = best.d[0];
-          const changePct = best.d[1] || 0;
-          const usdInr = await fetchLiveUsdInrRate();
-          const inrPrice = Math.round(usdPrice * usdInr * 100) / 100;
-          const prevClose = changePct !== 0 ? inrPrice / (1 + changePct / 100) : undefined;
-          return { price: inrPrice, prevClose, symbol: best.s };
+        if (res.ok) {
+          const data: any = await res.json();
+          const coinData = data?.[coinId];
+          if (coinData && typeof coinData.inr === 'number' && coinData.inr > 0) {
+            const price = coinData.inr;
+            const changePct = coinData.inr_24h_change || 0;
+            const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
+            return { price, prevClose, symbol: coinId.toUpperCase() };
+          }
         }
-      }
-    } catch { }
+      } catch { }
+    }
 
-    // 3. Tertiary Indian exchange ticker (WazirX public ticker)
-    try {
-      const wzRes = await fetch('https://api.wazirx.com/sapi/v1/tickers/24hr', {
-        signal: AbortSignal.timeout(4000),
-      });
-      if (wzRes.ok) {
-        const list: any[] = await wzRes.json();
-        const lowerSym = targetSymbol.toLowerCase();
-        const match = list.find((t: any) => t.symbol === `${lowerSym}inr`);
-        if (match && typeof match.lastPrice === 'string' && parseFloat(match.lastPrice) > 0) {
-          const price = parseFloat(match.lastPrice);
-          return { price, symbol: match.symbol.toUpperCase() };
+    // 5. Fallback: Yahoo Finance with explicit crypto pair symbols
+    const clean = name.trim().toUpperCase().replace(/\s*\b(COIN|TOKEN|CRYPTO|CURRENCY)\b\s*/gi, '').trim();
+    const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 10);
+
+    const candidates: string[] = [];
+    if (targetSymbol) {
+      candidates.push(`${targetSymbol}-INR`);
+      candidates.push(`${targetSymbol}-USD`);
+    }
+    for (const t of tokens) {
+      if (t === 'INR' || t === 'USD' || t === 'USDT') continue;
+      if (!candidates.includes(`${t}-INR`)) candidates.push(`${t}-INR`);
+      if (!candidates.includes(`${t}-USD`)) candidates.push(`${t}-USD`);
+    }
+
+    for (const sym of candidates) {
+      try {
+        const chartRes = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+          { signal: AbortSignal.timeout(4000) }
+        );
+        if (!chartRes.ok) continue;
+        const data: any = await chartRes.json();
+        const meta = data?.chart?.result?.[0]?.meta;
+        if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+          let price = meta.regularMarketPrice;
+          if (sym.endsWith('-USD')) {
+            const usdInr = await fetchLiveUsdInrRate();
+            price = price * usdInr;
+          }
+          const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
+          const prevClose = change !== undefined ? price - change : (meta.previousClose || meta.chartPreviousClose);
+          return {
+            price,
+            prevClose,
+            symbol: sym,
+          };
         }
-      }
-    } catch { }
-  }
+      } catch { }
+    }
 
-  // 4. Global Spot Fallback: CoinGecko INR conversion
-  if (coinId) {
-    try {
-      const res = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=inr&include_24hr_change=true`,
-        { signal: AbortSignal.timeout(4000) }
-      );
-      if (res.ok) {
-        const data: any = await res.json();
-        const coinData = data?.[coinId];
-        if (coinData && typeof coinData.inr === 'number' && coinData.inr > 0) {
-          const price = coinData.inr;
-          const changePct = coinData.inr_24h_change || 0;
-          const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
-          return { price, prevClose, symbol: coinId.toUpperCase() };
-        }
-      }
-    } catch { }
-  }
-
-  // 5. Fallback: Yahoo Finance with explicit crypto pair symbols
-  const clean = name.trim().toUpperCase().replace(/\s*\b(COIN|TOKEN|CRYPTO|CURRENCY)\b\s*/gi, '').trim();
-  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 10);
-
-  const candidates: string[] = [];
-  if (targetSymbol) {
-    candidates.push(`${targetSymbol}-INR`);
-    candidates.push(`${targetSymbol}-USD`);
-  }
-  for (const t of tokens) {
-    if (t === 'INR' || t === 'USD' || t === 'USDT') continue;
-    if (!candidates.includes(`${t}-INR`)) candidates.push(`${t}-INR`);
-    if (!candidates.includes(`${t}-USD`)) candidates.push(`${t}-USD`);
-  }
-
-  for (const sym of candidates) {
-    try {
-      const chartRes = await fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
-        { signal: AbortSignal.timeout(4000) }
-      );
-      if (!chartRes.ok) continue;
-      const data: any = await chartRes.json();
-      const meta = data?.chart?.result?.[0]?.meta;
-      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
-        let price = meta.regularMarketPrice;
-        if (sym.endsWith('-USD')) {
-          const usdInr = await fetchLiveUsdInrRate();
-          price = price * usdInr;
-        }
-        const change = typeof meta.fulldayChange === 'number' ? meta.fulldayChange : typeof meta.regularMarketChange === 'number' ? meta.regularMarketChange : undefined;
-        const prevClose = change !== undefined ? price - change : (meta.previousClose || meta.chartPreviousClose);
-        return {
-          price,
-          prevClose,
-          symbol: sym,
-        };
-      }
-    } catch { }
-  }
-
-  return null;
+    return null;
 }
 
 function parseMfNavDate(dateStr: string): Date | null {
@@ -1420,14 +1425,39 @@ async function fetchMfNav(
 ): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number; isin?: string } | null> {
   const combined = `${name} ${notes || ''}`;
   const isin = knownIsin || (combined.match(/\b(INF[A-Z0-9]{9})\b/i)?.[1]?.toUpperCase());
+    // 1. Direct ISIN check (Highest Priority & 100% Unique per scheme variant e.g. INF200K01QV8 from CAS)
+    if (isin) {
+      try {
+        const masterList = await getMfMasterList();
+        const found = masterList.find((x: any) => x.isinGrowth === isin || x.isinDivReinvestment === isin);
+        if (found && found.schemeCode) {
+          const detailRes = await fetch(`https://api.mfapi.in/mf/${found.schemeCode}`, { signal: AbortSignal.timeout(4500) });
+          if (detailRes.ok) {
+            const details: any = await detailRes.json();
+            const latest = details?.data?.[0];
+            const prev = details?.data?.[1];
+            if (latest && latest.nav) {
+              const navNum = parseFloat(latest.nav);
+              if (!isNaN(navNum) && navNum > 0) {
+                return {
+                  nav: navNum,
+                  date: latest.date || '',
+                  schemeName: details.meta?.scheme_name || found.schemeName || name,
+                  prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
+                  schemeCode: found.schemeCode,
+                  isin,
+                };
+              }
+            }
+          }
+        }
+      } catch { }
+    }
 
-  // 1. Direct ISIN check (Highest Priority & 100% Unique per scheme variant e.g. INF200K01QV8 from CAS)
-  if (isin) {
-    try {
-      const masterList = await getMfMasterList();
-      const found = masterList.find((x: any) => x.isinGrowth === isin || x.isinDivReinvestment === isin);
-      if (found && found.schemeCode) {
-        const detailRes = await fetch(`https://api.mfapi.in/mf/${found.schemeCode}`, { signal: AbortSignal.timeout(4500) });
+    // 2. Direct scheme code check (Fastest & 100% accurate)
+    if (knownSchemeCode && knownSchemeCode > 0) {
+      try {
+        const detailRes = await fetch(`https://api.mfapi.in/mf/${knownSchemeCode}`, { signal: AbortSignal.timeout(4500) });
         if (detailRes.ok) {
           const details: any = await detailRes.json();
           const latest = details?.data?.[0];
@@ -1435,209 +1465,183 @@ async function fetchMfNav(
           if (latest && latest.nav) {
             const navNum = parseFloat(latest.nav);
             if (!isNaN(navNum) && navNum > 0) {
+              const masterList = await getMfMasterList();
+              const foundInMaster = masterList.find((x: any) => x.schemeCode === knownSchemeCode);
+              const resolvedIsin = isin || foundInMaster?.isinGrowth || foundInMaster?.isinDivReinvestment;
               return {
                 nav: navNum,
                 date: latest.date || '',
-                schemeName: details.meta?.scheme_name || found.schemeName || name,
+                schemeName: details.meta?.scheme_name || name,
                 prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-                schemeCode: found.schemeCode,
-                isin,
+                schemeCode: knownSchemeCode,
+                isin: resolvedIsin,
               };
             }
           }
         }
-      }
-    } catch { }
-  }
+      } catch { }
+    }
 
-  // 2. Direct scheme code check (Fastest & 100% accurate)
-  if (knownSchemeCode && knownSchemeCode > 0) {
-    try {
-      const detailRes = await fetch(`https://api.mfapi.in/mf/${knownSchemeCode}`, { signal: AbortSignal.timeout(4500) });
-      if (detailRes.ok) {
-        const details: any = await detailRes.json();
-        const latest = details?.data?.[0];
-        const prev = details?.data?.[1];
-        if (latest && latest.nav) {
-          const navNum = parseFloat(latest.nav);
-          if (!isNaN(navNum) && navNum > 0) {
-            const masterList = await getMfMasterList();
-            const foundInMaster = masterList.find((x: any) => x.schemeCode === knownSchemeCode);
-            const resolvedIsin = isin || foundInMaster?.isinGrowth || foundInMaster?.isinDivReinvestment;
-            return {
-              nav: navNum,
-              date: latest.date || '',
-              schemeName: details.meta?.scheme_name || name,
-              prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-              schemeCode: knownSchemeCode,
-              isin: resolvedIsin,
-            };
-          }
-        }
-      }
-    } catch { }
-  }
-
-  // 3. Direct scheme code check from notes (Explicitly stripping out any Folio numbers!)
-  const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, '');
-  const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
-  if (explicitSchemeMatch) {
-    try {
-      const code = explicitSchemeMatch[1] || explicitSchemeMatch[0];
-      const codeNum = parseInt(code, 10);
-      const detailRes = await fetch(`https://api.mfapi.in/mf/${codeNum}`, { signal: AbortSignal.timeout(4500) });
-      if (detailRes.ok) {
-        const details: any = await detailRes.json();
-        const latest = details?.data?.[0];
-        const prev = details?.data?.[1];
-        if (latest && latest.nav) {
-          const navNum = parseFloat(latest.nav);
-          const resolvedName = String(details.meta?.scheme_name || '');
-          const sim = resolvedName ? schemeNameSimilarity(name, resolvedName) : 0;
-          if (!isNaN(navNum) && navNum > 0 && sim >= 0.35) {
-            const masterList = await getMfMasterList();
-            const foundInMaster = masterList.find((x: any) => x.schemeCode === codeNum);
-            const resolvedIsin = isin || foundInMaster?.isinGrowth || foundInMaster?.isinDivReinvestment;
-            return {
-              nav: navNum,
-              date: latest.date || '',
-              schemeName: details.meta?.scheme_name || name,
-              prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-              schemeCode: codeNum,
-              isin: resolvedIsin,
-            };
-          }
-        }
-      }
-    } catch { }
-  }
-
-  const strippedName = stripBrokerSuffix(name);
-  const rawWords = strippedName
-    .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
-    .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
-    .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-
-  if (rawWords.length === 0) return null;
-
-  const baseQuery = rawWords.join(' ');
-  const queries: string[] = [
-    baseQuery,
-    rawWords.slice(0, 4).join(' '),
-    rawWords.slice(0, 3).join(' '),
-    rawWords.slice(0, 2).join(' '),
-  ].filter((q): q is string => Boolean(q) && q.length >= 3);
-
-  const uniqueQueries = [...new Set(queries)];
-  const candidateMap = new Map<number, { schemeCode: number; schemeName: string; score: number }>();
-
-  for (const query of uniqueQueries) {
-    try {
-      const searchRes = await fetch(
-        `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
-        { signal: AbortSignal.timeout(3500) }
-      );
-      if (searchRes.ok) {
-        const list: any[] = await searchRes.json();
-        if (Array.isArray(list)) {
-          for (const item of list) {
-            if (!candidateMap.has(item.schemeCode)) {
-              const score = scoreMfCandidate(item, strippedName);
-              candidateMap.set(item.schemeCode, { ...item, score });
+    // 3. Direct scheme code check from notes (Explicitly stripping out any Folio numbers!)
+    const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, '');
+    const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
+    if (explicitSchemeMatch) {
+      try {
+        const code = explicitSchemeMatch[1] || explicitSchemeMatch[0];
+        const codeNum = parseInt(code, 10);
+        const detailRes = await fetch(`https://api.mfapi.in/mf/${codeNum}`, { signal: AbortSignal.timeout(4500) });
+        if (detailRes.ok) {
+          const details: any = await detailRes.json();
+          const latest = details?.data?.[0];
+          const prev = details?.data?.[1];
+          if (latest && latest.nav) {
+            const navNum = parseFloat(latest.nav);
+            const resolvedName = String(details.meta?.scheme_name || '');
+            const sim = resolvedName ? schemeNameSimilarity(name, resolvedName) : 0;
+            if (!isNaN(navNum) && navNum > 0 && sim >= 0.35) {
+              const masterList = await getMfMasterList();
+              const foundInMaster = masterList.find((x: any) => x.schemeCode === codeNum);
+              const resolvedIsin = isin || foundInMaster?.isinGrowth || foundInMaster?.isinDivReinvestment;
+              return {
+                nav: navNum,
+                date: latest.date || '',
+                schemeName: details.meta?.scheme_name || name,
+                prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
+                schemeCode: codeNum,
+                isin: resolvedIsin,
+              };
             }
           }
         }
-      }
-    } catch { }
-    const strong = [...candidateMap.values()].filter((c) => c.score >= 80).length;
-    if (strong >= 3) break;
-  }
+      } catch { }
+    }
 
-  const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
-  if (sortedCandidates.length === 0) return null;
+    const strippedName = stripBrokerSuffix(name);
+    const rawWords = strippedName
+      .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
+      .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
+      .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
 
-  const topCandidates = sortedCandidates.slice(0, 6);
-  const validResults: { nav: number; date: string; schemeName: string; prevNav?: number; score: number; isDirect: boolean; schemeCode?: number }[] = [];
+    if (rawWords.length === 0) return null;
 
-  for (const candidate of topCandidates) {
-    try {
-      let detailRes = await fetch(
-        `https://api.mfapi.in/mf/${candidate.schemeCode}`,
-        { signal: AbortSignal.timeout(4500) }
-      );
-      if (!detailRes.ok) {
-        detailRes = await fetch(
-          `https://api.mfapi.in/mf/${candidate.schemeCode}/latest`,
+    const baseQuery = rawWords.join(' ');
+    const queries: string[] = [
+      baseQuery,
+      rawWords.slice(0, 4).join(' '),
+      rawWords.slice(0, 3).join(' '),
+      rawWords.slice(0, 2).join(' '),
+    ].filter((q): q is string => Boolean(q) && q.length >= 3);
+
+    const uniqueQueries = [...new Set(queries)];
+    const candidateMap = new Map<number, { schemeCode: number; schemeName: string; score: number }>();
+
+    for (const query of uniqueQueries) {
+      try {
+        const searchRes = await fetch(
+          `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
           { signal: AbortSignal.timeout(3500) }
         );
-      }
-      if (!detailRes.ok) continue;
-      const details: any = await detailRes.json();
-      const latest = details?.data?.[0];
-      const prev = details?.data?.[1];
-
-      if (latest && latest.nav) {
-        const navNum = parseFloat(latest.nav);
-        if (isNaN(navNum) || navNum <= 0) continue;
-
-        const resolvedName = String(details.meta?.scheme_name || candidate.schemeName || '');
-        if (resolvedName && schemeNameSimilarity(name, resolvedName) < 0.25) {
-          continue;
+        if (searchRes.ok) {
+          const list: any[] = await searchRes.json();
+          if (Array.isArray(list)) {
+            for (const item of list) {
+              if (!candidateMap.has(item.schemeCode)) {
+                const score = scoreMfCandidate(item, strippedName);
+                candidateMap.set(item.schemeCode, { ...item, score });
+              }
+            }
+          }
         }
+      } catch { }
+      const strong = [...candidateMap.values()].filter((c) => c.score >= 80).length;
+      if (strong >= 3) break;
+    }
 
-        validResults.push({
-          nav: navNum,
-          date: latest.date,
-          schemeName: resolvedName,
-          prevNav: prev ? parseFloat(prev.nav) : undefined,
-          score: candidate.score,
-          isDirect: /direct/i.test(resolvedName) || /direct/i.test(candidate.schemeName),
-          schemeCode: candidate.schemeCode,
-        });
+    const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
+    if (sortedCandidates.length === 0) return null;
+
+    const topCandidates = sortedCandidates.slice(0, 6);
+    const validResults: { nav: number; date: string; schemeName: string; prevNav?: number; score: number; isDirect: boolean; schemeCode?: number }[] = [];
+
+    for (const candidate of topCandidates) {
+      try {
+        let detailRes = await fetch(
+          `https://api.mfapi.in/mf/${candidate.schemeCode}`,
+          { signal: AbortSignal.timeout(4500) }
+        );
+        if (!detailRes.ok) {
+          detailRes = await fetch(
+            `https://api.mfapi.in/mf/${candidate.schemeCode}/latest`,
+            { signal: AbortSignal.timeout(3500) }
+          );
+        }
+        if (!detailRes.ok) continue;
+        const details: any = await detailRes.json();
+        const latest = details?.data?.[0];
+        const prev = details?.data?.[1];
+
+        if (latest && latest.nav) {
+          const navNum = parseFloat(latest.nav);
+          if (isNaN(navNum) || navNum <= 0) continue;
+
+          const resolvedName = String(details.meta?.scheme_name || candidate.schemeName || '');
+          if (resolvedName && schemeNameSimilarity(name, resolvedName) < 0.25) {
+            continue;
+          }
+
+          validResults.push({
+            nav: navNum,
+            date: latest.date,
+            schemeName: resolvedName,
+            prevNav: prev ? parseFloat(prev.nav) : undefined,
+            score: candidate.score,
+            isDirect: /direct/i.test(resolvedName) || /direct/i.test(candidate.schemeName),
+            schemeCode: candidate.schemeCode,
+          });
+        }
+      } catch { }
+    }
+
+    if (validResults.length === 0) return null;
+
+    const wantsDirect = /\bdirect\b/i.test(strippedName);
+    const wantsRegular = /\bregular\b/i.test(strippedName);
+    const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
+
+    validResults.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (wantsRegular) {
+        if (!a.isDirect && b.isDirect) return -1;
+        if (a.isDirect && !b.isDirect) return 1;
+      } else if (wantsDirect) {
+        if (a.isDirect && !b.isDirect) return -1;
+        if (!a.isDirect && b.isDirect) return 1;
       }
-    } catch { }
-  }
+      if (wantsIdcw) {
+        if (a.nav !== b.nav) return a.nav - b.nav;
+      } else {
+        if (b.nav !== a.nav) return b.nav - a.nav;
+      }
+      return (a.schemeCode || 0) - (b.schemeCode || 0);
+    });
 
-  if (validResults.length === 0) return null;
+    const best = validResults[0];
+    const masterList = await getMfMasterList();
+    const foundInMaster = masterList.find((x: any) => x.schemeCode === best.schemeCode);
+    const resolvedIsin = isin || foundInMaster?.isinGrowth || foundInMaster?.isinDivReinvestment;
 
-  const wantsDirect = /\bdirect\b/i.test(strippedName);
-  const wantsRegular = /\bregular\b/i.test(strippedName);
-  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
-
-  validResults.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (wantsRegular) {
-      if (!a.isDirect && b.isDirect) return -1;
-      if (a.isDirect && !b.isDirect) return 1;
-    } else if (wantsDirect) {
-      if (a.isDirect && !b.isDirect) return -1;
-      if (!a.isDirect && b.isDirect) return 1;
-    }
-    if (wantsIdcw) {
-      if (a.nav !== b.nav) return a.nav - b.nav;
-    } else {
-      if (b.nav !== a.nav) return b.nav - a.nav;
-    }
-    return (a.schemeCode || 0) - (b.schemeCode || 0);
-  });
-
-  const best = validResults[0];
-  const masterList = await getMfMasterList();
-  const foundInMaster = masterList.find((x: any) => x.schemeCode === best.schemeCode);
-  const resolvedIsin = isin || foundInMaster?.isinGrowth || foundInMaster?.isinDivReinvestment;
-
-  return {
-    nav: best.nav,
-    date: best.date,
-    schemeName: best.schemeName,
-    prevNav: best.prevNav,
-    schemeCode: best.schemeCode,
-    isin: resolvedIsin,
-  };
+    return {
+      nav: best.nav,
+      date: best.date,
+      schemeName: best.schemeName,
+      prevNav: best.prevNav,
+      schemeCode: best.schemeCode,
+      isin: resolvedIsin,
+    };
 }
 
 export const internalListInvestments = internalQuery({
@@ -1988,16 +1992,17 @@ export function getIndianMarketStatus(): IndianMarketStatus {
   const isOpen = !isWeekend && !isHoliday && isTradingSession;
   const isNonMarketHours = !isOpen;
 
-  // AMC Daily NAV Release Window: 09:00 PM to 12:00 AM IST (active all 7 days including weekends)
-  const isNightNavWindow = currentMinutes >= 1260;
+  // AMC Daily NAV Release Window: 09:00 PM to 12:00 AM IST on regular trading weekdays
+  // Weekends and official NSE/BSE holidays have NO NAV releases
+  const isNightNavWindow = !isWeekend && !isHoliday && currentMinutes >= 1260;
 
   let reason = "Market Open (Trading Active)";
-  if (isNightNavWindow) {
-    reason = "Market Closed (Night NAV Release Window: 9 PM - 12 AM IST)";
-  } else if (isWeekend) {
-    reason = dayOfWeek === 6 ? "Market Closed (Saturday)" : "Market Closed (Sunday)";
+  if (isWeekend) {
+    reason = dayOfWeek === 6 ? "Market Closed (Saturday - No NAV Updates)" : "Market Closed (Sunday - No NAV Updates)";
   } else if (isHoliday) {
-    reason = "Market Closed (NSE/BSE Public Holiday)";
+    reason = "Market Closed (NSE/BSE Public Holiday - No NAV Updates)";
+  } else if (isNightNavWindow) {
+    reason = "Market Closed (Night NAV Release Window: 9 PM - 12 AM IST)";
   } else if (currentMinutes < 555) {
     reason = "Market Closed (Pre-Market / Opens 9:15 AM IST)";
   } else if (currentMinutes > 930) {
@@ -2092,15 +2097,15 @@ export function parseNavDateToMs(dateStr: string): number {
  */
 export function getMfCacheTtlMs(): number {
   const status = getIndianMarketStatus();
-  // 1. Night NAV release window (09:00 PM to 12:00 AM IST) - 25-minute TTL to verify every 30-min cron cycle
-  if (status.isNightNavWindow) {
-    return 25 * 60 * 1000;
-  }
-  // 2. Daytime weekends / holidays (NAV does not change intraday)
+  // 1. Weekends & official NSE/BSE holidays: AMCs do not publish new NAVs, cache stays frozen
   if (status.isWeekend || status.isHoliday) {
-    return 12 * 60 * 60 * 1000;
+    return 24 * 60 * 60 * 1000;
   }
-  // 3. Regular weekday market hours
+  // 2. Weekday Night NAV release window (09:00 PM to 12:00 AM IST) - 50-minute TTL for 1-hour interval cron
+  if (status.isNightNavWindow) {
+    return 50 * 60 * 1000;
+  }
+  // 3. Regular daytime market hours (NAV does not change intraday)
   return 6.5 * 60 * 60 * 1000;
 }
 
@@ -2276,50 +2281,115 @@ export const internalSyncHoldingsFromMfCache = internalMutation({
 });
 
 /**
+ * Lists all distinct mutual fund schemes currently held by ANY user across the entire application.
+ */
+export const internalListAllInvestedMfSchemes = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const investments = await ctx.db.query("investments").collect();
+    const mfInvestments = investments.filter(
+      (inv) => inv.assetType === "mutual_fund" || (inv.assetType === "gold" && /fund/i.test(inv.name))
+    );
+
+    const uniqueFunds = new Map<string, {
+      name: string;
+      notes?: string;
+      schemeCode?: number;
+      isin?: string;
+      searchKey: string;
+    }>();
+
+    for (const inv of mfInvestments) {
+      const isin = inv.isin?.toUpperCase();
+      const code = inv.schemeCode;
+      const searchKey = normalizeMfSearchKey(inv.name);
+      const key = isin || (code && code > 0 ? `code_${code}` : searchKey);
+
+      if (!uniqueFunds.has(key)) {
+        uniqueFunds.set(key, {
+          name: inv.name,
+          notes: inv.notes,
+          schemeCode: code,
+          isin,
+          searchKey,
+        });
+      }
+    }
+
+    return Array.from(uniqueFunds.values());
+  },
+});
+
+/**
  * Background verification and maintenance action:
- * Rechecks cached schemes against AMFI, detects any outdated dates or updated NAVs,
- * and updates them immediately with authentic AMFI data while pruning old records.
- * During 9 PM - 12 AM IST (including weekends), runs every 30 mins to capture newly uploaded AMC NAVs.
+ * Rechecks all invested mutual fund schemes across all users against official AMFI API.
+ * 
+ * Schedule & Market Timing Rules:
+ * - Runs during the AMC Night NAV Release Window (09:00 PM to 12:00 AM IST) on weekdays.
+ * - Weekends (Saturday & Sunday) and official NSE/BSE holidays have NO NAV publication.
+ *   This action immediately skips on weekends/holidays with ZERO API calls and ZERO DB writes.
+ * - During active night windows, runs at 1-hour intervals to verify and overwrite the cache DB
+ *   with newly published authentic NAVs and update all users' holdings.
  */
 export const internalVerifyAndCleanMfCacheJob = internalAction({
   args: {},
   handler: async (ctx) => {
-    // 1. Inspect active cache records
-    const cachedEntries: any[] = await ctx.runQuery(internal.investments.internalListAllMfCache, {});
-    if (!cachedEntries || cachedEntries.length === 0) return;
+    const marketStatus = getIndianMarketStatus();
+
+    // Guard: On weekends (Sat/Sun) and official NSE/BSE holidays, AMCs do NOT calculate or release NAVs.
+    if (marketStatus.isWeekend || marketStatus.isHoliday) {
+      return { skipped: true, reason: marketStatus.reason };
+    }
+
+    // 1. Fetch all distinct mutual fund schemes invested across ALL users in the app
+    const investedSchemes: any[] = await ctx.runQuery(internal.investments.internalListAllInvestedMfSchemes, {});
+    if (!investedSchemes || investedSchemes.length === 0) return { verified: 0 };
 
     const expectedDate = getLatestExpectedMfNavDate();
     const expectedDateMs = parseNavDateToMs(expectedDate);
     const now = Date.now();
-    const ttlMs = getMfCacheTtlMs();
+    const ttlMs = getMfCacheTtlMs(); // 50 mins during 9 PM - 12 AM night window
 
-    for (const entry of cachedEntries) {
-      const cachedDateMs = entry.navDate ? parseNavDateToMs(entry.navDate) : 0;
-      const isDateStale = !entry.navDate || cachedDateMs < expectedDateMs;
+    let updatedCount = 0;
 
-      // Re-verify if date is stale or if TTL has elapsed (25 mins during 9 PM - 12 AM night window)
-      if (isDateStale || now - entry.lastFetchedAt >= ttlMs) {
+    for (const scheme of investedSchemes) {
+      // Check existing cache record
+      const cached: any = await ctx.runQuery(internal.investments.internalGetCachedMfNav, {
+        isin: scheme.isin,
+        schemeCode: scheme.schemeCode,
+        searchKey: scheme.searchKey,
+      });
+
+      const cachedDateMs = cached?.navDate ? parseNavDateToMs(cached.navDate) : 0;
+      const isDateStale = !cached?.navDate || cachedDateMs < expectedDateMs;
+      const isTtlExpired = !cached?.lastFetchedAt || (now - cached.lastFetchedAt >= ttlMs);
+
+      // Re-verify if date is stale or TTL has expired (1 hour interval during night window)
+      if (isDateStale || isTtlExpired) {
         try {
-          const amfi = await fetchMfNav(entry.schemeName, undefined, entry.schemeCode, entry.isin);
+          const amfi = await fetchMfNav(scheme.name, scheme.notes, scheme.schemeCode, scheme.isin);
           if (amfi && amfi.nav > 0) {
             await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
-              isin: amfi.isin || entry.isin,
-              schemeCode: amfi.schemeCode || entry.schemeCode,
-              schemeName: amfi.schemeName || entry.schemeName,
+              isin: amfi.isin || scheme.isin,
+              schemeCode: amfi.schemeCode || scheme.schemeCode || 0,
+              schemeName: amfi.schemeName || scheme.name,
               nav: amfi.nav,
               navDate: amfi.date || expectedDate,
               prevNav: amfi.prevNav,
-              searchKey: entry.searchKey,
+              searchKey: scheme.searchKey,
             });
+            updatedCount++;
           }
         } catch (err) {
-          console.warn(`[CronVerify] Error verifying ${entry.schemeName}:`, err);
+          console.warn(`[CronVerify] Error verifying ${scheme.name}:`, err);
         }
       }
     }
 
-    // 3. Propagate updated NAVs to matching user holdings
+    // 2. Propagate newly verified authentic NAVs to matching holdings across ALL users
     await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
+
+    return { verified: investedSchemes.length, updated: updatedCount };
   },
 });
 
@@ -2738,6 +2808,160 @@ export const syncLiveMarketPrices = action({
       return { success: true, count: 0, updates: [] };
     }
 
+    // 1. Build deduplicated tasks for unique price targets
+    interface PriceTask {
+      key: string;
+      assetType: string;
+      name: string;
+      notes?: string;
+      isin?: string;
+      schemeCode?: number;
+      ticker?: string;
+    }
+
+    const taskMap = new Map<string, PriceTask>();
+
+    for (const inv of allInvestments) {
+      const at = inv.assetType || "";
+      if (at === "fd_rd" || at === "ppf_epf" || at === "real_estate" || at === "other") {
+        continue;
+      }
+      const hasQty = inv.units && inv.units > 0;
+      const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
+      const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
+      if (!hasQty && !hasBuyBasis && !hasPriceRatio) {
+        continue;
+      }
+
+      const combined = `${inv.name} ${inv.notes || ""}`;
+      const detectedIsin = extractSecurityIsin(combined);
+      const resolvedIsin = inv.isin || detectedIsin;
+      const resolvedSchemeCode = inv.schemeCode;
+      const resolvedTicker = inv.ticker;
+
+      let taskKey = "";
+      if (at === "mutual_fund") {
+        taskKey = `mf:${resolvedIsin || (resolvedSchemeCode ? `code_${resolvedSchemeCode}` : normalizeMfSearchKey(inv.name))}`;
+      } else if (at === "crypto") {
+        taskKey = `crypto:${inv.name.trim().toLowerCase()}`;
+      } else if (at === "gold") {
+        const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(inv.name);
+        taskKey = isSgbOrDigital ? `sgb:${inv.name}` : `gold:${resolvedIsin || normalizeStockSearchKey(inv.name)}`;
+      } else {
+        taskKey = `stock:${resolvedIsin || resolvedTicker || normalizeStockSearchKey(inv.name)}`;
+      }
+
+      if (!taskMap.has(taskKey)) {
+        taskMap.set(taskKey, {
+          key: taskKey,
+          assetType: at,
+          name: inv.name,
+          notes: inv.notes,
+          isin: resolvedIsin,
+          schemeCode: resolvedSchemeCode,
+          ticker: resolvedTicker,
+        });
+      }
+    }
+
+    // 2. Fetch prices in parallel for deduplicated assets
+    const taskResults = new Map<string, {
+      livePrice: number | null;
+      resolvedSchemeCode?: number;
+      resolvedIsin?: string;
+      resolvedTicker?: string;
+    }>();
+
+    const taskList = Array.from(taskMap.values());
+    await Promise.all(
+      taskList.map(async (task) => {
+        try {
+          let livePrice: number | null = null;
+          let resolvedSchemeCode = task.schemeCode;
+          let resolvedIsin = task.isin;
+          let resolvedTicker = task.ticker;
+
+          if (task.assetType === "mutual_fund") {
+            const mf = await getOrFetchMfNavWithCache(ctx, task.name, task.notes, {
+              force: args.force,
+              knownSchemeCode: resolvedSchemeCode,
+              knownIsin: resolvedIsin,
+            });
+            if (mf && mf.nav > 0) {
+              livePrice = mf.nav;
+              if (mf.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = mf.schemeCode;
+              if (mf.isin && !resolvedIsin) resolvedIsin = mf.isin;
+            } else if (/\b(etf|bees)\b/i.test(task.name)) {
+              const stk = await getOrFetchStockPriceWithCache(ctx, task.name, {
+                force: args.force,
+                notes: task.notes,
+                knownIsin: resolvedIsin,
+                knownTicker: resolvedTicker,
+              });
+              if (stk && stk.price > 0) {
+                livePrice = stk.price;
+                if (stk.symbol && !resolvedTicker) resolvedTicker = stk.symbol;
+                if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
+              }
+            }
+          } else if (task.assetType === "crypto") {
+            const cry = await fetchCryptoPrice(task.name);
+            if (cry && cry.price > 0) {
+              livePrice = cry.price;
+            }
+          } else if (task.assetType === "gold") {
+            const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(task.name);
+            if (!isSgbOrDigital) {
+              const stk = await getOrFetchStockPriceWithCache(ctx, task.name, {
+                force: args.force,
+                notes: task.notes,
+                knownIsin: resolvedIsin,
+                knownTicker: resolvedTicker,
+              });
+              if (stk && stk.price > 0) {
+                livePrice = stk.price;
+                if (stk.symbol && !resolvedTicker) resolvedTicker = stk.symbol;
+                if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
+              } else {
+                const mf = await getOrFetchMfNavWithCache(ctx, task.name, task.notes, {
+                  force: args.force,
+                  knownSchemeCode: resolvedSchemeCode,
+                  knownIsin: resolvedIsin,
+                });
+                if (mf && mf.nav > 0) {
+                  livePrice = mf.nav;
+                  if (mf.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = mf.schemeCode;
+                  if (mf.isin && !resolvedIsin) resolvedIsin = mf.isin;
+                }
+              }
+            }
+          } else {
+            const stk = await getOrFetchStockPriceWithCache(ctx, task.name, {
+              force: args.force,
+              notes: task.notes,
+              knownIsin: resolvedIsin,
+              knownTicker: resolvedTicker,
+            });
+            if (stk && stk.price > 0) {
+              livePrice = stk.price;
+              if (stk.symbol && !resolvedTicker) resolvedTicker = stk.symbol;
+              if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
+            }
+          }
+
+          taskResults.set(task.key, {
+            livePrice,
+            resolvedSchemeCode,
+            resolvedIsin,
+            resolvedTicker,
+          });
+        } catch (err) {
+          console.warn(`[SyncLiveMarket] Error fetching price for ${task.name}:`, err);
+        }
+      })
+    );
+
+    // 3. Map results back to all investments and prepare batch updates
     const updates: {
       id: any;
       currentValue: number;
@@ -2748,136 +2972,73 @@ export const syncLiveMarketPrices = action({
     }[] = [];
 
     for (const inv of allInvestments) {
-      try {
-        const at = inv.assetType || "";
-        if (at === "fd_rd" || at === "ppf_epf" || at === "real_estate" || at === "other") {
-          continue;
-        }
+      const at = inv.assetType || "";
+      if (at === "fd_rd" || at === "ppf_epf" || at === "real_estate" || at === "other") {
+        continue;
+      }
 
-        let livePrice: number | null = null;
-        let resolvedSchemeCode = inv.schemeCode;
-        let resolvedIsin = inv.isin;
-        let resolvedTicker = inv.ticker;
+      const combined = `${inv.name} ${inv.notes || ""}`;
+      const detectedIsin = extractSecurityIsin(combined);
+      const resolvedIsin = inv.isin || detectedIsin;
+      const resolvedSchemeCode = inv.schemeCode;
+      const resolvedTicker = inv.ticker;
 
-        const combined = `${inv.name} ${inv.notes || ""}`;
-        const detectedIsin = extractSecurityIsin(combined);
-        if (!resolvedIsin && detectedIsin) {
-          resolvedIsin = detectedIsin;
-        }
+      let taskKey = "";
+      if (at === "mutual_fund") {
+        taskKey = `mf:${resolvedIsin || (resolvedSchemeCode ? `code_${resolvedSchemeCode}` : normalizeMfSearchKey(inv.name))}`;
+      } else if (at === "crypto") {
+        taskKey = `crypto:${inv.name.trim().toLowerCase()}`;
+      } else if (at === "gold") {
+        const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(inv.name);
+        taskKey = isSgbOrDigital ? `sgb:${inv.name}` : `gold:${resolvedIsin || normalizeStockSearchKey(inv.name)}`;
+      } else {
+        taskKey = `stock:${resolvedIsin || resolvedTicker || normalizeStockSearchKey(inv.name)}`;
+      }
 
-        if (at === "mutual_fund") {
-          const mf = await getOrFetchMfNavWithCache(ctx, inv.name, inv.notes, {
-            force: args.force,
-            knownSchemeCode: resolvedSchemeCode,
-            knownIsin: resolvedIsin,
-          });
-          if (mf && mf.nav > 0) {
-            livePrice = mf.nav;
-            if (mf.schemeCode && !resolvedSchemeCode) {
-              resolvedSchemeCode = mf.schemeCode;
-            }
-            if (mf.isin && !resolvedIsin) {
-              resolvedIsin = mf.isin;
-            }
-          } else if (/\b(etf|bees)\b/i.test(inv.name)) {
-            const stk = await getOrFetchStockPriceWithCache(ctx, inv.name, {
-              force: args.force,
-              notes: inv.notes,
-              knownIsin: resolvedIsin,
-              knownTicker: resolvedTicker,
-            });
-            if (stk && stk.price > 0) {
-              livePrice = stk.price;
-              if (stk.symbol && !resolvedTicker) resolvedTicker = stk.symbol;
-              if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
-            }
-          }
-        } else if (at === "crypto") {
-          const cry = await fetchCryptoPrice(inv.name);
-          if (cry && cry.price > 0) {
-            livePrice = cry.price;
-          }
-        } else if (at === "gold") {
-          const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(inv.name);
-          if (!isSgbOrDigital) {
-            const stk = await getOrFetchStockPriceWithCache(ctx, inv.name, {
-              force: args.force,
-              notes: inv.notes,
-              knownIsin: resolvedIsin,
-              knownTicker: resolvedTicker,
-            });
-            if (stk && stk.price > 0) {
-              livePrice = stk.price;
-              if (stk.symbol && !resolvedTicker) resolvedTicker = stk.symbol;
-              if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
-            } else {
-              const mf = await getOrFetchMfNavWithCache(ctx, inv.name, inv.notes, {
-                force: args.force,
-                knownSchemeCode: resolvedSchemeCode,
-                knownIsin: resolvedIsin,
-              });
-              if (mf && mf.nav > 0) {
-                livePrice = mf.nav;
-                if (mf.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = mf.schemeCode;
-                if (mf.isin && !resolvedIsin) resolvedIsin = mf.isin;
-              }
-            }
-          }
-        } else {
-          // Stocks & listed equity instruments — address each stock by unique ISIN & resolved Ticker.NS/BO
-          const stk = await getOrFetchStockPriceWithCache(ctx, inv.name, {
-            force: args.force,
-            notes: inv.notes,
-            knownIsin: resolvedIsin,
-            knownTicker: resolvedTicker,
-          });
-          if (stk && stk.price > 0) {
-            livePrice = stk.price;
-            if (stk.symbol && !resolvedTicker) resolvedTicker = stk.symbol;
-            if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
-          }
-        }
+      const res = taskResults.get(taskKey);
+      if (!res || res.livePrice === null || res.livePrice <= 0) {
+        continue;
+      }
 
-        if (livePrice !== null && livePrice > 0) {
-          const hasQty = inv.units && inv.units > 0;
-          const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
-          const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
-          if (!hasQty && !hasBuyBasis && !hasPriceRatio) {
-            continue;
-          }
+      const livePrice = res.livePrice;
+      const hasQty = inv.units && inv.units > 0;
+      const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
+      const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
+      if (!hasQty && !hasBuyBasis && !hasPriceRatio) {
+        continue;
+      }
 
-          let updatedVal = inv.currentValue;
+      let updatedVal = inv.currentValue;
+      if (hasQty) {
+        updatedVal = Math.round(inv.units * livePrice * 100) / 100;
+      } else if (hasBuyBasis) {
+        const derivedUnits = inv.investedAmount / inv.buyPrice;
+        updatedVal = Math.round(derivedUnits * livePrice * 100) / 100;
+      } else if (hasPriceRatio) {
+        const ratio = livePrice / inv.currentPrice;
+        updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
+      }
 
-          if (hasQty) {
-            updatedVal = Math.round(inv.units * livePrice * 100) / 100;
-          } else if (hasBuyBasis) {
-            const derivedUnits = inv.investedAmount / inv.buyPrice;
-            updatedVal = Math.round(derivedUnits * livePrice * 100) / 100;
-          } else if (hasPriceRatio) {
-            const ratio = livePrice / inv.currentPrice;
-            updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
-          }
+      const valDiff = Math.abs(updatedVal - inv.currentValue);
+      const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));
+      const finalSchemeCode = res.resolvedSchemeCode ?? inv.schemeCode;
+      const finalIsin = res.resolvedIsin ?? inv.isin;
+      const finalTicker = res.resolvedTicker ?? inv.ticker;
 
-          const valDiff = Math.abs(updatedVal - inv.currentValue);
-          const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));
-          const identifierChanged =
-            (resolvedSchemeCode !== undefined && resolvedSchemeCode !== inv.schemeCode) ||
-            (resolvedIsin !== undefined && resolvedIsin !== inv.isin) ||
-            (resolvedTicker !== undefined && resolvedTicker !== inv.ticker);
+      const identifierChanged =
+        (finalSchemeCode !== undefined && finalSchemeCode !== inv.schemeCode) ||
+        (finalIsin !== undefined && finalIsin !== inv.isin) ||
+        (finalTicker !== undefined && finalTicker !== inv.ticker);
 
-          if (valDiff > 0.01 || priceDiff > 0.0001 || identifierChanged) {
-            updates.push({
-              id: inv._id,
-              currentValue: updatedVal,
-              currentPrice: livePrice,
-              schemeCode: resolvedSchemeCode ?? inv.schemeCode,
-              isin: resolvedIsin ?? inv.isin,
-              ticker: resolvedTicker ?? inv.ticker,
-            });
-          }
-        }
-      } catch (err) {
-        console.warn(`[SyncLiveMarket] Error fetching price for ${inv.name}:`, err);
+      if (valDiff > 0.01 || priceDiff > 0.0001 || identifierChanged) {
+        updates.push({
+          id: inv._id,
+          currentValue: updatedVal,
+          currentPrice: livePrice,
+          schemeCode: finalSchemeCode,
+          isin: finalIsin,
+          ticker: finalTicker,
+        });
       }
     }
 
@@ -2996,15 +3157,15 @@ export const getMarketIndices = action({
       { key: "nifty50", symbol: "^NSEI", name: "NIFTY 50" },
       { key: "sensex", symbol: "^BSESN", name: "SENSEX" },
     ];
-    const results: any[] = [];
     const marketStatus = getIndianMarketStatus();
     const now = Date.now();
     const INDEX_CACHE_TTL_MS = 35 * 1000; // 35 seconds during market hours
 
-    for (const idx of indices) {
+    const fetchSingleIndex = async (idx: (typeof indices)[0]) => {
       try {
         const searchKey = normalizeStockSearchKey(idx.name);
-        // Check cache first
+
+        // 1. Check persistent Cache DB
         const cached: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
           symbol: idx.symbol,
           searchKey,
@@ -3012,31 +3173,29 @@ export const getMarketIndices = action({
 
         // If market closed and cache exists, return cached closing index value directly
         if (!marketStatus.isOpen && cached && cached.price > 0) {
-          results.push({
+          return {
             name: idx.name,
             symbol: idx.symbol,
             price: cached.price,
             change: cached.change || 0,
             changePercent: cached.changePercent || 0,
             isPositive: (cached.change || 0) >= 0,
-          });
-          continue;
+          };
         }
 
         // If market open and cached < 35s, return cached index value
         if (marketStatus.isOpen && cached && cached.price > 0 && now - cached.lastFetchedAt < INDEX_CACHE_TTL_MS) {
-          results.push({
+          return {
             name: idx.name,
             symbol: idx.symbol,
             price: cached.price,
             change: cached.change || 0,
             changePercent: cached.changePercent || 0,
             isPositive: (cached.change || 0) >= 0,
-          });
-          continue;
+          };
         }
 
-        // Fetch fresh index value from Yahoo Finance
+        // 2. Fetch fresh index value from Yahoo Finance
         const res = await fetch(
           `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
           { signal: AbortSignal.timeout(4000) }
@@ -3082,34 +3241,36 @@ export const getMarketIndices = action({
               searchKey,
             });
 
-            results.push({
+            return {
               name: idx.name,
               symbol: idx.symbol,
               price: roundedPrice,
               change: roundedChange,
               changePercent: changePct,
               isPositive: roundedChange >= 0,
-            });
-            continue;
+            };
           }
         }
 
         // Fallback to cached value if Yahoo failed
         if (cached && cached.price > 0) {
-          results.push({
+          return {
             name: idx.name,
             symbol: idx.symbol,
             price: cached.price,
             change: cached.change || 0,
             changePercent: cached.changePercent || 0,
             isPositive: (cached.change || 0) >= 0,
-          });
+          };
         }
       } catch (err) {
         console.warn(`[GetMarketIndices] Error fetching ${idx.name}:`, err);
       }
-    }
-    return results;
+      return null;
+    };
+
+    const results = await Promise.all(indices.map(fetchSingleIndex));
+    return results.filter(Boolean);
   },
 });
 
