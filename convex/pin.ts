@@ -37,6 +37,7 @@ export const getPinStatus = query({
 
     return {
       pinEnabled: security?.pinEnabled ?? false,
+      pinLength: (security?.pinLength ?? 6) as 4 | 6,
       autoLockTimeoutMs: security?.autoLockTimeoutMs ?? 300000,
       failedAttempts: security?.failedAttempts ?? 0,
       isLockedOut: false, // No artificial 60-second lockout
@@ -45,18 +46,23 @@ export const getPinStatus = query({
 });
 
 /**
- * Sets or updates the 6-Digit PIN
+ * Sets or updates the 4-Digit or 6-Digit PIN
  */
 export const setPin = mutation({
   args: {
     pin: v.string(),
+    pinLength: v.optional(v.union(v.literal(4), v.literal(6))),
     autoLockTimeoutMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Unauthorized");
 
-    if (!/^\d{6}$/.test(args.pin)) {
+    const pinLen = args.pinLength ?? (args.pin.length === 4 ? 4 : 6);
+    if (pinLen === 4 && !/^\d{4}$/.test(args.pin)) {
+      throw new Error("PIN must be exactly 4 numeric digits");
+    }
+    if (pinLen === 6 && !/^\d{6}$/.test(args.pin)) {
       throw new Error("PIN must be exactly 6 numeric digits");
     }
 
@@ -71,6 +77,7 @@ export const setPin = mutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         pinEnabled: true,
+        pinLength: pinLen,
         pinHash: hash,
         pinSalt: salt,
         autoLockTimeoutMs: args.autoLockTimeoutMs ?? existing.autoLockTimeoutMs,
@@ -81,6 +88,7 @@ export const setPin = mutation({
       await ctx.db.insert("userSecurity", {
         userId,
         pinEnabled: true,
+        pinLength: pinLen,
         pinHash: hash,
         pinSalt: salt,
         autoLockTimeoutMs: args.autoLockTimeoutMs ?? 300000,

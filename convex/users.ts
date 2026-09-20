@@ -79,6 +79,7 @@ export const currentUser = query({
         budgetRollover: false,
       },
       hasPin: !!security?.pinEnabled,
+      pinLength: (security?.pinLength ?? 6) as 4 | 6,
       autoLockTimeoutMs: security?.autoLockTimeoutMs ?? 300000, // default 5 mins
     };
   },

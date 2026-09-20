@@ -6,10 +6,11 @@ interface PinLockContextType {
   isLocked: boolean;
   isPinEnabled: boolean;
   isPinLoading: boolean;
+  pinLength: 4 | 6;
   autoLockTimeoutMs: number;
   lockNow: () => void;
   unlockWithPin: (pin: string) => Promise<{ success: boolean; message?: string }>;
-  enablePin: (pin: string, timeoutMs?: number) => Promise<boolean>;
+  enablePin: (pin: string, timeoutMs?: number, pinLength?: 4 | 6) => Promise<boolean>;
   disablePin: (currentPin: string) => Promise<boolean>;
   updateTimeout: (timeoutMs: number) => Promise<boolean>;
   isLockout: boolean;
@@ -27,6 +28,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const isPinLoading = pinStatus === undefined;
   const isPinEnabled = Boolean(pinStatus?.pinEnabled);
+  const pinLength: 4 | 6 = pinStatus?.pinLength === 4 ? 4 : 6;
   const autoLockTimeoutMs = pinStatus?.autoLockTimeoutMs ?? 300000;
   const isLockout = Boolean(pinStatus?.isLockedOut);
 
@@ -153,10 +155,11 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  const enablePin = async (pin: string, timeoutMs = 300000): Promise<boolean> => {
+  const enablePin = async (pin: string, timeoutMs = 300000, length?: 4 | 6): Promise<boolean> => {
     try {
       if (setPinMutation) {
-        await setPinMutation({ pin, autoLockTimeoutMs: timeoutMs });
+        const pinLen = length ?? (pin.length === 4 ? 4 : 6);
+        await setPinMutation({ pin, pinLength: pinLen, autoLockTimeoutMs: timeoutMs });
       }
       return true;
     } catch (err) {
@@ -196,6 +199,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
         isLocked,
         isPinEnabled,
         isPinLoading,
+        pinLength,
         autoLockTimeoutMs,
         lockNow,
         unlockWithPin,

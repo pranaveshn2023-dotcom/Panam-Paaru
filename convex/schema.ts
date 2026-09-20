@@ -148,7 +148,8 @@ export default defineSchema({
   userSecurity: defineTable({
     userId: v.id("users"),
     pinEnabled: v.boolean(),
-    pinHash: v.string(), // SHA-256 / PBKDF2 hash of 6-digit PIN with salt
+    pinLength: v.optional(v.union(v.literal(4), v.literal(6))),
+    pinHash: v.string(), // SHA-256 / PBKDF2 hash of PIN with salt
     pinSalt: v.string(),
     autoLockTimeoutMs: v.number(),
     failedAttempts: v.number(),

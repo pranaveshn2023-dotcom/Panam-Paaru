@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Lock, ShieldCheck, Key, AlertTriangle, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Lock, ShieldCheck, Key, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
-import { NeoInput } from '../ui/NeoInput';
 import { usePinLock } from '../../context/PinLockContext';
+import { clsx } from 'clsx';
 
 interface PinSetupModalProps {
   isOpen: boolean;
@@ -16,9 +16,11 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   onClose,
   isChangingPin = false,
 }) => {
-  const { enablePin, disablePin, isPinEnabled, autoLockTimeoutMs, updateTimeout } = usePinLock();
+  const { enablePin, disablePin, isPinEnabled, pinLength, autoLockTimeoutMs, updateTimeout } = usePinLock();
 
-  const [step, setStep] = useState<'create' | 'confirm' | 'current' | 'timeout'>('create');
+  const [step, setStep] = useState<'create' | 'confirm'>('create');
+  const [selectedLength, setSelectedLength] = useState<4 | 6>(pinLength || 6);
+  const [isChangingMode, setIsChangingMode] = useState(isChangingPin || !isPinEnabled);
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -27,11 +29,20 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
+  useEffect(() => {
+    if (isOpen) {
+      resetForm();
+    }
+  }, [isOpen, isPinEnabled, isChangingPin, pinLength, autoLockTimeoutMs]);
+
   const resetForm = () => {
-    setStep(isChangingPin ? 'current' : 'create');
+    setStep('create');
+    setSelectedLength(pinLength || 6);
+    setIsChangingMode(!isPinEnabled || isChangingPin);
     setCurrentPin('');
     setNewPin('');
     setConfirmPin('');
+    setTimeoutMs(autoLockTimeoutMs);
     setError('');
     setSuccessMsg('');
   };
@@ -39,8 +50,9 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   const handleNext = () => {
     setError('');
     if (step === 'create') {
-      if (!/^\d{6}$/.test(newPin)) {
-        setError('PIN must be exactly 6 numeric digits');
+      const regex = selectedLength === 4 ? /^\d{4}$/ : /^\d{6}$/;
+      if (!regex.test(newPin)) {
+        setError(`PIN must be exactly ${selectedLength} numeric digits`);
         return;
       }
       setStep('confirm');
@@ -56,11 +68,11 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   const handleSavePin = async () => {
     setIsSubmitting(true);
     setError('');
-    const success = await enablePin(newPin, timeoutMs);
+    const success = await enablePin(newPin, timeoutMs, selectedLength);
     setIsSubmitting(false);
 
     if (success) {
-      setSuccessMsg('6-Digit Security PIN successfully configured!');
+      setSuccessMsg(`${selectedLength}-Digit Security PIN successfully configured!`);
       setTimeout(() => {
         onClose();
         resetForm();
@@ -71,8 +83,9 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   };
 
   const handleDisablePin = async () => {
-    if (!/^\d{6}$/.test(currentPin)) {
-      setError('Please enter your valid 6-digit current PIN');
+    const regex = pinLength === 4 ? /^\d{4}$/ : /^\d{6}$/;
+    if (!regex.test(currentPin)) {
+      setError(`Please enter your valid ${pinLength}-digit current PIN`);
       return;
     }
     setIsSubmitting(true);
@@ -102,7 +115,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
     <NeoModal
       isOpen={isOpen}
       onClose={onClose}
-      title={isPinEnabled ? 'MANAGE SECURITY PIN' : 'ENABLE 6-DIGIT PIN LOCK'}
+      title={isPinEnabled ? 'MANAGE SECURITY PIN' : 'ENABLE SECURITY PIN LOCK'}
       maxWidth="md"
     >
       <div className="flex flex-col gap-4">
@@ -122,33 +135,93 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
           </div>
         )}
 
-        {!isPinEnabled ? (
-          /* Step 1 & 2: Setup New PIN */
+        {!isPinEnabled || isChangingMode ? (
+          /* Step 1 & 2: Setup / Change PIN Flow */
           <div className="flex flex-col gap-4">
             <p className="text-xs font-bold text-neutral-700">
-              Set up a 6-digit PIN to lock your finances when inactive. Data is securely hashed in the cloud.
+              Set up a {selectedLength}-digit PIN to lock your finances when inactive. Data is securely hashed in the cloud.
             </p>
+
+            {/* 4-Digit vs 6-Digit Format Toggle */}
+            {step === 'create' && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
+                  Choose PIN Format
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-neutral-100 border-2 border-[#121212]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedLength(4);
+                      setNewPin('');
+                      setConfirmPin('');
+                      setError('');
+                    }}
+                    className={clsx(
+                      'py-2 px-3 text-xs font-black uppercase border-2 transition-all cursor-pointer flex items-center justify-center gap-1.5',
+                      selectedLength === 4
+                        ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm'
+                        : 'bg-transparent text-neutral-600 border-transparent hover:text-black'
+                    )}
+                  >
+                    4-Digit PIN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedLength(6);
+                      setNewPin('');
+                      setConfirmPin('');
+                      setError('');
+                    }}
+                    className={clsx(
+                      'py-2 px-3 text-xs font-black uppercase border-2 transition-all cursor-pointer flex items-center justify-center gap-1.5',
+                      selectedLength === 6
+                        ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm'
+                        : 'bg-transparent text-neutral-600 border-transparent hover:text-black'
+                    )}
+                  >
+                    6-Digit PIN
+                  </button>
+                </div>
+              </div>
+            )}
 
             {step === 'create' && (
               <div className="flex flex-col gap-3">
                 <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
-                  Enter 6-Digit PIN
+                  Enter New {selectedLength}-Digit PIN
                 </label>
                 <input
                   type="password"
                   inputMode="numeric"
-                  maxLength={6}
+                  maxLength={selectedLength}
                   value={newPin}
                   onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
-                  placeholder="••••••"
+                  placeholder={selectedLength === 4 ? '••••' : '••••••'}
                   className="neo-input text-center text-2xl tracking-[0.5em] font-mono py-3"
                   autoFocus
                 />
                 <div className="flex justify-end gap-2 mt-2">
-                  <NeoButton variant="outline" onClick={onClose}>
-                    Cancel
-                  </NeoButton>
-                  <NeoButton variant="primary" onClick={handleNext} disabled={newPin.length !== 6}>
+                  {isPinEnabled ? (
+                    <NeoButton
+                      variant="outline"
+                      type="button"
+                      onClick={() => setIsChangingMode(false)}
+                    >
+                      Back to Settings
+                    </NeoButton>
+                  ) : (
+                    <NeoButton variant="outline" type="button" onClick={onClose}>
+                      Cancel
+                    </NeoButton>
+                  )}
+                  <NeoButton
+                    variant="primary"
+                    type="button"
+                    onClick={handleNext}
+                    disabled={newPin.length !== selectedLength}
+                  >
                     Next
                   </NeoButton>
                 </div>
@@ -158,26 +231,27 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
             {step === 'confirm' && (
               <div className="flex flex-col gap-3">
                 <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
-                  Confirm 6-Digit PIN
+                  Confirm {selectedLength}-Digit PIN
                 </label>
                 <input
                   type="password"
                   inputMode="numeric"
-                  maxLength={6}
+                  maxLength={selectedLength}
                   value={confirmPin}
                   onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
-                  placeholder="••••••"
+                  placeholder={selectedLength === 4 ? '••••' : '••••••'}
                   className="neo-input text-center text-2xl tracking-[0.5em] font-mono py-3"
                   autoFocus
                 />
                 <div className="flex justify-end gap-2 mt-2">
-                  <NeoButton variant="outline" onClick={() => setStep('create')}>
+                  <NeoButton variant="outline" type="button" onClick={() => setStep('create')}>
                     Back
                   </NeoButton>
                   <NeoButton
                     variant="secondary"
+                    type="button"
                     onClick={handleSavePin}
-                    disabled={confirmPin.length !== 6 || isSubmitting}
+                    disabled={confirmPin.length !== selectedLength || isSubmitting}
                   >
                     {isSubmitting ? 'Saving...' : 'Activate PIN'}
                   </NeoButton>
@@ -188,6 +262,29 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
         ) : (
           /* Manage Existing PIN: Change PIN, Update Timeout, or Disable */
           <div className="flex flex-col gap-4">
+            {/* Quick action to change PIN or switch length */}
+            <div className="p-3.5 bg-[#FFFDF5] border-2 border-[#121212] flex items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-black uppercase text-[#121212] block">
+                  Current PIN: {pinLength || 6}-Digit
+                </span>
+                <span className="text-[11px] font-bold text-neutral-600">
+                  Switch between 4-digit and 6-digit or change code
+                </span>
+              </div>
+              <NeoButton
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setIsChangingMode(true);
+                  setStep('create');
+                  setSelectedLength(pinLength || 6);
+                }}
+              >
+                Change PIN
+              </NeoButton>
+            </div>
+
             {/* Auto Lock Timeout Selector */}
             <div className="flex flex-col gap-1.5 p-3 bg-neutral-50 border-2 border-[#121212]">
               <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
@@ -216,23 +313,23 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
                 Disable Security PIN
               </span>
               <p className="text-[11px] font-semibold text-neutral-600">
-                Enter your current 6-digit PIN to turn off PIN protection.
+                Enter your current {pinLength || 6}-digit PIN to turn off PIN protection.
               </p>
               <div className="flex gap-2">
                 <input
                   type="password"
                   inputMode="numeric"
-                  maxLength={6}
+                  maxLength={pinLength || 6}
                   value={currentPin}
                   onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ''))}
-                  placeholder="Current PIN"
+                  placeholder={`Current ${pinLength || 6}-Digit PIN`}
                   className="neo-input py-1.5 text-center tracking-widest font-mono text-sm"
                 />
                 <NeoButton
                   variant="danger"
                   size="sm"
                   onClick={handleDisablePin}
-                  disabled={currentPin.length !== 6 || isSubmitting}
+                  disabled={currentPin.length !== (pinLength || 6) || isSubmitting}
                 >
                   Disable
                 </NeoButton>

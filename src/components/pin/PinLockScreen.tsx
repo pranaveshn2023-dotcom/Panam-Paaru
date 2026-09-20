@@ -8,7 +8,8 @@ import { useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 
 export const PinLockScreen: React.FC = () => {
-  const { isLocked, unlockWithPin } = usePinLock();
+  const { isLocked, unlockWithPin, pinLength } = usePinLock();
+  const targetLength = pinLength || 6;
   const { signOut } = useAuthActions();
   const resetFailedAttemptsMutation = useMutation(api.pin.resetFailedAttempts);
   
@@ -35,11 +36,11 @@ export const PinLockScreen: React.FC = () => {
   }, [isLocked]);
 
   const handleDigit = useCallback((digit: string) => {
-    if (pin.length < 6 && !verifyingRef.current) {
+    if (pin.length < targetLength && !verifyingRef.current) {
       setErrorMsg('');
       setPin((prev) => prev + digit);
     }
-  }, [pin]);
+  }, [pin, targetLength]);
 
   const handleDelete = useCallback(() => {
     if (pin.length > 0 && !verifyingRef.current) {
@@ -83,9 +84,9 @@ export const PinLockScreen: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLocked, handleDigit, handleDelete, handleClear]);
 
-  // Auto-verify as soon as 6 digits are typed, strictly once per 6-digit input
+  // Auto-verify as soon as targetLength digits are typed, strictly once per input
   useEffect(() => {
-    if (pin.length === 6 && !verifyingRef.current && lastAttemptedPinRef.current !== pin) {
+    if (pin.length === targetLength && !verifyingRef.current && lastAttemptedPinRef.current !== pin) {
       const pinToVerify = pin;
       lastAttemptedPinRef.current = pinToVerify;
       verifyingRef.current = true;
@@ -118,13 +119,10 @@ export const PinLockScreen: React.FC = () => {
         .catch((err) => {
           verifyingRef.current = false;
           setIsVerifying(false);
-          setFailedCount((prev) => prev + 1);
-          setErrorMsg(err.message || 'Failed to verify PIN');
-          setPin('');
-          lastAttemptedPinRef.current = '';
+          setErrorMsg(err.message || 'Verification failed');
         });
     }
-  }, [pin, unlockWithPin]);
+  }, [pin, targetLength, unlockWithPin]);
 
   if (!isLocked) return null;
 
@@ -150,12 +148,12 @@ export const PinLockScreen: React.FC = () => {
         </div>
 
         <p className="text-xs font-bold text-neutral-600 mb-5 text-center">
-          Enter your 6-digit PIN to access your finances
+          Enter your {targetLength}-digit PIN to access your finances
         </p>
 
-        {/* 6-Digit Indicator Bubbles */}
+        {/* Dynamic Indicator Bubbles */}
         <div className={`flex gap-1.5 sm:gap-3 mb-5 ${isShaking ? 'animate-shake' : ''}`}>
-          {[0, 1, 2, 3, 4, 5].map((index) => {
+          {Array.from({ length: targetLength }).map((_, index) => {
             const isFilled = pin.length > index;
             return (
               <div

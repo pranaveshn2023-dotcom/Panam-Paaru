@@ -19,11 +19,18 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   callbacks: {
     async createOrUpdateUser(ctx, args) {
       if (args.existingUserId) {
+        const existingUser = await ctx.db.get(args.existingUserId);
         const updates: any = {};
         const profile = args.profile as any;
-        if (profile?.name) updates.name = profile.name;
-        if (profile?.email) updates.email = profile.email;
-        if (profile?.picture || profile?.image) {
+
+        // Never overwrite an existing user's custom name if they already have one
+        if (!existingUser?.name && profile?.name) {
+          updates.name = profile.name;
+        }
+        if (!existingUser?.email && profile?.email) {
+          updates.email = profile.email;
+        }
+        if (!existingUser?.image && (profile?.picture || profile?.image)) {
           updates.image = profile.picture || profile.image;
         }
         if (Object.keys(updates).length > 0) {

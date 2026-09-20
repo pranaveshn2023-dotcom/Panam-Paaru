@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
 import { NeoButton } from '../components/ui/NeoButton';
 import { NeoInput } from '../components/ui/NeoInput';
@@ -35,7 +35,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   currencySymbol = '₹',
   currentCurrency = 'INR',
 }) => {
-  const { isPinEnabled, autoLockTimeoutMs, lockNow } = usePinLock();
+  const { isPinEnabled, pinLength, autoLockTimeoutMs } = usePinLock();
   const { signOut } = useAuthActions();
   const updateProfileMutation = useMutation(api.users.updateProfile);
 
@@ -47,6 +47,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [editName, setEditName] = useState(user?.name || '');
   const [editEmail, setEditEmail] = useState(user?.email || '');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setEditName(user.name || '');
+      setEditEmail(user.email || '');
+    }
+  }, [user]);
 
   const currencies = [
     { code: 'INR', symbol: '₹', name: 'Indian Rupee (₹)' },
@@ -119,7 +126,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* 1. 6-Digit PIN Security Lock Section */}
+      {/* 1. Security PIN Lock Section */}
       <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-6 flex flex-col gap-4">
         <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3">
           <div className="flex items-center gap-2">
@@ -127,7 +134,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <Lock size={16} strokeWidth={2.5} />
             </div>
             <h3 className="text-sm font-black uppercase text-[#121212] tracking-wider">
-              6-Digit Security PIN Lock
+              {isPinEnabled ? `${pinLength || 6}-Digit ` : ''}Security PIN Lock
             </h3>
           </div>
           <span
@@ -140,7 +147,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
 
         <p className="text-xs font-semibold text-neutral-700">
-          The 6-digit security PIN locks the application when left unattended or when switching windows/tabs.
+          The security PIN locks the application when left unattended or when in the background.
         </p>
 
         <div className="p-3.5 sm:p-4 bg-[#FFFDF5] border-2 border-[#121212] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -150,32 +157,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </span>
             <span className="text-[11px] font-bold text-neutral-600">
               {isPinEnabled
-                ? `Active · Timeout: ${timeoutLabels[autoLockTimeoutMs] || '5 Minutes'}`
+                ? `Active (${pinLength || 6}-Digit) · Timeout: ${timeoutLabels[autoLockTimeoutMs] || '5 Minutes'}`
                 : 'PIN is currently not configured.'}
             </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             {isPinEnabled ? (
-              <>
-                <NeoButton
-                  variant="primary"
-                  size="sm"
-                  onClick={lockNow}
-                  className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
-                >
-                  <Lock size={14} />
-                  <span>Lock Now</span>
-                </NeoButton>
-                <NeoButton
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onOpenPinSetup(true)}
-                  className="flex-1 sm:flex-initial text-center justify-center"
-                >
-                  Manage / Change
-                </NeoButton>
-              </>
+              <NeoButton
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenPinSetup(true)}
+                className="flex items-center justify-center gap-1.5 w-full sm:w-auto"
+              >
+                <KeyRound size={14} />
+                <span>Manage / Change</span>
+              </NeoButton>
             ) : (
               <NeoButton
                 variant="secondary"
@@ -184,7 +181,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 className="flex items-center justify-center gap-1.5 w-full sm:w-auto"
               >
                 <KeyRound size={14} />
-                <span>Set 6-Digit PIN</span>
+                <span>Set Security PIN</span>
               </NeoButton>
             )}
           </div>
