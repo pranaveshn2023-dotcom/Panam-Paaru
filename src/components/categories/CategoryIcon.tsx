@@ -136,7 +136,7 @@ export const CATEGORY_PALETTE = [
   '#6366F1', // Indigo
   '#14B8A6', // Teal
   '#EC4899', // Fuchsia
-  '#121212', // Onyx Black
+  '#FB7185', // Coral Rose
 ];
 
 interface CategoryIconProps {

@@ -26,7 +26,14 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
         {/* Category Icon Badge */}
         <div
           className="w-11 h-11 sm:w-12 sm:h-12 border-[2.5px] border-[#121212] shadow-neo-sm flex items-center justify-center shrink-0"
-          style={{ backgroundColor: category.color || (isExpense ? '#FFE600' : '#05DF72') }}
+          style={{
+            backgroundColor:
+              category.color && category.color !== '#121212'
+                ? category.color
+                : isExpense
+                ? '#FFE600'
+                : '#05DF72',
+          }}
         >
           <CategoryIcon
             name={category.icon || (isExpense ? 'Utensils' : 'Briefcase')}

@@ -46,8 +46,14 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
     if (initialData) {
       setName(initialData.name);
       setType(initialData.type === 'income' ? 'income' : 'expense');
-      setColor(initialData.color || '#FFE600');
-      setIcon(initialData.icon || 'Utensils');
+      setColor(
+        initialData.color && initialData.color !== '#121212'
+          ? initialData.color
+          : initialData.type === 'income'
+          ? '#05DF72'
+          : '#FFE600'
+      );
+      setIcon(initialData.icon || (initialData.type === 'income' ? 'Briefcase' : 'Utensils'));
     } else {
       setName('');
       setType(defaultType);
@@ -201,7 +207,7 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
                   <Check
                     size={14}
                     strokeWidth={3}
-                    className={c === '#121212' ? 'text-white' : 'text-[#121212]'}
+                    className="text-[#121212]"
                   />
                 )}
               </button>
