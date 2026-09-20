@@ -106,7 +106,7 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={initialData ? 'EDIT CATEGORY' : 'NEW CATEGORY'}
-      maxWidth="md"
+      maxWidth="lg"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {/* Live Preview Card (MyMoney Style) */}
@@ -216,29 +216,51 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
         </div>
 
         {/* Icon Selector with Category Filter & Search */}
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <label className="text-xs font-black uppercase tracking-wider text-[#121212] flex items-center gap-1.5">
               <Tag size={13} />
               Category Icon
             </label>
             <span className="text-[11px] font-bold text-neutral-500">
-              {filteredIcons.length} icons available
+              {filteredIcons.length} {filteredIcons.length === 1 ? 'icon' : 'icons'} available
             </span>
           </div>
 
-          {/* Group Filter Chips */}
-          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1">
+          {/* Search Input */}
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" />
+            <input
+              type="text"
+              value={iconSearch}
+              onChange={(e) => setIconSearch(e.target.value)}
+              placeholder="Search icons (e.g. food, car, gym, tech)..."
+              className="w-full pl-8 pr-8 py-1.5 text-xs font-bold bg-white border-2 border-[#121212] placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#FFE600]"
+            />
+            {iconSearch && (
+              <button
+                type="button"
+                onClick={() => setIconSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-black text-neutral-500 hover:text-black cursor-pointer p-0.5"
+                title="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Group Filter Chips (Responsive Wrap) */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
             {groups.map((grp) => (
               <button
                 key={grp}
                 type="button"
                 onClick={() => setSelectedGroup(grp)}
                 className={clsx(
-                  'px-2 py-1 text-[10px] font-black uppercase border whitespace-nowrap cursor-pointer transition-all',
+                  'px-2.5 py-1 text-[10px] font-black uppercase border-2 whitespace-nowrap cursor-pointer transition-all',
                   selectedGroup === grp
-                    ? 'bg-[#121212] text-white border-[#121212]'
-                    : 'bg-white text-neutral-600 border-neutral-300 hover:border-black'
+                    ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm'
+                    : 'bg-white text-neutral-700 border-neutral-300 hover:border-black hover:bg-neutral-50'
                 )}
               >
                 {grp}
@@ -247,7 +269,7 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
           </div>
 
           {/* Icon Grid */}
-          <div className="grid grid-cols-6 sm:grid-cols-8 gap-2 p-2.5 bg-neutral-50 border-2 border-[#121212] max-h-48 overflow-y-auto">
+          <div className="grid grid-cols-4 xs:grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-2 p-2.5 bg-neutral-50 border-2 border-[#121212] max-h-52 overflow-y-auto overscroll-contain">
             {filteredIcons.map((item) => {
               const isSelected = icon === item.name;
               return (
@@ -257,21 +279,26 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
                   onClick={() => setIcon(item.name)}
                   title={item.label}
                   className={clsx(
-                    'p-2 flex flex-col items-center justify-center gap-1 border-2 transition-all cursor-pointer aspect-square',
+                    'p-2 sm:p-2.5 flex flex-col items-center justify-center gap-1 border-2 transition-all cursor-pointer aspect-square',
                     isSelected
                       ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm scale-105'
-                      : 'bg-white text-[#121212] border-neutral-200 hover:border-black hover:bg-neutral-100'
+                      : 'bg-white text-[#121212] border-neutral-200 hover:border-black hover:bg-neutral-100 active:scale-95'
                   )}
                 >
                   <CategoryIcon
                     name={item.name}
-                    size={20}
+                    size={22}
                     className={isSelected ? 'text-white' : 'text-[#121212]'}
                     strokeWidth={isSelected ? 3 : 2}
                   />
                 </button>
               );
             })}
+            {filteredIcons.length === 0 && (
+              <div className="col-span-full py-6 text-center text-xs font-bold text-neutral-500">
+                No icons found matching "{iconSearch}"
+              </div>
+            )}
           </div>
         </div>
 
