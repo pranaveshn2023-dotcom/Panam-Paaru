@@ -68,17 +68,17 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   const handleSavePin = async () => {
     setIsSubmitting(true);
     setError('');
-    const success = await enablePin(newPin, timeoutMs, selectedLength);
+    const res = await enablePin(newPin, timeoutMs, selectedLength);
     setIsSubmitting(false);
 
-    if (success) {
+    if (res.success) {
       setSuccessMsg(`${selectedLength}-Digit Security PIN successfully configured!`);
       setTimeout(() => {
         onClose();
         resetForm();
       }, 1200);
     } else {
-      setError('Failed to save PIN in cloud. Please check connection.');
+      setError(res.message || 'Failed to save PIN in cloud.');
     }
   };
 
@@ -90,17 +90,17 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
     }
     setIsSubmitting(true);
     setError('');
-    const success = await disablePin(currentPin);
+    const res = await disablePin(currentPin);
     setIsSubmitting(false);
 
-    if (success) {
+    if (res.success) {
       setSuccessMsg('Security PIN disabled');
       setTimeout(() => {
         onClose();
         resetForm();
       }, 1000);
     } else {
-      setError('Incorrect current PIN');
+      setError(res.message || 'Incorrect current PIN');
     }
   };
 

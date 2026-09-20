@@ -10,8 +10,8 @@ interface PinLockContextType {
   autoLockTimeoutMs: number;
   lockNow: () => void;
   unlockWithPin: (pin: string) => Promise<{ success: boolean; message?: string }>;
-  enablePin: (pin: string, timeoutMs?: number, pinLength?: 4 | 6) => Promise<boolean>;
-  disablePin: (currentPin: string) => Promise<boolean>;
+  enablePin: (pin: string, timeoutMs?: number, pinLength?: 4 | 6) => Promise<{ success: boolean; message?: string }>;
+  disablePin: (currentPin: string) => Promise<{ success: boolean; message?: string }>;
   updateTimeout: (timeoutMs: number) => Promise<boolean>;
   isLockout: boolean;
 }
@@ -145,7 +145,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
         return { success: false, message: res?.message || "Incorrect PIN" };
       }
-      if (pin.length === 6) {
+      if (pin.length === (pinLength || 6)) {
         setIsLocked(false);
         return { success: true };
       }
@@ -155,29 +155,33 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  const enablePin = async (pin: string, timeoutMs = 300000, length?: 4 | 6): Promise<boolean> => {
+  const enablePin = async (
+    pin: string,
+    timeoutMs = 300000,
+    length?: 4 | 6
+  ): Promise<{ success: boolean; message?: string }> => {
     try {
       if (setPinMutation) {
         const pinLen = length ?? (pin.length === 4 ? 4 : 6);
         await setPinMutation({ pin, pinLength: pinLen, autoLockTimeoutMs: timeoutMs });
       }
-      return true;
-    } catch (err) {
+      return { success: true };
+    } catch (err: any) {
       console.error("Failed to enable PIN", err);
-      return false;
+      return { success: false, message: err?.message || "Failed to save PIN in cloud" };
     }
   };
 
-  const disablePin = async (currentPin: string): Promise<boolean> => {
+  const disablePin = async (currentPin: string): Promise<{ success: boolean; message?: string }> => {
     try {
       if (disablePinMutation) {
         await disablePinMutation({ currentPin });
       }
       setIsLocked(false);
-      return true;
-    } catch (err) {
+      return { success: true };
+    } catch (err: any) {
       console.error("Failed to disable PIN", err);
-      return false;
+      return { success: false, message: err?.message || "Incorrect current PIN" };
     }
   };
 
