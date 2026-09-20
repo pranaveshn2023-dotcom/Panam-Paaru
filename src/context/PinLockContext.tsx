@@ -75,7 +75,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
       hiddenAt = 0;
       try {
         sessionStorage.removeItem('panam_backgrounded_at');
-      } catch {}
+      } catch { }
     };
 
     const handleVisibilityChange = () => {
@@ -84,7 +84,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
         hiddenAt = Date.now();
         try {
           sessionStorage.setItem('panam_backgrounded_at', String(hiddenAt));
-        } catch {}
+        } catch { }
 
         if (backgroundTimer) clearTimeout(backgroundTimer);
         backgroundTimer = setTimeout(() => {
@@ -108,7 +108,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
               setIsLocked(true);
             }
           }
-        } catch {}
+        } catch { }
 
         clearBgTracking();
       }
@@ -168,7 +168,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
       return { success: true };
     } catch (err: any) {
       console.error("Failed to enable PIN", err);
-      return { success: false, message: err?.message || "Failed to save PIN in cloud" };
+      return { success: false, message: err?.message || "Failed to save the PIN " };
     }
   };
 

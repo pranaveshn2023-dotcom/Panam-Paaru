@@ -66,7 +66,7 @@ export const NoInternetScreen: React.FC = () => {
       {/* Footer Branding */}
       <div className="relative z-10 mt-6 flex items-center gap-2 text-xs font-mono font-black uppercase tracking-widest text-[#121212]">
         <Zap size={14} className="fill-[#121212]" />
-        <span>PanamPaaru · Live Cloud Ledger</span>
+        <span>PanamPaaru · Live  Ledger</span>
       </div>
     </div>
   );

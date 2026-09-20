@@ -78,7 +78,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
         resetForm();
       }, 1200);
     } else {
-      setError(res.message || 'Failed to save PIN in cloud.');
+      setError(res.message || 'Failed to save PIN.');
     }
   };
 
