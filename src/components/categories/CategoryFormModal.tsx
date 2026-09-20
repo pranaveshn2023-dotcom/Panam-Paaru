@@ -106,7 +106,7 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={initialData ? 'EDIT CATEGORY' : 'NEW CATEGORY'}
-      maxWidth="lg"
+      maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {/* Live Preview Card (MyMoney Style) */}
@@ -250,14 +250,14 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
           </div>
 
           {/* Group Filter Chips (Responsive Wrap) */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+          <div className="flex flex-wrap items-center gap-1">
             {groups.map((grp) => (
               <button
                 key={grp}
                 type="button"
                 onClick={() => setSelectedGroup(grp)}
                 className={clsx(
-                  'px-2.5 py-1 text-[10px] font-black uppercase border-2 whitespace-nowrap cursor-pointer transition-all',
+                  'px-2 py-0.5 text-[10px] font-black uppercase border-2 whitespace-nowrap cursor-pointer transition-all',
                   selectedGroup === grp
                     ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm'
                     : 'bg-white text-neutral-700 border-neutral-300 hover:border-black hover:bg-neutral-50'
@@ -268,8 +268,8 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
             ))}
           </div>
 
-          {/* Icon Grid */}
-          <div className="grid grid-cols-4 xs:grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-2 p-2.5 bg-neutral-50 border-2 border-[#121212] max-h-52 overflow-y-auto overscroll-contain">
+          {/* Icon Grid (Compact 7-8 columns like original) */}
+          <div className="grid grid-cols-7 sm:grid-cols-8 gap-1.5 p-2 bg-neutral-50 border-2 border-[#121212] max-h-48 overflow-y-auto overscroll-contain">
             {filteredIcons.map((item) => {
               const isSelected = icon === item.name;
               return (
@@ -279,7 +279,7 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
                   onClick={() => setIcon(item.name)}
                   title={item.label}
                   className={clsx(
-                    'p-2 sm:p-2.5 flex flex-col items-center justify-center gap-1 border-2 transition-all cursor-pointer aspect-square',
+                    'p-1.5 flex items-center justify-center border-2 transition-all cursor-pointer aspect-square',
                     isSelected
                       ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm scale-105'
                       : 'bg-white text-[#121212] border-neutral-200 hover:border-black hover:bg-neutral-100 active:scale-95'
@@ -287,15 +287,15 @@ export const CategoryFormModal: React.FC<CategoryFormModalProps> = ({
                 >
                   <CategoryIcon
                     name={item.name}
-                    size={22}
+                    size={19}
                     className={isSelected ? 'text-white' : 'text-[#121212]'}
-                    strokeWidth={isSelected ? 3 : 2}
+                    strokeWidth={isSelected ? 3 : 2.2}
                   />
                 </button>
               );
             })}
             {filteredIcons.length === 0 && (
-              <div className="col-span-full py-6 text-center text-xs font-bold text-neutral-500">
+              <div className="col-span-full py-4 text-center text-xs font-bold text-neutral-500">
                 No icons found matching "{iconSearch}"
               </div>
             )}
