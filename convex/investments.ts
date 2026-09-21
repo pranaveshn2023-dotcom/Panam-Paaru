@@ -3500,7 +3500,10 @@ export const getMarketIndices = action({
     if (!args.force && !marketStatus.isOpen) {
       const allClosedCached = indices.every((idx) => {
         const c = cachedMap.get(idx.key);
-        return c && c.price > 0 && c.lastFetchedAt >= latestCloseTime;
+        const isKnownStale =
+          (idx.key === "sensex" && Math.abs((c?.price || 0) - 74906.37) < 0.1) ||
+          (idx.key === "nifty50" && Math.abs((c?.price || 0) - 23429) < 0.1);
+        return !isKnownStale && c && c.price > 0 && c.lastFetchedAt >= latestCloseTime;
       });
       if (allClosedCached) {
         return indices.map((idx) => {
@@ -3538,76 +3541,129 @@ export const getMarketIndices = action({
       }
     }
 
-    // 2. Primary: Yahoo Finance chart API for ^BSESN and ^NSEI (with query1 / query2 mirrors)
-    const fetchSingleIndexYahoo = async (idx: (typeof indices)[0]) => {
+    // 2. Multi-tier Official Exchange + Yahoo Finance index resolver
+    const fetchSingleIndex = async (idx: (typeof indices)[0]) => {
       try {
         const searchKey = `__benchmark_index_${idx.key}__`;
         const cached = cachedMap.get(idx.key);
 
-        let res: Response | null = null;
-        try {
-          res = await fetch(
-            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
-            { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(4000) }
-          );
-        } catch {
+        let livePrice: number | null = null;
+        let liveChange = 0;
+        let liveChangePct = 0;
+
+        // Tier 1: Direct official exchange feeds (BSE for SENSEX, NSE for NIFTY 50)
+        if (idx.key === "sensex") {
           try {
-            res = await fetch(
-              `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
-              { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(4000) }
-            );
-          } catch { }
+            const bseRes = await fetch("https://m.bseindia.com/", {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              },
+              signal: AbortSignal.timeout(3500),
+            });
+            if (bseRes.ok) {
+              const html = await bseRes.text();
+              const ltpMatch = html.match(/id="UcHeaderMenu1_sensexLtp"[^>]*>([^<]+)</);
+              const chgMatch = html.match(/id="UcHeaderMenu1_sensexChange"[^>]*>([^<]+)</);
+              const pctMatch = html.match(/id="UcHeaderMenu1_sensexPerChange"[^>]*>([^<]+)</);
+              if (ltpMatch) {
+                const parsedPrice = parseFloat(ltpMatch[1].replace(/,/g, "").trim());
+                if (!isNaN(parsedPrice) && parsedPrice > 0) {
+                  livePrice = parsedPrice;
+                  liveChange = chgMatch ? parseFloat(chgMatch[1].replace(/[+,]/g, "").trim()) : 0;
+                  liveChangePct = pctMatch ? parseFloat(pctMatch[1].replace(/[+%,]/g, "").trim()) : 0;
+                }
+              }
+            }
+          } catch {}
+        } else if (idx.key === "nifty50") {
+          try {
+            const nseRes = await fetch("https://www.nseindia.com/api/allIndices", {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://www.nseindia.com/",
+                "Accept": "application/json",
+              },
+              signal: AbortSignal.timeout(3500),
+            });
+            if (nseRes.ok) {
+              const data: any = await nseRes.json();
+              const n50 = data?.data?.find((x: any) => x.index === "NIFTY 50");
+              if (n50 && typeof n50.last === "number" && n50.last > 0) {
+                livePrice = n50.last;
+                liveChange = typeof n50.variation === "number" ? n50.variation : 0;
+                liveChangePct = typeof n50.percentChange === "number" ? n50.percentChange : 0;
+              }
+            }
+          } catch {}
         }
 
-        if (res && res.ok) {
-          const d: any = await res.json();
-          const meta = d?.chart?.result?.[0]?.meta;
-          if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
-            const price = meta.regularMarketPrice;
-
-            let change = 0;
-            if (typeof meta.fulldayChange === "number" && !isNaN(meta.fulldayChange)) {
-              change = meta.fulldayChange;
-            } else if (typeof meta.regularMarketChange === "number" && !isNaN(meta.regularMarketChange)) {
-              change = meta.regularMarketChange;
-            } else {
-              const prev = meta.previousClose || meta.chartPreviousClose || price;
-              change = price - prev;
-            }
-
-            let changePct = 0;
-            if (typeof meta.regularMarketChangePercent === "number" && !isNaN(meta.regularMarketChangePercent)) {
-              changePct = Number(meta.regularMarketChangePercent.toFixed(2));
-            } else if (typeof meta.fulldayChangePercent === "number" && !isNaN(meta.fulldayChangePercent)) {
-              changePct = Number(meta.fulldayChangePercent.toFixed(2));
-            } else {
-              const prev = price - change;
-              changePct = prev > 0 ? Number(((change / prev) * 100).toFixed(2)) : 0;
-            }
-
-            const roundedPrice = Math.round(price * 100) / 100;
-            const roundedChange = Math.round(change * 100) / 100;
-            const derivedPrevClose = Math.round((price - change) * 100) / 100;
-
-            await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
-              symbol: idx.symbol,
-              name: idx.name,
-              price: roundedPrice,
-              prevClose: derivedPrevClose,
-              change: roundedChange,
-              changePercent: changePct,
-              searchKey,
-            });
-
-            return {
-              name: idx.name,
-              symbol: idx.symbol,
-              price: roundedPrice,
-              change: roundedChange,
-              changePercent: changePct,
-              isPositive: roundedChange >= 0,
-            };
+        // Tier 2: Yahoo Finance chart API fallback
+        if (!livePrice) {
+          let res: Response | null = null;
+          try {
+            res = await fetch(
+              `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
+              { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(4000) }
+            );
+          } catch {
+            try {
+              res = await fetch(
+                `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
+                { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(4000) }
+              );
+            } catch {}
           }
+
+          if (res && res.ok) {
+            const d: any = await res.json();
+            const meta = d?.chart?.result?.[0]?.meta;
+            if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
+              livePrice = meta.regularMarketPrice;
+              if (typeof meta.fulldayChange === "number" && !isNaN(meta.fulldayChange)) {
+                liveChange = meta.fulldayChange;
+              } else if (typeof meta.regularMarketChange === "number" && !isNaN(meta.regularMarketChange)) {
+                liveChange = meta.regularMarketChange;
+              } else {
+                const prev = meta.previousClose || meta.chartPreviousClose || livePrice;
+                liveChange = livePrice - prev;
+              }
+
+              if (typeof meta.regularMarketChangePercent === "number" && !isNaN(meta.regularMarketChangePercent)) {
+                liveChangePct = Number(meta.regularMarketChangePercent.toFixed(2));
+              } else if (typeof meta.fulldayChangePercent === "number" && !isNaN(meta.fulldayChangePercent)) {
+                liveChangePct = Number(meta.fulldayChangePercent.toFixed(2));
+              } else {
+                const prev = livePrice - liveChange;
+                liveChangePct = prev > 0 ? Number(((liveChange / prev) * 100).toFixed(2)) : 0;
+              }
+            }
+          }
+        }
+
+        if (livePrice && livePrice > 0) {
+          const roundedPrice = Math.round(livePrice * 100) / 100;
+          const roundedChange = Math.round(liveChange * 100) / 100;
+          const derivedPrevClose = Math.round((livePrice - liveChange) * 100) / 100;
+
+          await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+            symbol: idx.symbol,
+            name: idx.name,
+            price: roundedPrice,
+            prevClose: derivedPrevClose,
+            change: roundedChange,
+            changePercent: liveChangePct,
+            searchKey,
+          });
+
+          return {
+            name: idx.name,
+            symbol: idx.symbol,
+            price: roundedPrice,
+            change: roundedChange,
+            changePercent: liveChangePct,
+            isPositive: roundedChange >= 0,
+          };
         }
 
         if (cached && cached.price > 0) {
@@ -3626,7 +3682,7 @@ export const getMarketIndices = action({
       return null;
     };
 
-    const results = await Promise.all(indices.map(fetchSingleIndexYahoo));
+    const results = await Promise.all(indices.map(fetchSingleIndex));
     return results.filter(Boolean);
   },
 });
@@ -3780,34 +3836,24 @@ export const internalSyncMarketClose325Job = internalAction({
 
     let pricesMoved = false;
 
-    // 1. Compare benchmark indices with cache DB
-    const indices = [
-      { key: "nifty50", symbol: "^NSEI" },
-      { key: "sensex", symbol: "^BSESN" },
-    ];
-    for (const idx of indices) {
-      try {
+    // 1. Compare fresh live benchmark indices with cache DB
+    try {
+      const freshIndices: any = await ctx.runAction(api.investments.getMarketIndices, { force: true });
+      for (const fresh of freshIndices || []) {
+        const key = fresh.symbol === "^BSESN" ? "sensex" : "nifty50";
         const cached: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
-          symbol: idx.symbol,
-          searchKey: `__benchmark_index_${idx.key}__`,
+          symbol: fresh.symbol,
+          searchKey: `__benchmark_index_${key}__`,
         });
-        const liveRes = await fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
-          { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(3500) }
-        );
-        if (liveRes.ok) {
-          const data: any = await liveRes.json();
-          const livePrice = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-          if (typeof livePrice === "number" && livePrice > 0 && cached?.price) {
-            const diff = Math.abs(livePrice - cached.price);
-            if (diff > 0.5) {
-              pricesMoved = true;
-              break;
-            }
+        if (typeof fresh?.price === "number" && fresh.price > 0 && cached?.price) {
+          const diff = Math.abs(fresh.price - cached.price);
+          if (diff > 0.5) {
+            pricesMoved = true;
+            break;
           }
         }
-      } catch {}
-    }
+      }
+    } catch {}
 
     // 2. If indices match, check sample of active user holdings against cache DB
     if (!pricesMoved) {

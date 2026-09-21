@@ -1187,35 +1187,69 @@ export async function fetchLiveMarketIndices(): Promise<LiveMarketIndex[]> {
   const results: LiveMarketIndex[] = [];
   for (const idx of indices) {
     try {
-      const data = await fetchYahooChart(idx.symbol);
-      const meta = data?.chart?.result?.[0]?.meta;
-      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
-        const price = meta.regularMarketPrice;
-        let change = 0;
-        if (typeof meta.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
-          change = meta.fulldayChange;
-        } else if (typeof meta.regularMarketChange === 'number' && !isNaN(meta.regularMarketChange)) {
-          change = meta.regularMarketChange;
-        } else {
-          const prev = meta.previousClose || meta.chartPreviousClose || price;
-          change = price - prev;
+      let livePrice: number | null = null;
+      let liveChange = 0;
+      let liveChangePct = 0;
+
+      // Primary for Sensex: BSE official mobile portal
+      if (idx.key === 'sensex') {
+        try {
+          const bseRes = await fetch('https://m.bseindia.com/', {
+            headers: {
+              Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            },
+            signal: AbortSignal.timeout(3500),
+          });
+          if (bseRes.ok) {
+            const html = await bseRes.text();
+            const ltpMatch = html.match(/id="UcHeaderMenu1_sensexLtp"[^>]*>([^<]+)</);
+            const chgMatch = html.match(/id="UcHeaderMenu1_sensexChange"[^>]*>([^<]+)</);
+            const pctMatch = html.match(/id="UcHeaderMenu1_sensexPerChange"[^>]*>([^<]+)</);
+            if (ltpMatch) {
+              const p = parseFloat(ltpMatch[1].replace(/,/g, '').trim());
+              if (!isNaN(p) && p > 0) {
+                livePrice = p;
+                liveChange = chgMatch ? parseFloat(chgMatch[1].replace(/[+,]/g, '').trim()) : 0;
+                liveChangePct = pctMatch ? parseFloat(pctMatch[1].replace(/[+%,]/g, '').trim()) : 0;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Fallback / Primary for Nifty: Yahoo Finance chart endpoint
+      if (!livePrice) {
+        const data = await fetchYahooChart(idx.symbol);
+        const meta = data?.chart?.result?.[0]?.meta;
+        if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+          livePrice = meta.regularMarketPrice;
+          if (typeof meta.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
+            liveChange = meta.fulldayChange;
+          } else if (typeof meta.regularMarketChange === 'number' && !isNaN(meta.regularMarketChange)) {
+            liveChange = meta.regularMarketChange;
+          } else {
+            const prev = meta.previousClose || meta.chartPreviousClose || livePrice;
+            liveChange = livePrice - prev;
+          }
+          if (typeof meta.regularMarketChangePercent === 'number' && !isNaN(meta.regularMarketChangePercent)) {
+            liveChangePct = Number(meta.regularMarketChangePercent.toFixed(2));
+          } else if (typeof meta.fulldayChangePercent === 'number' && !isNaN(meta.fulldayChangePercent)) {
+            liveChangePct = Number(meta.fulldayChangePercent.toFixed(2));
+          } else {
+            const prev = livePrice - liveChange;
+            liveChangePct = prev > 0 ? Number(((liveChange / prev) * 100).toFixed(2)) : 0;
+          }
         }
-        let changePct = 0;
-        if (typeof meta.regularMarketChangePercent === 'number' && !isNaN(meta.regularMarketChangePercent)) {
-          changePct = Number(meta.regularMarketChangePercent.toFixed(2));
-        } else if (typeof meta.fulldayChangePercent === 'number' && !isNaN(meta.fulldayChangePercent)) {
-          changePct = Number(meta.fulldayChangePercent.toFixed(2));
-        } else {
-          const prev = price - change;
-          changePct = prev > 0 ? Number(((change / prev) * 100).toFixed(2)) : 0;
-        }
+      }
+
+      if (livePrice && livePrice > 0) {
         results.push({
           name: idx.name,
           symbol: idx.symbol,
-          price: Math.round(price * 100) / 100,
-          change: Math.round(change * 100) / 100,
-          changePercent: changePct,
-          isPositive: change >= 0,
+          price: Math.round(livePrice * 100) / 100,
+          change: Math.round(liveChange * 100) / 100,
+          changePercent: liveChangePct,
+          isPositive: liveChange >= 0,
         });
       }
     } catch {}
