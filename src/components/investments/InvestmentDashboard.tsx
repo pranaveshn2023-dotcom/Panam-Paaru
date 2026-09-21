@@ -9,7 +9,7 @@ import { PortfolioTrendChart } from './InvestmentChart';
 import { InvestmentCard } from './InvestmentCard';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import { fetchAmfiNav, fetchLiveStockPrice, fetchLiveCryptoPrice } from '../../utils/liveMarketService';
+import { fetchAmfiNav, fetchLiveStockPrice, fetchLiveCryptoPrice, fetchLiveMarketIndices } from '../../utils/liveMarketService';
 import {
   TrendingUp,
   TrendingDown,
@@ -69,7 +69,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   currencySymbol = '₹',
 }) => {
   const { formatPrivateAmount, isPrivacyMode, togglePrivacyMode } = usePrivacy();
-  
+
   const [selectedFilter, setSelectedFilter] = useState<'all' | AssetType>('all');
   const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>('all');
   const [quickUpdateId, setQuickUpdateId] = useState<string | null>(null);
@@ -156,23 +156,44 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
         const indices = await getMarketIndicesAction({ force: !silent });
         if (indices && indices.length > 0) {
           setMarketIndices(indices);
+        } else {
+          const direct = await fetchLiveMarketIndices();
+          if (direct && direct.length > 0) setMarketIndices(direct);
         }
-      } catch {}
+      } catch {
+        try {
+          const direct = await fetchLiveMarketIndices();
+          if (direct && direct.length > 0) setMarketIndices(direct);
+        } catch { }
+      }
 
-      // 2. Call Convex backend action to sync holdings with live market
+      // 2. Call Convex backend action to sync holdings with live market ONLY for invested instruments
+      const activeInvestments = investments.filter(
+        (inv) => (inv.investedAmount > 0 || (inv.units && inv.units > 0) || inv.currentValue > 0) &&
+          inv.assetType !== 'fd_rd' && inv.assetType !== 'ppf_epf' && inv.assetType !== 'real_estate' && inv.assetType !== 'other'
+      );
+
+      if (activeInvestments.length === 0) {
+        setIsSyncingNav(false);
+        if (!silent) toast.info('Index benchmarks refreshed. No active portfolio holdings to sync.');
+        return;
+      }
+
+      const activeInvestedIds = activeInvestments.map((inv) => inv._id as any);
+
       let updatedCount = 0;
       try {
-        const res = await syncLiveMarketPricesAction({ force: !silent });
+        const res = await syncLiveMarketPricesAction({
+          investmentIds: activeInvestedIds,
+          force: !silent,
+        });
         updatedCount = res.count || 0;
       } catch (actionErr) {
         console.warn('Backend sync action failed, falling back to client-side sync:', actionErr);
-        // Client-side fallback sync (mirrors the backend action's guardrails)
+        // Client-side fallback sync (strictly for active invested instruments)
         const updates: { id: any; currentValue: number; currentPrice?: number }[] = [];
-        for (const inv of investments) {
+        for (const inv of activeInvestments) {
           const at = inv.assetType;
-          // FD/RD, PPF/EPF, Real Estate and "Other" have no live ticker — never
-          // run a quote lookup on their names (it can overwrite values with garbage).
-          if (at === 'fd_rd' || at === 'ppf_epf' || at === 'real_estate' || at === 'other') continue;
 
           let livePrice: number | null = null;
           if (at === 'mutual_fund') {
@@ -255,13 +276,27 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   useEffect(() => {
     getMarketIndicesAction({})
       .then((res) => {
-        if (res && res.length > 0) setMarketIndices(res);
+        if (res && res.length > 0) {
+          setMarketIndices(res);
+        } else {
+          fetchLiveMarketIndices()
+            .then((direct) => {
+              if (direct && direct.length > 0) setMarketIndices(direct);
+            })
+            .catch(() => { });
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        fetchLiveMarketIndices()
+          .then((direct) => {
+            if (direct && direct.length > 0) setMarketIndices(direct);
+          })
+          .catch(() => { });
+      });
 
     // Automatically ensure commodity assets in database are properly categorized
-    autoClassifyCommoditiesMutation().catch(() => {});
-    autoDeduplicateHoldingsMutation().catch(() => {});
+    autoClassifyCommoditiesMutation().catch(() => { });
+    autoDeduplicateHoldingsMutation().catch(() => { });
 
     if (investments.length > 0) {
       handleSyncLiveMarket(true);
@@ -389,7 +424,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
 
           {marketIndices.length === 0 && (
             <div className="text-neutral-400 text-xs font-mono">
-              Connecting to live market indices...
+              Connecting to live market...
             </div>
           )}
         </div>
@@ -402,11 +437,10 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
           )}
           <button
             onClick={() => setIsAutoSyncEnabled(!isAutoSyncEnabled)}
-            className={`px-2 py-0.5 text-[10px] font-black uppercase border transition-all cursor-pointer ${
-              isAutoSyncEnabled
+            className={`px-2 py-0.5 text-[10px] font-black uppercase border transition-all cursor-pointer ${isAutoSyncEnabled
                 ? 'bg-[#05DF72] text-[#121212] border-[#05DF72]'
                 : 'bg-neutral-800 text-neutral-400 border-neutral-700'
-            }`}
+              }`}
             title="Toggle real-time auto sync every 45 seconds"
           >
             Auto: {isAutoSyncEnabled ? 'ON (45s)' : 'OFF'}
@@ -454,9 +488,8 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
               {isPositiveReturns ? '+' : ''}
               {isPrivacyMode ? '••••' : formatPrivateAmount(totalReturns, currencySymbol)}
             </span>
-            <span className={`text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.5 border border-[#121212] shrink-0 ${
-              isPositiveReturns ? 'bg-[#05DF72] text-[#121212]' : 'bg-[#FF4343] text-white'
-            }`}>
+            <span className={`text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.5 border border-[#121212] shrink-0 ${isPositiveReturns ? 'bg-[#05DF72] text-[#121212]' : 'bg-[#FF4343] text-white'
+              }`}>
               {isPositiveReturns ? '+' : ''}{portfolioGainPercent}%
             </span>
           </div>
@@ -568,19 +601,17 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
               <button
                 key={tab.value}
                 onClick={() => setSelectedFilter(tab.value)}
-                className={`px-3 py-1.5 text-[11px] font-black uppercase border transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${
-                  selectedFilter === tab.value
+                className={`px-3 py-1.5 text-[11px] font-black uppercase border transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${selectedFilter === tab.value
                     ? 'bg-[#121212] text-white border-[#121212] shadow-neo-sm'
                     : 'bg-white text-neutral-700 border-neutral-300 hover:border-[#121212]'
-                }`}
+                  }`}
               >
                 <span>{tab.label}</span>
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                    selectedFilter === tab.value
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${selectedFilter === tab.value
                       ? 'bg-[#FFE600] text-[#121212]'
                       : 'bg-neutral-100 text-neutral-600'
-                  }`}
+                    }`}
                 >
                   {count}
                 </span>

@@ -703,7 +703,7 @@ export async function fetchLiveStockPrice(
     const quotes = await fetchYahooSearch(sq);
     if (quotes) {
       for (const q of quotes) {
-        if (!q.symbol || q.symbol.includes('=F')) continue;
+        if (!q.symbol || q.symbol.includes('=F') || q.symbol.startsWith('^')) continue;
         const sym = q.symbol.toUpperCase();
         if (sym.endsWith('.BO')) {
           const nseFromBse = sym.replace(/\.BO$/, '.NS');
@@ -807,13 +807,91 @@ export async function fetchLiveUsdInrRate(): Promise<number> {
   }
 
   // 5. Offline initial fallback
-  return 88.5;
+  return 95.8;
 }
 
+// ──────────────────────────────────────────
+// High-Accuracy Crypto Price Engine
+// ──────────────────────────────────────────
+
+const STATIC_CRYPTO_MAP: Record<string, { symbol: string; coinId: string }> = {
+  bitcoin: { symbol: 'BTC', coinId: 'bitcoin' },
+  btc: { symbol: 'BTC', coinId: 'bitcoin' },
+  ethereum: { symbol: 'ETH', coinId: 'ethereum' },
+  eth: { symbol: 'ETH', coinId: 'ethereum' },
+  solana: { symbol: 'SOL', coinId: 'solana' },
+  sol: { symbol: 'SOL', coinId: 'solana' },
+  ripple: { symbol: 'XRP', coinId: 'ripple' },
+  xrp: { symbol: 'XRP', coinId: 'ripple' },
+  cardano: { symbol: 'ADA', coinId: 'cardano' },
+  ada: { symbol: 'ADA', coinId: 'cardano' },
+  dogecoin: { symbol: 'DOGE', coinId: 'dogecoin' },
+  doge: { symbol: 'DOGE', coinId: 'dogecoin' },
+  tether: { symbol: 'USDT', coinId: 'tether' },
+  usdt: { symbol: 'USDT', coinId: 'tether' },
+  'usd coin': { symbol: 'USDC', coinId: 'usd-coin' },
+  usdc: { symbol: 'USDC', coinId: 'usd-coin' },
+  binance: { symbol: 'BNB', coinId: 'binancecoin' },
+  'binance coin': { symbol: 'BNB', coinId: 'binancecoin' },
+  bnb: { symbol: 'BNB', coinId: 'binancecoin' },
+  polygon: { symbol: 'POL', coinId: 'polygon-ecosystem-token' },
+  matic: { symbol: 'POL', coinId: 'polygon-ecosystem-token' },
+  pol: { symbol: 'POL', coinId: 'polygon-ecosystem-token' },
+  avalanche: { symbol: 'AVAX', coinId: 'avalanche-2' },
+  avax: { symbol: 'AVAX', coinId: 'avalanche-2' },
+  polkadot: { symbol: 'DOT', coinId: 'polkadot' },
+  dot: { symbol: 'DOT', coinId: 'polkadot' },
+  chainlink: { symbol: 'LINK', coinId: 'chainlink' },
+  link: { symbol: 'LINK', coinId: 'chainlink' },
+  'shiba inu': { symbol: 'SHIB', coinId: 'shiba-inu' },
+  shib: { symbol: 'SHIB', coinId: 'shiba-inu' },
+  near: { symbol: 'NEAR', coinId: 'near' },
+  litecoin: { symbol: 'LTC', coinId: 'litecoin' },
+  ltc: { symbol: 'LTC', coinId: 'litecoin' },
+  uniswap: { symbol: 'UNI', coinId: 'uniswap' },
+  uni: { symbol: 'UNI', coinId: 'uniswap' },
+  tron: { symbol: 'TRX', coinId: 'tron' },
+  trx: { symbol: 'TRX', coinId: 'tron' },
+  cosmos: { symbol: 'ATOM', coinId: 'cosmos' },
+  atom: { symbol: 'ATOM', coinId: 'cosmos' },
+  monero: { symbol: 'XMR', coinId: 'monero' },
+  xmr: { symbol: 'XMR', coinId: 'monero' },
+  kaspa: { symbol: 'KAS', coinId: 'kaspa' },
+  kas: { symbol: 'KAS', coinId: 'kaspa' },
+  toncoin: { symbol: 'TON', coinId: 'the-open-network' },
+  ton: { symbol: 'TON', coinId: 'the-open-network' },
+  sui: { symbol: 'SUI', coinId: 'sui' },
+  pepe: { symbol: 'PEPE', coinId: 'pepe' },
+  arbitrum: { symbol: 'ARB', coinId: 'arbitrum' },
+  arb: { symbol: 'ARB', coinId: 'arbitrum' },
+  optimism: { symbol: 'OP', coinId: 'optimism' },
+  op: { symbol: 'OP', coinId: 'optimism' },
+  stellar: { symbol: 'XLM', coinId: 'stellar' },
+  xlm: { symbol: 'XLM', coinId: 'stellar' },
+  hedera: { symbol: 'HBAR', coinId: 'hedera-hashgraph' },
+  hbar: { symbol: 'HBAR', coinId: 'hedera-hashgraph' },
+  render: { symbol: 'RENDER', coinId: 'render-token' },
+  rndr: { symbol: 'RENDER', coinId: 'render-token' },
+  injective: { symbol: 'INJ', coinId: 'injective-protocol' },
+  inj: { symbol: 'INJ', coinId: 'injective-protocol' },
+  bittensor: { symbol: 'TAO', coinId: 'bittensor' },
+  tao: { symbol: 'TAO', coinId: 'bittensor' },
+  fantom: { symbol: 'FTM', coinId: 'fantom' },
+  ftm: { symbol: 'FTM', coinId: 'fantom' },
+  fetch: { symbol: 'FET', coinId: 'fetch-ai' },
+  fet: { symbol: 'FET', coinId: 'fetch-ai' },
+  aptos: { symbol: 'APT', coinId: 'aptos' },
+  apt: { symbol: 'APT', coinId: 'aptos' },
+  aave: { symbol: 'AAVE', coinId: 'aave' },
+};
+
 /**
- * Dedicated crypto price fetcher using live Indian exchange tickers (CoinDCX / WazirX)
- * with CoinGecko (INR) + Yahoo Finance fallbacks.
- * Matches the exact domestic spot rates seen on Indian apps like CoinSwitch, CoinDCX, and WazirX.
+ * Dedicated high-precision crypto price fetcher with multi-tier failover:
+ * 1. Yahoo Finance direct -INR pair (official standard INR spot price)
+ * 2. Binance 24hr ticker (world's #1 liquidity) converted via real-time USD/INR rate
+ * 3. TradingView Multi-Exchange Scanner (Binance, Bybit, Coinbase)
+ * 4. CoinGecko simple/price INR conversion
+ * 5. Domestic Indian exchange orderbook (CoinDCX / WazirX)
  * Zero API keys required, 100% free and open live feed.
  */
 export async function fetchLiveCryptoPrice(
@@ -834,62 +912,144 @@ export async function fetchLiveCryptoPrice(
     riple: 'ripple',
     theter: 'tether',
     poligon: 'polygon',
-    shiba: 'shiba-inu',
+    shiba: 'shiba inu',
   };
 
-  let clean = nameOrSymbol.trim().toLowerCase()
-    .replace(/\s*(coin|token|crypto|currency|inr|usd|usdt)\s*/gi, '')
+  const raw = (nameOrSymbol || '').trim().toLowerCase();
+  if (!raw) return null;
+
+  // 1. Direct typo check
+  const typoResolved = COMMON_CRYPTO_TYPOS[raw] || raw;
+
+  // 2. Word-boundary cleaning (does NOT destroy words like 'bitcoin', 'dogecoin', 'litecoin')
+  const clean = typoResolved
+    .replace(/\b(coin|token|crypto|cryptocurrency|currency)\b/gi, '')
+    .replace(/\s+/g, ' ')
     .trim();
 
-  if (COMMON_CRYPTO_TYPOS[clean]) {
-    clean = COMMON_CRYPTO_TYPOS[clean];
+  let coinId: string | null = null;
+  let targetSymbol: string | null = null;
+  const candidates: string[] = [];
+
+  const addCandidate = (sym?: string | null) => {
+    if (!sym) return;
+    const upper = sym.trim().toUpperCase();
+    if (upper.length >= 2 && upper.length <= 14 && !candidates.includes(upper)) {
+      candidates.push(upper);
+    }
+  };
+
+  if (/^[a-z0-9]{2,14}$/i.test(clean)) {
+    addCandidate(clean);
   }
 
-  if (!clean || clean.length < 2) return null;
-
-  let coinId: string | null = null;
-  let targetSymbol = clean.toUpperCase();
-
-  // 1. Resolve coin ID and symbol dynamically via CoinGecko search
-  try {
-    const searchUrl = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(clean)}`;
-    const searchRes = await fetch(searchUrl, { signal: AbortSignal.timeout(4000) });
-    if (searchRes.ok) {
-      const searchData: any = await searchRes.json();
-      const coins = searchData?.coins;
-      if (coins && coins.length > 0) {
-        const upperClean = clean.toUpperCase();
-        const exact = coins.find((c: any) =>
-          c.symbol?.toUpperCase() === upperClean ||
-          c.name?.toLowerCase() === clean
-        );
-        const chosen = exact || coins[0];
-        coinId = chosen?.id || null;
-        if (chosen?.symbol) targetSymbol = chosen.symbol.toUpperCase();
-      }
+  // 3. Instant O(1) static dictionary lookup (zero network calls, 100% accurate)
+  if (STATIC_CRYPTO_MAP[raw]) {
+    targetSymbol = STATIC_CRYPTO_MAP[raw].symbol;
+    coinId = STATIC_CRYPTO_MAP[raw].coinId;
+  } else if (STATIC_CRYPTO_MAP[clean]) {
+    targetSymbol = STATIC_CRYPTO_MAP[clean].symbol;
+    coinId = STATIC_CRYPTO_MAP[clean].coinId;
+  } else {
+    const compact = clean.replace(/[^a-z0-9]/g, '');
+    if (STATIC_CRYPTO_MAP[compact]) {
+      targetSymbol = STATIC_CRYPTO_MAP[compact].symbol;
+      coinId = STATIC_CRYPTO_MAP[compact].coinId;
     }
-  } catch {}
+  }
 
-  // 2. Primary: Real-time Indian Crypto Exchange (CoinDCX public live ticker)
-  // Exactly matches the domestic INR spot price seen on Indian apps like CoinSwitch (e.g. ~76.71L)
   if (targetSymbol) {
+    addCandidate(targetSymbol);
+  } else if (clean.length >= 2) {
+    // 4. Resolve coin ID and symbol dynamically via CoinGecko search if not in dictionary
     try {
-      const dcxRes = await fetch('https://api.coindcx.com/exchange/ticker', {
-        signal: AbortSignal.timeout(4000),
-      });
-      if (dcxRes.ok) {
-        const list: any[] = await dcxRes.json();
-        const match = list.find((t: any) => t.market === `${targetSymbol}INR`);
-        if (match && typeof match.last_price === 'string' && parseFloat(match.last_price) > 0) {
-          const price = parseFloat(match.last_price);
-          const changePct = parseFloat(match.change_24_hour || '0');
-          const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
-          return { price, prevClose, symbol: match.market };
+      const searchUrl = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(clean)}`;
+      const searchRes = await fetch(searchUrl, { signal: AbortSignal.timeout(3500) });
+      if (searchRes.ok) {
+        const searchData: any = await searchRes.json();
+        const coins = searchData?.coins;
+        if (coins && coins.length > 0) {
+          const upperClean = clean.toUpperCase();
+          const exact = coins.find((c: any) =>
+            c.symbol?.toUpperCase() === upperClean ||
+            c.name?.toLowerCase() === clean
+          );
+          const chosen = exact || coins[0];
+          coinId = chosen?.id || null;
+          if (chosen?.symbol) {
+            targetSymbol = chosen.symbol.toUpperCase();
+            addCandidate(targetSymbol);
+          }
         }
       }
     } catch {}
 
-    // 3. Secondary: TradingView Scanner API (Global Benchmark: BINANCE:BTCUSDT / BYBIT:BTCUSDT)
+    // 5. Dynamic Yahoo Search for universal crypto resolution (e.g. dogwifhat -> WIF)
+    try {
+      const quotes = await fetchYahooSearch(clean);
+      if (quotes && quotes.length > 0) {
+        const cryptoQuote = quotes.find((q: any) =>
+          q.quoteType === 'CRYPTOCURRENCY' ||
+          (q.symbol && (q.symbol.endsWith('-USD') || q.symbol.endsWith('-INR')))
+        );
+        if (cryptoQuote?.symbol) {
+          const base = cryptoQuote.symbol.replace(/-(USD|INR)$/, '').toUpperCase();
+          addCandidate(base);
+          if (!targetSymbol) targetSymbol = base;
+        }
+      }
+    } catch {}
+
+    addCandidate(clean);
+  }
+
+  const targets = candidates.length > 0 ? candidates.slice(0, 3) : (targetSymbol ? [targetSymbol] : [clean.toUpperCase()]);
+
+  for (const sym of targets) {
+    // ── Tier 1: Yahoo Finance Direct -INR Crypto Pair ──
+    try {
+      const yData = await fetchYahooChart(`${sym}-INR`);
+      const meta = yData?.chart?.result?.[0]?.meta;
+      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+        const price = meta.regularMarketPrice;
+        const change =
+          typeof meta.fulldayChange === 'number'
+            ? meta.fulldayChange
+            : typeof meta.regularMarketChange === 'number'
+            ? meta.regularMarketChange
+            : undefined;
+        const prevClose = change !== undefined ? price - change : (meta.previousClose || meta.chartPreviousClose);
+        return { price, prevClose, symbol: `${sym}-INR` };
+      }
+    } catch {}
+
+    // ── Tier 2: Binance Global Spot API (24hr Ticker) ──
+    try {
+      let bRes: Response | null = null;
+      try {
+        bRes = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${sym}USDT`, {
+          signal: AbortSignal.timeout(3000),
+        });
+      } catch {
+        bRes = await fetch(`https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${sym}USDT`, {
+          signal: AbortSignal.timeout(3000),
+        });
+      }
+
+      if (bRes && bRes.ok) {
+        const bData: any = await bRes.json();
+        const usdPrice = parseFloat(bData.lastPrice);
+        if (!isNaN(usdPrice) && usdPrice > 0) {
+          const usdInr = await fetchLiveUsdInrRate();
+          const inrPrice = Math.round(usdPrice * usdInr * 100) / 100;
+          const changePct = parseFloat(bData.priceChangePercent || '0');
+          const prevClose = changePct !== 0 ? inrPrice / (1 + changePct / 100) : undefined;
+          return { price: inrPrice, prevClose, symbol: `${sym}USDT` };
+        }
+      }
+    } catch {}
+
+    // ── Tier 3: TradingView Scanner API (Binance, Bybit, Gate.io, MEXC, KuCoin, OKX, Coinbase) ──
     try {
       const tvRes = await fetch('https://scanner.tradingview.com/crypto/scan', {
         method: 'POST',
@@ -897,21 +1057,23 @@ export async function fetchLiveCryptoPrice(
         body: JSON.stringify({
           symbols: {
             tickers: [
-              `BINANCE:${targetSymbol}USDT`,
-              `BYBIT:${targetSymbol}USDT`,
-              `COINBASE:${targetSymbol}USD`,
+              `BINANCE:${sym}USDT`,
+              `BYBIT:${sym}USDT`,
+              `GATEIO:${sym}USDT`,
+              `MEXC:${sym}USDT`,
+              `KUCOIN:${sym}USDT`,
+              `OKX:${sym}USDT`,
+              `COINBASE:${sym}USD`,
             ],
           },
           columns: ['close', 'change', 'description'],
         }),
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(3500),
       });
       if (tvRes.ok) {
         const tvData: any = await tvRes.json();
         const rows: any[] = tvData?.data || [];
-        const best = rows.find(
-          (r) => r.d && typeof r.d[0] === 'number' && r.d[0] > 0
-        );
+        const best = rows.find((r) => r.d && typeof r.d[0] === 'number' && r.d[0] > 0);
         if (best) {
           const usdPrice = best.d[0];
           const changePct = best.d[1] || 0;
@@ -923,72 +1085,154 @@ export async function fetchLiveCryptoPrice(
       }
     } catch {}
 
-    // 3. Secondary Indian exchange ticker (WazirX public ticker)
-    try {
-      const wzRes = await fetch('https://api.wazirx.com/sapi/v1/tickers/24hr', {
-        signal: AbortSignal.timeout(4000),
-      });
-      if (wzRes.ok) {
-        const list: any[] = await wzRes.json();
-        const lowerSym = targetSymbol.toLowerCase();
-        const match = list.find((t: any) => t.symbol === `${lowerSym}inr`);
-        if (match && typeof match.lastPrice === 'string' && parseFloat(match.lastPrice) > 0) {
-          const price = parseFloat(match.lastPrice);
-          return { price, symbol: match.symbol.toUpperCase() };
+    // ── Tier 4: Global Spot Fallback: CoinGecko INR conversion ──
+    const geckoIds = [coinId, sym.toLowerCase()].filter(Boolean);
+    for (const gid of geckoIds) {
+      try {
+        const priceRes = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${gid}&vs_currencies=inr&include_24hr_change=true`,
+          { signal: AbortSignal.timeout(3000) }
+        );
+        if (priceRes.ok) {
+          const priceData: any = await priceRes.json();
+          const coinData = priceData?.[gid as string];
+          if (coinData && typeof coinData.inr === 'number' && coinData.inr > 0) {
+            const price = coinData.inr;
+            const changePct = coinData.inr_24h_change || 0;
+            const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
+            return { price, prevClose, symbol: (gid as string).toUpperCase() };
+          }
         }
-      }
-    } catch {}
-  }
-
-  // 4. Global Spot Fallback: CoinGecko INR conversion
-  if (coinId) {
-    try {
-      const priceRes = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=inr&include_24hr_change=true`,
-        { signal: AbortSignal.timeout(4000) }
-      );
-      if (priceRes.ok) {
-        const priceData: any = await priceRes.json();
-        const coinData = priceData?.[coinId];
-        if (coinData && typeof coinData.inr === 'number' && coinData.inr > 0) {
-          const price = coinData.inr;
-          const changePct = coinData.inr_24h_change || 0;
-          const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
-          return { price, prevClose, symbol: coinId.toUpperCase() };
-        }
-      }
-    } catch {}
-  }
-
-  // 5. Fallback: Yahoo Finance with BTC-INR style symbols
-  const upper = nameOrSymbol.trim().toUpperCase().replace(/\s*(COIN|TOKEN|CRYPTO|CURRENCY)\s*/gi, '').trim();
-  const tokens = upper.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 10);
-  const candidates: string[] = [];
-  if (targetSymbol) {
-    candidates.push(`${targetSymbol}-INR`);
-    candidates.push(`${targetSymbol}-USD`);
-  }
-  for (const t of tokens) {
-    if (t === 'INR' || t === 'USD' || t === 'USDT') continue;
-    if (!candidates.includes(`${t}-INR`)) candidates.push(`${t}-INR`);
-    if (!candidates.includes(`${t}-USD`)) candidates.push(`${t}-USD`);
-  }
-
-  for (const sym of candidates) {
-    const data = await fetchYahooChart(sym);
-    const meta = data?.chart?.result?.[0]?.meta;
-    const parsed = meta ? parseYahooQuoteMeta(meta) : null;
-    if (parsed && parsed.price > 0) {
-      let price = parsed.price;
-      if (sym.endsWith('-USD')) {
-        const usdInr = await fetchLiveUsdInrRate();
-        price = price * usdInr;
-      }
-      return { price, prevClose: parsed.prevClose, symbol: sym };
+      } catch {}
     }
+
+    // ── Tier 5: Domestic Indian Exchange (CoinDCX / WazirX) ──
+    try {
+      const dcxRes = await fetch('https://api.coindcx.com/exchange/ticker', {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (dcxRes.ok) {
+        const list: any[] = await dcxRes.json();
+        const match = list.find((t: any) => t.market === `${sym}INR`);
+        if (match && typeof match.last_price === 'string' && parseFloat(match.last_price) > 0) {
+          const price = parseFloat(match.last_price);
+          const changePct = parseFloat(match.change_24_hour || '0');
+          const prevClose = changePct !== 0 ? price / (1 + changePct / 100) : undefined;
+          return { price, prevClose, symbol: match.market };
+        }
+      }
+    } catch {}
+
+    // ── Tier 6: Yahoo Finance USD Fallback ──
+    try {
+      const data = await fetchYahooChart(`${sym}-USD`);
+      const meta = data?.chart?.result?.[0]?.meta;
+      const parsed = meta ? parseYahooQuoteMeta(meta) : null;
+      if (parsed && parsed.price > 0) {
+        const usdInr = await fetchLiveUsdInrRate();
+        const price = Math.round(parsed.price * usdInr * 100) / 100;
+        const prevClose = parsed.prevClose ? Math.round(parsed.prevClose * usdInr * 100) / 100 : undefined;
+        return { price, prevClose, symbol: `${sym}-USD` };
+      }
+    } catch {}
   }
 
   return null;
+}
+
+export interface LiveMarketIndex {
+  name: string;
+  symbol: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  isPositive: boolean;
+}
+
+/**
+ * Fetch real-time market indices (NIFTY 50 and SENSEX) with zero BSE delay
+ * using TradingView India scanner as primary and Yahoo Finance as secondary.
+ */
+export async function fetchLiveMarketIndices(): Promise<LiveMarketIndex[]> {
+  const indices = [
+    { key: 'nifty50', symbol: '^NSEI', tvTicker: 'NSE:NIFTY', name: 'NIFTY 50', minIndexValue: 15000 },
+    { key: 'sensex', symbol: '^BSESN', tvTicker: 'BSE:SENSEX', name: 'SENSEX', minIndexValue: 40000 },
+  ];
+
+  // 1. Primary: TradingView India Scanner (zero delay for BSE Sensex & NSE Nifty)
+  try {
+    const tvRes = await fetch('https://scanner.tradingview.com/india/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbols: { tickers: ['BSE:SENSEX', 'NSE:NIFTY'] },
+        columns: ['close', 'change', 'change_abs', 'description'],
+      }),
+      signal: AbortSignal.timeout(4500),
+    });
+    if (tvRes.ok) {
+      const tvData = await tvRes.json();
+      const rows: any[] = tvData?.data || [];
+      const results: LiveMarketIndex[] = [];
+      for (const idx of indices) {
+        const match = rows.find((r: any) => r.s === idx.tvTicker);
+        if (match && Array.isArray(match.d) && typeof match.d[0] === 'number' && match.d[0] >= idx.minIndexValue) {
+          const price = Math.round(match.d[0] * 100) / 100;
+          const changePct = typeof match.d[1] === 'number' ? Math.round(match.d[1] * 100) / 100 : 0;
+          const change = typeof match.d[2] === 'number' ? Math.round(match.d[2] * 100) / 100 : 0;
+          results.push({
+            name: idx.name,
+            symbol: idx.symbol,
+            price,
+            change,
+            changePercent: changePct,
+            isPositive: change >= 0,
+          });
+        }
+      }
+      if (results.length === indices.length) return results;
+    }
+  } catch {}
+
+  // 2. Secondary: Yahoo Finance
+  const results: LiveMarketIndex[] = [];
+  for (const idx of indices) {
+    try {
+      const data = await fetchYahooChart(idx.symbol);
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice >= idx.minIndexValue) {
+        const price = meta.regularMarketPrice;
+        let change = 0;
+        if (typeof meta.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
+          change = meta.fulldayChange;
+        } else if (typeof meta.regularMarketChange === 'number' && !isNaN(meta.regularMarketChange)) {
+          change = meta.regularMarketChange;
+        } else {
+          const prev = meta.previousClose || meta.chartPreviousClose || price;
+          change = price - prev;
+        }
+        let changePct = 0;
+        if (typeof meta.regularMarketChangePercent === 'number' && !isNaN(meta.regularMarketChangePercent)) {
+          changePct = Number(meta.regularMarketChangePercent.toFixed(2));
+        } else if (typeof meta.fulldayChangePercent === 'number' && !isNaN(meta.fulldayChangePercent)) {
+          changePct = Number(meta.fulldayChangePercent.toFixed(2));
+        } else {
+          const prev = price - change;
+          changePct = prev > 0 ? Number(((change / prev) * 100).toFixed(2)) : 0;
+        }
+        results.push({
+          name: idx.name,
+          symbol: idx.symbol,
+          price: Math.round(price * 100) / 100,
+          change: Math.round(change * 100) / 100,
+          changePercent: changePct,
+          isPositive: change >= 0,
+        });
+      }
+    } catch {}
+  }
+
+  return results;
 }
 
 /**

@@ -177,7 +177,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   livePriceRef.current = livePrice;
 
   // ── Live price auto-fetch (debounced) ──
-  const doFetchLivePrice = useCallback(async (assetName: string, type: AssetType, id: number) => {
+  const doFetchLivePrice = useCallback(async (assetName: string, type: AssetType, id: number, customNotes?: string) => {
     if (!assetName || assetName.trim().length < 2) {
       setLivePrice(null);
       setLivePriceSymbol('');
@@ -196,14 +196,15 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
 
     try {
       let result: { price: number; prevClose?: number; symbol?: string } | null = null;
+      const lookupNotes = customNotes !== undefined ? customNotes : notes;
 
       if (type === 'mutual_fund') {
-        const mf = await fetchAmfiNav(assetName, notes);
+        const mf = await fetchAmfiNav(assetName, lookupNotes);
         if (mf && mf.nav > 0) {
           result = { price: mf.nav, symbol: mf.schemeName };
         } else {
           try {
-            const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes });
+            const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes: lookupNotes });
             if (serverRes && serverRes.price > 0) result = serverRes;
           } catch { }
         }
@@ -217,12 +218,12 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         }
       } else {
         try {
-          const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes });
+          const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes: lookupNotes });
           if (serverRes && serverRes.price > 0) result = serverRes;
         } catch { }
 
         if (!result || result.price <= 0) {
-          result = await fetchLiveStockPrice(assetName, notes);
+          result = await fetchLiveStockPrice(assetName, lookupNotes);
         }
       }
 
@@ -276,7 +277,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     if (name.trim().length >= 2) {
       fetchTimeoutRef.current = setTimeout(() => {
         const id = ++fetchIdRef.current;
-        doFetchLivePrice(name, assetType, id);
+        doFetchLivePrice(name, assetType, id, matchedHolding?.notes);
       }, 350);
     } else {
       fetchIdRef.current++;
@@ -288,7 +289,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     return () => {
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
     };
-  }, [name, assetType, doFetchLivePrice]);
+  }, [name, assetType, matchedHolding?.notes, doFetchLivePrice]);
 
   // ── Dynamic cross-calculation handlers ──
   const handleInvestedAmountChange = (val: string) => {
@@ -566,7 +567,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                 <span>•</span>
                 <span>Basis: <strong>{currencySymbol}{matchedHolding.investedAmount.toLocaleString('en-IN')}</strong></span>
                 <span>•</span>
-                <span>NAV: <strong>{currencySymbol}{effectiveNavForTopUp.toFixed(4)}</strong></span>
+                <span>{matchedHolding.assetType === 'mutual_fund' ? 'NAV' : 'CP'}: <strong>{currencySymbol}{effectiveNavForTopUp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: matchedHolding.assetType === 'mutual_fund' ? 4 : 2 })}</strong></span>
               </div>
             </div>
 
@@ -634,7 +635,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                 onChange={(e) => {
                   const newName = e.target.value;
                   setName(newName);
-                  if (!initialData && newName.trim().length >= 3) {
+                  if (!initialData && newName.trim().length >= 2) {
                     const detected = detectDetailedAssetType(newName);
                     if (detected.assetType && detected.assetType !== 'other') {
                       setAssetType(detected.assetType);
@@ -647,9 +648,41 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                     }
                   }
                 }}
-                placeholder="e.g. Enter fund name, stock ticker, or asset..."
+                placeholder="e.g. Search fund name, stock ticker, crypto, or asset..."
                 required
               />
+
+              {/* Quick suggestions from existing invested portfolio (if user searches an instrument they already own) */}
+              {!initialData && name.trim().length >= 2 && !matchedHolding && (
+                (() => {
+                  const q = name.toLowerCase().trim();
+                  const suggestions = existingInvestments.filter(
+                    (inv) => inv.name.toLowerCase().includes(q) && inv._id !== dismissedMatchId
+                  ).slice(0, 3);
+                  if (suggestions.length === 0) return null;
+                  return (
+                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5 animate-in fade-in">
+                      <span className="text-[10px] font-bold text-neutral-500 uppercase">Existing Holding:</span>
+                      {suggestions.map((s) => (
+                        <button
+                          key={s._id}
+                          type="button"
+                          onClick={() => {
+                            setName(s.name);
+                            setAssetType(s.assetType);
+                            setMatchedHolding(s);
+                            if (s.notes) setNotes(s.notes);
+                          }}
+                          className="px-2 py-0.5 bg-neutral-100 hover:bg-[#FFE600] text-neutral-800 text-[10px] font-bold border border-neutral-300 transition-all cursor-pointer truncate max-w-[220px]"
+                          title={`Select ${s.name}`}
+                        >
+                          {s.name} ({s.assetType === 'mutual_fund' ? 'NAV' : 'CP'}: {currencySymbol}{(s.currentPrice || (s.units && s.units > 0 ? s.currentValue / s.units : s.currentValue)).toLocaleString('en-IN', { maximumFractionDigits: 2 })})
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()
+              )}
 
               {/* Matching Existing Holding Banner in Normal Mode */}
               {matchedHolding && !initialData && dismissedMatchId !== matchedHolding._id && (
@@ -737,7 +770,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                     />
                     <Zap size={13} style={{ color: '#05DF72' }} />
                     <span style={{ color: '#121212' }}>
-                      LIVE: {currencySymbol}{livePrice.toLocaleString('en-IN', { maximumFractionDigits: 4 })}
+                      LIVE {assetType === 'mutual_fund' ? 'NAV' : 'CP'}: {currencySymbol}{livePrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: assetType === 'mutual_fund' ? 4 : 2 })}
                     </span>
                     {livePriceSymbol && (
                       <span style={{ color: '#888', fontWeight: 600, fontSize: 10 }}>
@@ -839,7 +872,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] font-black uppercase text-neutral-600 flex items-center justify-between">
                   <span className="flex items-center gap-1">
-                    Live Price / NAV ({currencySymbol})
+                    {assetType === 'mutual_fund' ? 'Live NAV' : 'Live CP'} ({currencySymbol})
                     {livePrice && (
                       <span
                         style={{
@@ -858,7 +891,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                   min="0"
                   value={currentPrice}
                   onChange={(e) => handleCurrentPriceChange(e.target.value)}
-                  placeholder={isFetchingPrice ? 'Fetching...' : 'Click to edit NAV'}
+                  placeholder={isFetchingPrice ? 'Fetching...' : assetType === 'mutual_fund' ? 'Click to edit NAV' : 'Click to edit CP'}
                   className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
                   style={{ color: livePrice ? '#05DF72' : undefined }}
                 />
