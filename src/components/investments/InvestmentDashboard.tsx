@@ -18,9 +18,7 @@ import {
   Edit,
   Trash2,
   Calendar,
-  Sparkles,
   PieChart,
-  DollarSign,
   ArrowUpRight,
   ArrowDownLeft,
   CheckCircle2,
@@ -462,7 +460,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
         <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
           <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
-            <DollarSign size={12} /> VALUE
+            <span className="text-xs font-black">{currencySymbol}</span> VALUE
           </span>
           <span className="text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
             {isPrivacyMode ? '••••••' : formatPrivateAmount(totalCurrentValue, currencySymbol)}
@@ -482,7 +480,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
 
         <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
           <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
-            <Sparkles size={12} /> RETURNS
+            {isPositiveReturns ? <TrendingUp size={12} className="text-[#05DF72]" /> : <TrendingDown size={12} className="text-[#FF4343]" />} RETURNS
           </span>
           <div className="flex items-baseline gap-1 sm:gap-2 flex-wrap">
             <span className={`text-lg sm:text-2xl font-mono font-black truncate ${isPositiveReturns ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
