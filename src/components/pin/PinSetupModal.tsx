@@ -84,8 +84,7 @@ const PinLengthSlider: React.FC<PinLengthSliderProps> = ({ value, onChange, disa
         );
       })}
 
-      {/* Center rule */}
-      <span className="absolute inset-y-0 left-1/2 w-0.5 bg-[#121212] z-20" />
+
     </div>
   );
 };
