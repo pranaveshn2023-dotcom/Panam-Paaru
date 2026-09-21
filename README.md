@@ -26,7 +26,9 @@ Panam Paaru ("Look at Your Money") is a real-time personal finance and portfolio
 | **Initial Setup** | Populated with mock data and arbitrary assumptions | Zero-balance initialization using verified user inputs |
 | **Branding & Tagline** | Cluttered descriptions with redundant slogans | Clean **Panam Paaru** — *"See your money, control your spending"* |
 | **Market Data Caching** | Direct client-side calls or un-cached API flooding | Server-side Convex DB caches (`stockPriceCache` & `mfNavCache`) |
-| **Trading Hours Logic** | Naive continuous polling 24/7 or manual refresh | Indian Market Hours engine (35s live ticks; 0 calls off-hours/holidays) |
+| **Index Benchmarks** | Delayed 15-min third-party quotes or unverified feeds | Official BSE (`m.bseindia.com`) & NSE direct feeds with multi-tier fallback |
+| **Trading Hours Logic** | Naive continuous polling 24/7 or manual refresh | Indian Market Hours engine (45s live ticks; 0 calls off-hours/holidays) |
+| **Market-Close Settle** | Single arbitrary snapshot or manual daily checking | 3-stage smart settle pipeline (3:15, 3:25, 3:30 PM IST) with match skipping |
 | **Mutual Fund NAVs** | Stale end-of-day checks or static entries | Nightly AMC release sync window (9 PM - 12 AM IST) with automated crons |
 | **Data Persistence** | Client-side local storage prone to browser cache wipes | Transactional Convex cloud database with instant reactive subscriptions |
 | **Offline Resilience** | Fragile offline sync prone to conflicting writes | Cloud-authoritative with proactive `NoInternetScreen` connectivity guard |
@@ -42,19 +44,33 @@ Panam Paaru ("Look at Your Money") is a real-time personal finance and portfolio
 The user interface is segmented into four primary operational domains:
 - **Overview**: High-level financial telemetry, net worth aggregates, asset allocation breakdowns, recent ledger activity, and rapid action triggers (Income, Expense, Transfer).
 - **Cashflow**: Daily financial operations containing the transaction ledger, multi-account manager, recurring budget allocations, and categorical spend analysis.
-- **Investments**: Multi-asset portfolio management, profit/loss attribution, allocation distribution metrics, live index benchmarks (NIFTY 50 / SENSEX), and real-time market status badges.
+- **Investments**: Multi-asset portfolio management, profit/loss attribution, allocation distribution metrics, live official index benchmarks (NIFTY 50 / SENSEX), and real-time market status badges.
 - **Settings & Security**: 6-digit PIN management, auto-lock timeout configuration, display currency formatting, and real-time Convex cloud connection status.
 
-### 2. Market Timing & Caching Engine
+### 2. Market Timing, Direct Exchange Feeds & Caching Engine
+
+#### Official Direct Exchange Integration (BSE & NSE)
+- **BSE SENSEX Official Feed**: Directly ingested from the Bombay Stock Exchange mobile gateway (`https://m.bseindia.com/`), extracting the authentic post-auction settled closing figure and real-time Last Traded Price (LTP). Eliminates the common 15-minute delay found on generic aggregators.
+- **NSE NIFTY 50 Feed**: Ingested directly from official National Stock Exchange feeds and verified chart endpoints, guaranteeing exact alignment with national trading terminals.
+- **Multi-Tier Resilient Fallback**: In the rare event an official exchange portal experiences network latency, requests seamlessly cascade to secondary chart endpoints without service interruption or UI freezes.
+- **Zero Hardcoding Guarantee**: No index prices or holding values are ever hardcoded; all data is dynamically fetched and verified against live exchange calculations.
+
+#### Automated 3-Stage Market Ending Settlement Pipeline
+To ensure portfolio valuations and index benchmarks permanently reflect official post-market closing prices without requiring any manual intervention:
+- **Stage 1 — Initial Capture at 3:15 PM IST** (`45 9 * * 1-5` UTC): Captures the initial market-ending quote across all active holdings and benchmark indices, storing them in `stockPriceCache`.
+- **Stage 2 — Settlement Verification at 3:25 PM IST** (`55 9 * * 1-5` UTC): Compares current live exchange quotes with the stored 3:15 PM values:
+  - *If values match*: Marks the day's session as `SETTLED_MATCHED` and **stops/skips the 3:30 PM cron call**, eliminating redundant cloud executions.
+  - *If prices shifted* (closing auction adjustments): Refreshes the cache DB with the latest auction prices and schedules Stage 3 to finalize.
+- **Stage 3 — Final Close Freeze at 3:30 PM IST** (`0 10 * * 1-5` UTC): Only executes if Stage 2 detected movement; permanently locks the final closing prices until the opening bell at 09:15 AM the next trading day.
 
 #### Indian Stock Market (NSE/BSE) Hours Intelligence
 - **Trading Window**: Evaluates current Indian Standard Time (IST, UTC+5:30) against official market hours: Monday through Friday, 09:15 AM to 03:30 PM IST.
 - **Holiday Calendar**: Integrated with official NSE/BSE trading holidays (Republic Day, Mahashivratri, Holi, Diwali, etc.).
-- **Live 35s Market-Hour Ticks**: During trading hours, the frontend polls on a 35-second heartbeat, matching the server-side cache TTL of 35 seconds.
+- **Live Market-Hour Ticks**: During trading hours, the frontend polls on a dynamic heartbeat, matching the server-side cache TTL of 45 seconds.
 - **Zero Waste Off-Hours Policy**: When the market is closed, on weekends, or on trading holidays, external API fetching is completely halted. Closing prices are served directly from the persistent `stockPriceCache` table.
 - **Dynamic Status Badging**: Displays live visual indicators in the UI:
-  - `NSE/BSE OPEN (35s LIVE)`: Pulsing emerald badge indicating active market hours.
-  - `AMC NAV RELEASE (9PM-12AM IST)`: Amber badge indicating the nightly mutual fund publishing window.
+  - `LIVE MARKET`: Pulsing emerald badge indicating active market hours.
+  - `AMC NAV RELEASE`: Amber badge indicating the nightly mutual fund publishing window.
   - `MARKET CLOSED`: Slate badge indicating frozen closing prices.
 
 #### Nightly AMC Mutual Fund Synchronization
@@ -71,14 +87,14 @@ The user interface is segmented into four primary operational domains:
   - `00:00 IST` (18:30 UTC)
 - **All-User Portfolio Synchronization**: Evaluates all mutual fund schemes held across **every user in the application**, updates `mfNavCache` in-place, and immediately propagates the verified authentic NAV to each user's holdings.
 
-#### High-Efficiency Pricing Architecture
-To keep external API calls minimal and reduce portfolio sync latency:
+#### High-Efficiency Selective Pricing Architecture
+To keep external API calls minimal and eliminate extraneous data fetching:
+- **Selective Instrument Tracking**: Live market quotes and current prices (CP) are strictly fetched **only** for instruments the user actually holds in their portfolio or searches within the "Add Investment" modal.
 - **Database-Backed Caching**: Leverages persistent `stockPriceCache` and `mfNavCache` tables with indexed lookup by ISIN, symbol, and scheme code.
-- **Market Hours Throttling**: Stocks and benchmark indices are throttled to 45 seconds during live market hours (09:15 AM - 03:30 PM IST, Mon-Fri). After market close, a single sync captures official closing prices at 15:40 IST and permanently freezes them until next day 09:15 AM IST (and throughout all weekends and public market holidays, with zero external API calls). Mutual funds are validated against the expected AMFI release date and verified in night batches.
 - **Unique Asset Deduplication & Parallel Sync**: Multiple SIPs or lots of the same scheme/ticker are deduplicated into a single lookup and fetched concurrently in parallel, reducing portfolio sync latency from ~5s down to sub-second.
 
 #### 100% Server-Side Execution
-All external fetching (Yahoo Finance / Google Finance / AMFI portal endpoints), rate-limiting, and candidate scoring execute entirely inside the Convex cloud backend. The client frontend remains clean and decoupled from external scraping mechanisms.
+All external fetching (BSE India / NSE India / AMFI portal endpoints), rate-limiting, and candidate scoring execute entirely inside the Convex cloud backend. The client frontend remains clean and decoupled from external scraping mechanisms.
 
 ### 3. Multi-Account Management (`convex/wallets.ts`)
 Maintains accurate account separation across all asset locations:
@@ -97,9 +113,9 @@ Enforces strict budget limits that adapt to real-world calendar constraints:
 Continuously updates portfolio holding values across asset classes:
 - **Indian Equities**: Live market pricing for NSE and BSE listed equities with intraday day change tracking.
 - **Mutual Funds**: Daily NAV synchronization via the Association of Mutual Funds in India (AMFI) database.
-- **Cryptocurrencies**: Market data tracking for major tokens via CoinGecko feeds.
-- **Bullion**: Valuation tracking for physical gold and Sovereign Gold Bonds (SGB) based on current spot rates.
-- **Market Benchmarks**: Background index polling for NIFTY 50 and BSE SENSEX performance tracking.
+- **Cryptocurrencies**: Dynamic market tracking supporting all coins and tokens via universal CoinGecko search, strictly tracking active user holdings.
+- **Bullion & Commodities**: Spot rate tracking for physical gold, silver, Sovereign Gold Bonds (SGB), and commodity ETFs.
+- **Market Benchmarks**: Background index polling for official NIFTY 50 and BSE SENSEX performance tracking.
 
 ### 6. Universal Statement Ingestion
 Eliminates manual portfolio data entry through client-side parsing:
@@ -200,11 +216,18 @@ The compiled output will be generated in the `dist` directory.
 
 ## Architecture Changelog
 
-### Version 1.2.0 (Current)
+### Version 1.3.0 (Current)
+- **Official Exchange Index Ingestion**: Integrated direct mobile BSE portal (`m.bseindia.com`) for official SENSEX closing settlement prices and direct NSE feeds for NIFTY 50, guaranteeing 100% precision matching national exchange terminals.
+- **3-Stage Market Ending Settlement Pipeline**: Added automated market-close settling crons at 3:15 PM, 3:25 PM, and 3:30 PM IST with match-detection logic that skips redundant calls when prices are already settled.
+- **Selective Portfolio Tracking**: Live prices and NAVs are strictly fetched only for active user holdings and searched instruments, eliminating extraneous data queries.
+- **Universal Crypto Support**: Upgraded crypto search to support all coins and tokens dynamically via CoinGecko without restricted hardcoded lists.
+- **Stale Cache Auto-Purge**: Intelligent detection and replacement of pre-settlement index caches upon market close.
+
+### Version 1.2.0
 - **Branding & PWA Alignment**: Set official tagline to *"Panam Paaru - See Your Money, Control Your Spending"*; cleaned up PWA manifest and browser titles.
 - **Dedicated Server Caching (`stockPriceCache` & `mfNavCache`)**: Added database-backed persistent caching in Convex to minimize external rate limits.
-- **Indian Market Hours & Holiday Engine**: 35-second live tick updates during NSE/BSE market hours (09:15 to 15:30 IST); zero wasteful external API calls on weekends, holidays, and after-hours.
-- **Nightly AMC NAV Crons**: Scheduled automated Convex crons at 21:30, 22:30, 23:30, and 00:30 IST to capture freshly published AMFI mutual fund NAVs with a 1-hour active window TTL.
+- **Indian Market Hours & Holiday Engine**: 45-second live tick updates during NSE/BSE market hours (09:15 to 15:30 IST); zero wasteful external API calls on weekends, holidays, and after-hours.
+- **Nightly AMC NAV Crons**: Scheduled automated Convex crons at 21:00, 22:00, 23:00, and 00:00 IST to capture freshly published AMFI mutual fund NAVs with a 1-hour active window TTL.
 - **Strict Cloud-First Resilience**: Removed fragile client-side offline storage; introduced `NoInternetScreen` to ensure absolute ledger consistency without conflicting offline writes.
 - **6-Digit Master PIN**: Upgraded security from 4 digits to 6 digits with cloud-salted verification.
 
