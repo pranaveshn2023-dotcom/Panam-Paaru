@@ -231,7 +231,6 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             const hasQty = inv.units && inv.units > 0;
             const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
             const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
-            if (!hasQty && !hasBuyBasis && !hasPriceRatio) continue;
 
             let updatedVal = inv.currentValue;
             if (hasQty) {
@@ -242,6 +241,8 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             } else if (hasPriceRatio) {
               const ratio = livePrice / inv.currentPrice;
               updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
+            } else {
+              updatedVal = inv.currentValue > 0 ? inv.currentValue : inv.investedAmount;
             }
             const valDiff = Math.abs(updatedVal - inv.currentValue);
             const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));

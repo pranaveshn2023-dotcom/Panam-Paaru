@@ -640,21 +640,32 @@ export async function fetchLiveStockPrice(
   }
 
   const candidates: string[] = [];
+  const highPriorityCandidates: string[] = [];
+
+  const addCandidate = (sym?: string, highPriority = false) => {
+    if (!sym) return;
+    const s = sym.trim().toUpperCase();
+    if (s.startsWith('^')) return;
+    if (highPriority && !highPriorityCandidates.includes(s)) {
+      highPriorityCandidates.push(s);
+    }
+    if (!candidates.includes(s)) candidates.push(s);
+  };
 
   // Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
   if (isinMatch) {
     const isinQuotes = await fetchYahooSearch(isinMatch);
     if (isinQuotes && isinQuotes.length > 0) {
       const nse = isinQuotes.find((q) => q.symbol && q.symbol.toUpperCase().endsWith('.NS'));
-      if (nse?.symbol) candidates.push(nse.symbol.toUpperCase());
+      if (nse?.symbol) addCandidate(nse.symbol.toUpperCase(), true);
       const bse = isinQuotes.find((q) => q.symbol && q.symbol.toUpperCase().endsWith('.BO'));
       if (bse?.symbol) {
         const nseFromBse = bse.symbol.toUpperCase().replace(/\.BO$/, '.NS');
-        if (!candidates.includes(nseFromBse)) candidates.push(nseFromBse);
-        if (!candidates.includes(bse.symbol.toUpperCase())) candidates.push(bse.symbol.toUpperCase());
+        addCandidate(nseFromBse, true);
+        addCandidate(bse.symbol.toUpperCase(), true);
       }
       if (candidates.length === 0 && isinQuotes[0]?.symbol) {
-        candidates.push(isinQuotes[0].symbol.toUpperCase());
+        addCandidate(isinQuotes[0].symbol.toUpperCase(), true);
       }
     }
   }
@@ -665,28 +676,7 @@ export async function fetchLiveStockPrice(
 
   const hasSuffix = clean.endsWith('.NS') || clean.endsWith('.BO') || clean.endsWith('-INR') || clean.endsWith('-USD');
   if (hasSuffix) {
-    if (!candidates.includes(clean)) candidates.push(clean);
-  } else {
-    // Direct NSE/BSE attempts for bare tickers (e.g. 'RELIANCE', 'INFY', 'NIFTYBEES', 'AAPL', 'VOO')
-    if (/^[A-Z0-9]{1,14}$/.test(clean)) {
-      if (!candidates.includes(`${clean}.NS`)) candidates.push(`${clean}.NS`);
-      if (!candidates.includes(`${clean}.BO`)) candidates.push(`${clean}.BO`);
-      if (!candidates.includes(clean)) candidates.push(clean);
-    }
-    const compact = strippedCorporate.replace(/[^A-Z0-9]/g, '');
-    if (compact.length >= 2 && compact.length <= 14) {
-      if (!candidates.includes(`${compact}.NS`)) candidates.push(`${compact}.NS`);
-      if (!candidates.includes(`${compact}.BO`)) candidates.push(`${compact}.BO`);
-    }
-  }
-
-  // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
-  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
-  for (const t of tokens) {
-    if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
-      if (!candidates.includes(`${t}.NS`)) candidates.push(`${t}.NS`);
-      if (!candidates.includes(`${t}.BO`)) candidates.push(`${t}.BO`);
-    }
+    addCandidate(clean, true);
   }
 
   // Universal Dynamic Yahoo search for any stock, ETF, or fund name
@@ -695,8 +685,19 @@ export async function fetchLiveStockPrice(
   if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
     searchQueries.push(strippedCorporate);
   }
-  if (tokens.length > 1) {
-    searchQueries.push(tokens.join(' '));
+  const simplified = clean
+    .replace(/[-_]/g, ' ')
+    .replace(/\b(AMC|ETF|FUND|INDEX|GROWTH|DIRECT|REGULAR|OPTION|PLAN)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (simplified && simplified !== clean && simplified.length >= 3) {
+    searchQueries.push(simplified);
+  }
+
+  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
+  const lastToken = tokens[tokens.length - 1];
+  if (lastToken && lastToken.length >= 4 && !searchQueries.includes(lastToken)) {
+    searchQueries.push(lastToken);
   }
 
   for (const sq of searchQueries) {
@@ -707,17 +708,42 @@ export async function fetchLiveStockPrice(
         const sym = q.symbol.toUpperCase();
         if (sym.endsWith('.BO')) {
           const nseFromBse = sym.replace(/\.BO$/, '.NS');
-          if (!candidates.includes(nseFromBse)) candidates.push(nseFromBse);
+          addCandidate(nseFromBse, true);
         }
-        if (!candidates.includes(sym)) {
-          candidates.push(sym);
-        }
+        addCandidate(sym, true);
       }
     }
   }
 
-  // Strict priority: Indian NSE (.NS) MUST be first, then BSE (.BO), then any other INR
+  // Direct NSE/BSE attempts for bare tickers (e.g. 'RELIANCE', 'INFY', 'NIFTYBEES', 'AAPL', 'VOO')
+  if (/^[A-Z0-9]{1,14}$/.test(clean)) {
+    addCandidate(`${clean}.NS`);
+    addCandidate(`${clean}.BO`);
+    addCandidate(clean);
+  }
+  const compact = strippedCorporate.replace(/[^A-Z0-9]/g, '');
+  if (compact.length >= 2 && compact.length <= 14) {
+    addCandidate(`${compact}.NS`);
+    addCandidate(`${compact}.BO`);
+  }
+
+  // Fallback naive tokens only if no candidates found yet
+  if (candidates.length === 0) {
+    for (const t of tokens) {
+      if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
+        addCandidate(`${t}.NS`);
+        addCandidate(`${t}.BO`);
+      }
+    }
+  }
+
+  // Strict priority: High priority search matches first, with NSE (.NS) prioritized over BSE (.BO)
   candidates.sort((a, b) => {
+    const aHigh = highPriorityCandidates.includes(a);
+    const bHigh = highPriorityCandidates.includes(b);
+    if (aHigh && !bHigh) return -1;
+    if (!aHigh && bHigh) return 1;
+
     const aNse = a.endsWith('.NS');
     const bNse = b.endsWith('.NS');
     if (aNse && !bNse) return -1;
@@ -1150,57 +1176,20 @@ export interface LiveMarketIndex {
 }
 
 /**
- * Fetch real-time market indices (NIFTY 50 and SENSEX) with zero BSE delay
- * using TradingView India scanner as primary and Yahoo Finance as secondary.
+ * Fetch real-time market indices (NIFTY 50 and SENSEX) directly via Yahoo Finance.
  */
 export async function fetchLiveMarketIndices(): Promise<LiveMarketIndex[]> {
   const indices = [
-    { key: 'nifty50', symbol: '^NSEI', tvTicker: 'NSE:NIFTY', name: 'NIFTY 50', minIndexValue: 15000 },
-    { key: 'sensex', symbol: '^BSESN', tvTicker: 'BSE:SENSEX', name: 'SENSEX', minIndexValue: 40000 },
+    { key: 'nifty50', symbol: '^NSEI', name: 'NIFTY 50' },
+    { key: 'sensex', symbol: '^BSESN', name: 'SENSEX' },
   ];
 
-  // 1. Primary: TradingView India Scanner (zero delay for BSE Sensex & NSE Nifty)
-  try {
-    const tvRes = await fetch('https://scanner.tradingview.com/india/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        symbols: { tickers: ['BSE:SENSEX', 'NSE:NIFTY'] },
-        columns: ['close', 'change', 'change_abs', 'description'],
-      }),
-      signal: AbortSignal.timeout(4500),
-    });
-    if (tvRes.ok) {
-      const tvData = await tvRes.json();
-      const rows: any[] = tvData?.data || [];
-      const results: LiveMarketIndex[] = [];
-      for (const idx of indices) {
-        const match = rows.find((r: any) => r.s === idx.tvTicker);
-        if (match && Array.isArray(match.d) && typeof match.d[0] === 'number' && match.d[0] >= idx.minIndexValue) {
-          const price = Math.round(match.d[0] * 100) / 100;
-          const changePct = typeof match.d[1] === 'number' ? Math.round(match.d[1] * 100) / 100 : 0;
-          const change = typeof match.d[2] === 'number' ? Math.round(match.d[2] * 100) / 100 : 0;
-          results.push({
-            name: idx.name,
-            symbol: idx.symbol,
-            price,
-            change,
-            changePercent: changePct,
-            isPositive: change >= 0,
-          });
-        }
-      }
-      if (results.length === indices.length) return results;
-    }
-  } catch {}
-
-  // 2. Secondary: Yahoo Finance
   const results: LiveMarketIndex[] = [];
   for (const idx of indices) {
     try {
       const data = await fetchYahooChart(idx.symbol);
       const meta = data?.chart?.result?.[0]?.meta;
-      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice >= idx.minIndexValue) {
+      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
         const price = meta.regularMarketPrice;
         let change = 0;
         if (typeof meta.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
@@ -1231,7 +1220,6 @@ export async function fetchLiveMarketIndices(): Promise<LiveMarketIndex[]> {
       }
     } catch {}
   }
-
   return results;
 }
 

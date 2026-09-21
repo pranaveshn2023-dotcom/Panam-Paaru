@@ -884,11 +884,15 @@ async function fetchStockQuote(
   const combined = `${name} ${notes || ""}`;
   const isin = knownIsin || extractStockIsin(combined) || extractSecurityIsin(combined);
   const candidates: string[] = [];
+  const highPriorityCandidates: string[] = [];
 
-  const addCandidate = (sym?: string) => {
+  const addCandidate = (sym?: string, highPriority = false) => {
     if (!sym) return;
     const s = sym.trim().toUpperCase();
     if (s.startsWith("^")) return; // Indices (^BSESN, ^NSEI) are market benchmarks, not tradeable equity/ETF holdings
+    if (highPriority && !highPriorityCandidates.includes(s)) {
+      highPriorityCandidates.push(s);
+    }
     if (!candidates.includes(s)) candidates.push(s);
   };
 
@@ -896,9 +900,9 @@ async function fetchStockQuote(
   if (knownTicker) {
     const kt = knownTicker.trim().toUpperCase();
     if (kt.endsWith(".BO")) {
-      addCandidate(kt.replace(/\.BO$/, ".NS"));
+      addCandidate(kt.replace(/\.BO$/, ".NS"), true);
     }
-    addCandidate(kt);
+    addCandidate(kt, true);
   }
 
   // 2. Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
@@ -906,9 +910,9 @@ async function fetchStockQuote(
     const resolvedTicker = await resolveTickerFromIsin(isin);
     if (resolvedTicker) {
       if (resolvedTicker.endsWith(".BO")) {
-        addCandidate(resolvedTicker.replace(/\.BO$/, ".NS"));
+        addCandidate(resolvedTicker.replace(/\.BO$/, ".NS"), true);
       }
-      addCandidate(resolvedTicker);
+      addCandidate(resolvedTicker, true);
     }
   }
 
@@ -917,28 +921,9 @@ async function fetchStockQuote(
     .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, "")
     .trim();
 
+  // If clean is already an explicit ticker with exchange suffix
   if (clean.endsWith(".NS") || clean.endsWith(".BO") || clean.endsWith("-INR") || clean.endsWith("-USD")) {
-    addCandidate(clean);
-  } else {
-    if (/^[A-Z0-9]{1,14}$/.test(clean)) {
-      addCandidate(`${clean}.NS`);
-      addCandidate(`${clean}.BO`);
-      addCandidate(clean);
-    }
-    const compact = strippedCorporate.replace(/[^A-Z0-9]/g, "");
-    if (compact.length >= 2 && compact.length <= 14) {
-      addCandidate(`${compact}.NS`);
-      addCandidate(`${compact}.BO`);
-    }
-  }
-
-  // Extract individual alphanumeric tokens (e.g. from 'AXISAMC-GOLDAXIS' -> 'AXISAMC', 'GOLDAXIS')
-  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
-  for (const t of tokens) {
-    if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
-      addCandidate(`${t}.NS`);
-      addCandidate(`${t}.BO`);
-    }
+    addCandidate(clean, true);
   }
 
   // 3. Dynamic Yahoo Finance Search: Universal resolution for ANY stock, ETF, or fund
@@ -948,15 +933,26 @@ async function fetchStockQuote(
   if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
     searchQueries.push(strippedCorporate);
   }
-  if (tokens.length > 1) {
-    searchQueries.push(tokens.join(" "));
+  const simplified = clean
+    .replace(/[-_]/g, " ")
+    .replace(/\b(AMC|ETF|FUND|INDEX|GROWTH|DIRECT|REGULAR|OPTION|PLAN)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (simplified && simplified !== clean && simplified.length >= 3) {
+    searchQueries.push(simplified);
+  }
+
+  const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
+  const lastToken = tokens[tokens.length - 1];
+  if (lastToken && lastToken.length >= 4 && !searchQueries.includes(lastToken)) {
+    searchQueries.push(lastToken);
   }
 
   for (const sq of searchQueries) {
     try {
       const searchRes = await fetch(
         `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
-        { signal: AbortSignal.timeout(3500) }
+        { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(3500) }
       );
       if (searchRes.ok) {
         const data: any = await searchRes.json();
@@ -964,16 +960,43 @@ async function fetchStockQuote(
           if (!q.symbol || q.symbol.includes("=F") || q.symbol.startsWith("^")) continue;
           const sym = q.symbol.toUpperCase();
           if (sym.endsWith(".BO")) {
-            addCandidate(sym.replace(/\.BO$/, ".NS"));
+            addCandidate(sym.replace(/\.BO$/, ".NS"), true);
           }
-          addCandidate(sym);
+          addCandidate(sym, true);
         }
       }
     } catch { }
   }
 
-  // Strict priority: Indian NSE (.NS) MUST be first, then BSE (.BO), then US/Global
+  // 4. Direct bare ticker match if single word / short identifier
+  if (/^[A-Z0-9]{1,14}$/.test(clean)) {
+    addCandidate(`${clean}.NS`);
+    addCandidate(`${clean}.BO`);
+    addCandidate(clean);
+  }
+  const compact = strippedCorporate.replace(/[^A-Z0-9]/g, "");
+  if (compact.length >= 2 && compact.length <= 14) {
+    addCandidate(`${compact}.NS`);
+    addCandidate(`${compact}.BO`);
+  }
+
+  // 5. Fallback tokens only if no candidates found yet
+  if (candidates.length === 0) {
+    for (const t of tokens) {
+      if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
+        addCandidate(`${t}.NS`);
+        addCandidate(`${t}.BO`);
+      }
+    }
+  }
+
+  // Strict priority: High priority search matches first, with NSE (.NS) prioritized over BSE (.BO)
   candidates.sort((a, b) => {
+    const aHigh = highPriorityCandidates.includes(a);
+    const bHigh = highPriorityCandidates.includes(b);
+    if (aHigh && !bHigh) return -1;
+    if (!aHigh && bHigh) return 1;
+
     const aNse = a.endsWith(".NS");
     const bNse = b.endsWith(".NS");
     if (aNse && !bNse) return -1;
@@ -2984,10 +3007,11 @@ async function getOrFetchStockPriceWithCache(
   // Exchanges are closed; official closing prices are static and immutable.
   // Once recorded after today's 15:30 IST close, the data will NOT change until the next trading day at 09:15 AM IST.
   // On weekends and public holidays, the market is closed/leave; previous session close remains locked.
-  // Exception: If cache was saved with a secondary BSE (.BO) symbol or force is requested, re-query NSE (.NS).
-  const isBseOutdated = cached?.symbol && cached.symbol.endsWith(".BO");
+  // 2. Closed market logic: weekends, holidays, or outside 09:15 - 15:30 IST.
+  // Exchanges are closed; official closing prices are static and immutable.
+  // Once recorded after today's 15:30 IST close, the data will NOT change until the next trading day at 09:15 AM IST.
   if (!marketStatus.isOpen) {
-    if (!options?.force && !isBseOutdated && cached && cached.price > 0 && cached.lastFetchedAt >= latestCloseTime) {
+    if (!options?.force && cached && cached.price > 0 && cached.lastFetchedAt >= latestCloseTime) {
       return {
         price: cached.price,
         prevClose: cached.prevClose,
@@ -2996,7 +3020,7 @@ async function getOrFetchStockPriceWithCache(
         isCached: true,
       };
     }
-    // Closing price not recorded yet after 3:30 PM (or stale BSE): fetch once from Yahoo Finance (prioritizing NSE) and freeze it
+    // Closing price not recorded yet after 3:30 PM: fetch once and freeze it
     const quote = await fetchStockQuote(name, options?.notes, resolvedIsin, options?.knownTicker);
     if (quote && quote.price > 0) {
       const finalIsin = quote.isin || resolvedIsin;
@@ -3017,7 +3041,7 @@ async function getOrFetchStockPriceWithCache(
 
   // 3. Open market logic (09:15 - 15:30 IST Mon-Fri): 45-second live API refresh feature.
   const THROTTLE_MS = 45 * 1000;
-  if (!options?.force && !isBseOutdated && marketStatus.isOpen && cached && cached.price > 0 && now - cached.lastFetchedAt < THROTTLE_MS) {
+  if (!options?.force && marketStatus.isOpen && cached && cached.price > 0 && now - cached.lastFetchedAt < THROTTLE_MS) {
     return {
       price: cached.price,
       prevClose: cached.prevClose,
@@ -3103,12 +3127,6 @@ export const syncLiveMarketPrices = action({
         (inv.units && inv.units > 0) ||
         (inv.currentValue && inv.currentValue > 0);
       if (!isInvested) {
-        continue;
-      }
-      const hasQty = inv.units && inv.units > 0;
-      const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
-      const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
-      if (!hasQty && !hasBuyBasis && !hasPriceRatio) {
         continue;
       }
 
@@ -3298,9 +3316,6 @@ export const syncLiveMarketPrices = action({
       const hasQty = inv.units && inv.units > 0;
       const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
       const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
-      if (!hasQty && !hasBuyBasis && !hasPriceRatio) {
-        continue;
-      }
 
       let updatedVal = inv.currentValue;
       if (hasQty) {
@@ -3311,6 +3326,8 @@ export const syncLiveMarketPrices = action({
       } else if (hasPriceRatio) {
         const ratio = livePrice / inv.currentPrice;
         updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
+      } else {
+        updatedVal = inv.currentValue > 0 ? inv.currentValue : inv.investedAmount;
       }
 
       const valDiff = Math.abs(updatedVal - inv.currentValue);
@@ -3413,10 +3430,8 @@ export const fetchLivePrice = action({
       if (mf && mf.nav > 0) {
         return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
       }
-      if (/\b(etf|bees)\b/i.test(name)) {
-        return await getOrFetchStockPriceWithCache(ctx, name, { force });
-      }
-      return null;
+      // Universal dynamic fallback for ETFs or funds searched under mutual_fund
+      return await getOrFetchStockPriceWithCache(ctx, name, { force, notes });
     }
 
     if (assetType === "crypto") {
@@ -3427,7 +3442,7 @@ export const fetchLivePrice = action({
       const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(name);
       if (!isSgbOrDigital) {
         // 1. Try stock cache first for ETFs (GOLDBEES, SILVERBEES, GOLDAXIS, SILVERIETF, etc.)
-        const stk = await getOrFetchStockPriceWithCache(ctx, name, { force });
+        const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes });
         if (stk && stk.price > 0) return stk;
 
         // 2. Try AMFI Cache DB for Gold/Silver mutual funds
@@ -3439,8 +3454,16 @@ export const fetchLivePrice = action({
       return null;
     }
 
-    // Stocks, SGBs, Commodities: Uses 35s live cache or static closing price
-    return await getOrFetchStockPriceWithCache(ctx, name, { force });
+    // Stocks, SGBs, Commodities: Uses live cache or static closing price
+    const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes });
+    if (stk && stk.price > 0) return stk;
+
+    // Dynamic fallback for Mutual Funds searched under stocks
+    const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force });
+    if (mf && mf.nav > 0) {
+      return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
+    }
+    return null;
   },
 });
 
@@ -3450,8 +3473,8 @@ export const getMarketIndices = action({
   },
   handler: async (ctx, args) => {
     const indices = [
-      { key: "nifty50", symbol: "^NSEI", tvTicker: "NSE:NIFTY", name: "NIFTY 50", minIndexValue: 15000 },
-      { key: "sensex", symbol: "^BSESN", tvTicker: "BSE:SENSEX", name: "SENSEX", minIndexValue: 40000 },
+      { key: "nifty50", symbol: "^NSEI", name: "NIFTY 50" },
+      { key: "sensex", symbol: "^BSESN", name: "SENSEX" },
     ];
     const marketStatus = getIndianMarketStatus();
     const now = Date.now();
@@ -3466,8 +3489,7 @@ export const getMarketIndices = action({
           symbol: idx.symbol,
           searchKey: `__benchmark_index_${idx.key}__`,
         });
-        // Strictly ensure price is greater than minIndexValue to prevent ETF prices (e.g. ₹800) from corrupting the index benchmark
-        if (cached && cached.price >= idx.minIndexValue) {
+        if (cached && cached.price > 0) {
           cachedMap.set(idx.key, cached);
         }
       } catch { }
@@ -3478,7 +3500,7 @@ export const getMarketIndices = action({
     if (!args.force && !marketStatus.isOpen) {
       const allClosedCached = indices.every((idx) => {
         const c = cachedMap.get(idx.key);
-        return c && c.price >= idx.minIndexValue && c.lastFetchedAt >= latestCloseTime;
+        return c && c.price > 0 && c.lastFetchedAt >= latestCloseTime;
       });
       if (allClosedCached) {
         return indices.map((idx) => {
@@ -3499,7 +3521,7 @@ export const getMarketIndices = action({
     if (!args.force && marketStatus.isOpen) {
       const allFresh = indices.every((idx) => {
         const c = cachedMap.get(idx.key);
-        return c && c.price >= idx.minIndexValue && now - c.lastFetchedAt < INDEX_CACHE_TTL_MS;
+        return c && c.price > 0 && now - c.lastFetchedAt < INDEX_CACHE_TTL_MS;
       });
       if (allFresh) {
         return indices.map((idx) => {
@@ -3516,64 +3538,7 @@ export const getMarketIndices = action({
       }
     }
 
-    // 2. Primary Live Feed: TradingView India Index Scanner
-    // Real-time zero-delay live tick for both BSE Sensex and NSE Nifty simultaneously
-    try {
-      const tvRes = await fetch("https://scanner.tradingview.com/india/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          symbols: {
-            tickers: ["BSE:SENSEX", "NSE:NIFTY"],
-          },
-          columns: ["close", "change", "change_abs", "description"],
-        }),
-        signal: AbortSignal.timeout(4500),
-      });
-
-      if (tvRes.ok) {
-        const tvData: any = await tvRes.json();
-        const rows: any[] = tvData?.data || [];
-        const tvResults: any[] = [];
-
-        for (const idx of indices) {
-          const match = rows.find((r: any) => r.s === idx.tvTicker);
-          if (match && Array.isArray(match.d) && typeof match.d[0] === "number" && match.d[0] >= idx.minIndexValue) {
-            const price = Math.round(match.d[0] * 100) / 100;
-            const changePct = typeof match.d[1] === "number" ? Math.round(match.d[1] * 100) / 100 : 0;
-            const change = typeof match.d[2] === "number" ? Math.round(match.d[2] * 100) / 100 : 0;
-            const derivedPrevClose = Math.round((price - change) * 100) / 100;
-
-            await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
-              symbol: idx.symbol,
-              name: idx.name,
-              price,
-              prevClose: derivedPrevClose,
-              change,
-              changePercent: changePct,
-              searchKey: `__benchmark_index_${idx.key}__`,
-            });
-
-            tvResults.push({
-              name: idx.name,
-              symbol: idx.symbol,
-              price,
-              change,
-              changePercent: changePct,
-              isPositive: change >= 0,
-            });
-          }
-        }
-
-        if (tvResults.length === indices.length) {
-          return tvResults;
-        }
-      }
-    } catch (tvErr) {
-      console.warn("[GetMarketIndices] TradingView scanner fallback to Yahoo:", tvErr);
-    }
-
-    // 3. Resilient Secondary Fallback: Yahoo Finance (with dual mirrors)
+    // 2. Primary: Yahoo Finance chart API for ^BSESN and ^NSEI (with query1 / query2 mirrors)
     const fetchSingleIndexYahoo = async (idx: (typeof indices)[0]) => {
       try {
         const searchKey = `__benchmark_index_${idx.key}__`;
@@ -3597,7 +3562,7 @@ export const getMarketIndices = action({
         if (res && res.ok) {
           const d: any = await res.json();
           const meta = d?.chart?.result?.[0]?.meta;
-          if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice >= idx.minIndexValue) {
+          if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
             const price = meta.regularMarketPrice;
 
             let change = 0;
@@ -3645,7 +3610,7 @@ export const getMarketIndices = action({
           }
         }
 
-        if (cached && cached.price >= idx.minIndexValue) {
+        if (cached && cached.price > 0) {
           return {
             name: idx.name,
             symbol: idx.symbol,
@@ -3762,42 +3727,195 @@ export const autoDeduplicateExistingHoldings = mutation({
 });
 
 /**
- * Post-Market Close Action:
- * Triggers after 3:30 PM (at 3:40 PM IST = 10:10 UTC, Mon-Fri) to capture and record
- * the official closing prices for benchmark indices and all active user stock holdings.
- * Once recorded, prices are permanently locked until the next trading day at 09:15 AM IST.
- * Skips automatically on weekends and public market holidays.
+ * 3:15 PM IST Market Ending Job (15:15 IST = 09:45 UTC, Mon-Fri):
+ * Stage 1: Captures initial market close prices, updating indices and active user holdings in cache DB.
+ * Marks today's status as pending in cache DB.
  */
-export const internalSyncPostMarketCloseJob = internalAction({
+export const internalSyncMarketClose315Job = internalAction({
   args: {},
   handler: async (ctx) => {
     const marketStatus = getIndianMarketStatus();
-    // Weekends and public holidays: market is leave/closed; skip
     if (marketStatus.isWeekend || marketStatus.isHoliday) {
-      console.log(`[PostCloseSync] Market closed today (${marketStatus.reason}). Skipping.`);
+      console.log(`[MarketClose 3:15 PM] Market closed today (${marketStatus.reason}). Skipping.`);
       return { skipped: true, reason: marketStatus.reason };
     }
 
-    console.log("[PostCloseSync] Capturing official closing prices for indices and stock holdings...");
+    console.log("[MarketClose 3:15 PM] Stage 1: Updating cache DB with latest live market prices...");
 
-    // 1. Fetch and store official closing prices for benchmark indices (NIFTY 50 & SENSEX)
-    try {
-      await ctx.runAction(api.investments.getMarketIndices, { force: true });
-    } catch (e: any) {
-      console.warn("[PostCloseSync] Failed to sync market indices:", e?.message);
-    }
+    // 1. Sync benchmark indices into cache DB
+    await ctx.runAction(api.investments.getMarketIndices, { force: true });
 
-    // 2. Fetch and store official closing prices for all users' invested stocks/ETFs
-    try {
-      const res = await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
-      console.log(`[PostCloseSync] Successfully locked closing prices for ${res.count || 0} holdings.`);
-      return { success: true, count: res.count || 0 };
-    } catch (e: any) {
-      console.warn("[PostCloseSync] Failed to sync stock holdings:", e?.message);
-      return { success: false, error: e?.message };
-    }
+    // 2. Sync all users' active holdings into cache DB
+    const res = await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+
+    // 3. Store pending status for today so 3:25 PM can verify
+    await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+      symbol: "__MARKET_CLOSE_STATUS__",
+      name: "PENDING_315",
+      price: 0, // 0 = pending verification at 3:25 PM
+      searchKey: `__market_close_${marketStatus.istDateStr}__`,
+    });
+
+    console.log(`[MarketClose 3:15 PM] Successfully updated cache DB with ${res.count || 0} holdings.`);
+    return { success: true, count: res.count || 0 };
   },
 });
+
+/**
+ * 3:25 PM IST Market Ending Verification Job (15:25 IST = 09:55 UTC, Mon-Fri):
+ * Stage 2: Checks if live market API values match the values stored in cache DB.
+ * If all values match: marks today's status as SETTLED (price = 1) so the 3:30 PM call is skipped!
+ * If values differ: updates cache DB with newly fetched quotes and leaves status as 0 so 3:30 PM runs.
+ */
+export const internalSyncMarketClose325Job = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const marketStatus = getIndianMarketStatus();
+    if (marketStatus.isWeekend || marketStatus.isHoliday) {
+      console.log(`[MarketClose 3:25 PM] Market closed today (${marketStatus.reason}). Skipping.`);
+      return { skipped: true, reason: marketStatus.reason };
+    }
+
+    console.log("[MarketClose 3:25 PM] Stage 2: Checking if live API values match cache DB...");
+
+    let pricesMoved = false;
+
+    // 1. Compare benchmark indices with cache DB
+    const indices = [
+      { key: "nifty50", symbol: "^NSEI" },
+      { key: "sensex", symbol: "^BSESN" },
+    ];
+    for (const idx of indices) {
+      try {
+        const cached: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
+          symbol: idx.symbol,
+          searchKey: `__benchmark_index_${idx.key}__`,
+        });
+        const liveRes = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
+          { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(3500) }
+        );
+        if (liveRes.ok) {
+          const data: any = await liveRes.json();
+          const livePrice = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+          if (typeof livePrice === "number" && livePrice > 0 && cached?.price) {
+            const diff = Math.abs(livePrice - cached.price);
+            if (diff > 0.5) {
+              pricesMoved = true;
+              break;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // 2. If indices match, check sample of active user holdings against cache DB
+    if (!pricesMoved) {
+      try {
+        const allInvestments: any[] = await ctx.runQuery(internal.investments.internalListInvestments, {});
+        const active = (allInvestments || []).filter(
+          (inv) =>
+            (inv.investedAmount > 0 || (inv.units && inv.units > 0) || inv.currentValue > 0) &&
+            inv.assetType !== "fd_rd" &&
+            inv.assetType !== "ppf_epf" &&
+            inv.assetType !== "real_estate" &&
+            inv.assetType !== "other"
+        );
+
+        for (const inv of active.slice(0, 6)) {
+          if (inv.assetType === "stock" || inv.assetType === "gold") {
+            const cached: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
+              symbol: inv.ticker,
+              isin: inv.isin,
+              searchKey: normalizeStockSearchKey(inv.name),
+            });
+            if (cached?.price) {
+              const live = await fetchStockQuote(inv.name, inv.notes, inv.isin, inv.ticker);
+              if (live && live.price > 0) {
+                const diff = Math.abs(live.price - cached.price);
+                if (diff > 0.05) {
+                  pricesMoved = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    if (!pricesMoved) {
+      // All values match! Mark as verified settled so 3:30 PM run is stopped/skipped
+      await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+        symbol: "__MARKET_CLOSE_STATUS__",
+        name: "SETTLED_MATCHED",
+        price: 1, // 1 = settled & verified, stop 3rd run
+        searchKey: `__market_close_${marketStatus.istDateStr}__`,
+      });
+      console.log("[MarketClose 3:25 PM] Cache DB values match live API quotes! 3:30 PM call will be stopped.");
+      return { matched: true, skippedThirdCall: true };
+    }
+
+    // Prices shifted during closing auction: update cache DB now and let 3:30 PM finalize
+    console.log("[MarketClose 3:25 PM] Price movement detected between 3:15 and 3:25 PM. Updating cache DB; 3:30 PM will finalize.");
+    await ctx.runAction(api.investments.getMarketIndices, { force: true });
+    const res = await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+
+    await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+      symbol: "__MARKET_CLOSE_STATUS__",
+      name: "UPDATED_325_NEEDS_FINAL",
+      price: 0, // 0 = not yet settled, 3:30 PM must run
+      searchKey: `__market_close_${marketStatus.istDateStr}__`,
+    });
+
+    return { matched: false, updatedCount: res.count || 0 };
+  },
+});
+
+/**
+ * 3:30 PM IST Market Close Job (15:30 IST = 10:00 UTC, Mon-Fri):
+ * Stage 3: Checks if 3:25 PM run already verified matching prices.
+ * If already verified, stops and skips to prevent wasted API calls.
+ * If prices shifted, runs final closing sync and permanently freezes prices.
+ */
+export const internalSyncMarketClose330Job = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const marketStatus = getIndianMarketStatus();
+    if (marketStatus.isWeekend || marketStatus.isHoliday) {
+      console.log(`[MarketClose 3:30 PM] Market closed today (${marketStatus.reason}). Skipping.`);
+      return { skipped: true, reason: marketStatus.reason };
+    }
+
+    // Check if 3:25 PM verified that cache DB matched live API
+    const status: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
+      symbol: "__MARKET_CLOSE_STATUS__",
+      searchKey: `__market_close_${marketStatus.istDateStr}__`,
+    });
+
+    if (status && status.price === 1) {
+      console.log("[MarketClose 3:30 PM] Stopped: Cache DB was already verified and matched at 3:25 PM. Skipping 3rd cron call.");
+      return { skipped: true, reason: "Cache already verified and matching from 3:25 PM run" };
+    }
+
+    console.log("[MarketClose 3:30 PM] Prices differed at 3:25 PM. Running final 3:30 PM closing sync...");
+    await ctx.runAction(api.investments.getMarketIndices, { force: true });
+    const res = await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+
+    await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+      symbol: "__MARKET_CLOSE_STATUS__",
+      name: "FINALIZED_330",
+      price: 1,
+      searchKey: `__market_close_${marketStatus.istDateStr}__`,
+    });
+
+    console.log(`[MarketClose 3:30 PM] Successfully frozen closing prices for ${res.count || 0} holdings.`);
+    return { success: true, count: res.count || 0 };
+  },
+});
+
+// Backward compatibility alias for any existing trigger
+export const internalSyncPostMarketCloseJob = internalSyncMarketClose330Job;
 
 
 
