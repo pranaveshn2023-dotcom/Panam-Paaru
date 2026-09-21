@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, ShieldCheck, Key, AlertTriangle, Check, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Check, KeyRound } from 'lucide-react';
 import { NeoModal } from '../ui/NeoModal';
 import { NeoButton } from '../ui/NeoButton';
 import { usePinLock } from '../../context/PinLockContext';
@@ -10,6 +10,81 @@ interface PinSetupModalProps {
   onClose: () => void;
   isChangingPin?: boolean;
 }
+
+// Reusable sliding pill toggle for 4 vs 6 digit selection
+interface PinLengthSliderProps {
+  value: 4 | 6;
+  onChange: (v: 4 | 6) => void;
+  disabled?: boolean;
+}
+
+const PinLengthSlider: React.FC<PinLengthSliderProps> = ({ value, onChange, disabled }) => {
+  return (
+    <div
+      className={clsx(
+        'relative inline-flex items-stretch bg-[#121212] border-2 border-[#121212] shadow-neo-sm select-none overflow-hidden',
+        disabled && 'opacity-50 pointer-events-none'
+      )}
+      style={{ height: '2.75rem' }}
+    >
+      {/* Sliding yellow indicator */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0 w-1/2 bg-[#FFE600] transition-transform duration-200 ease-out"
+        style={{ transform: value === 4 ? 'translateX(0%)' : 'translateX(100%)' }}
+      />
+
+      {/* 4-digit option */}
+      <button
+        type="button"
+        onClick={() => onChange(4)}
+        className={clsx(
+          'relative z-10 flex flex-col items-center justify-center px-6 gap-0.5 cursor-pointer transition-colors duration-150',
+          value === 4 ? 'text-[#121212]' : 'text-white/70 hover:text-white'
+        )}
+      >
+        <span className="flex items-center gap-[3px]">
+          {[0, 1, 2, 3].map((i) => (
+            <span
+              key={i}
+              className={clsx(
+                'block w-[5px] h-[5px] rounded-full transition-colors duration-150',
+                value === 4 ? 'bg-[#121212]' : 'bg-white/50'
+              )}
+            />
+          ))}
+        </span>
+        <span className="text-[11px] font-black uppercase tracking-widest leading-none">4</span>
+      </button>
+
+      {/* Divider */}
+      <span className="relative z-10 w-px bg-[#121212]" />
+
+      {/* 6-digit option */}
+      <button
+        type="button"
+        onClick={() => onChange(6)}
+        className={clsx(
+          'relative z-10 flex flex-col items-center justify-center px-6 gap-0.5 cursor-pointer transition-colors duration-150',
+          value === 6 ? 'text-[#121212]' : 'text-white/70 hover:text-white'
+        )}
+      >
+        <span className="flex items-center gap-[3px]">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <span
+              key={i}
+              className={clsx(
+                'block w-[5px] h-[5px] rounded-full transition-colors duration-150',
+                value === 6 ? 'bg-[#121212]' : 'bg-white/50'
+              )}
+            />
+          ))}
+        </span>
+        <span className="text-[11px] font-black uppercase tracking-widest leading-none">6</span>
+      </button>
+    </div>
+  );
+};
 
 export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   isOpen,
@@ -104,6 +179,16 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
     }
   };
 
+  // When slider is toggled in manage panel -> auto-enter change flow with new length
+  const handleManageLengthChange = (len: 4 | 6) => {
+    setSelectedLength(len);
+    setNewPin('');
+    setConfirmPin('');
+    setError('');
+    setIsChangingMode(true);
+    setStep('create');
+  };
+
   const timeoutOptions = [
     { label: 'Immediate (on tab switch / minimize)', value: 0 },
     { label: '1 Minute of inactivity', value: 60000 },
@@ -136,57 +221,36 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
         )}
 
         {!isPinEnabled || isChangingMode ? (
-          /* Step 1 & 2: Setup / Change PIN Flow */
+          /* Setup / Change PIN Flow */
           <div className="flex flex-col gap-4">
             <p className="text-xs font-bold text-neutral-700">
               Set up a {selectedLength}-digit PIN to lock your finances when inactive. Data is securely hashed in the cloud.
             </p>
 
-            {/* 4-Digit vs 6-Digit Format Toggle */}
+            {/* PIN Length Slider - shown on create step */}
             {step === 'create' && (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
-                  Choose PIN Format
-                </label>
-                <div className="grid grid-cols-2 gap-2 p-1 bg-neutral-100 border-2 border-[#121212]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedLength(4);
-                      setNewPin('');
-                      setConfirmPin('');
-                      setError('');
-                    }}
-                    className={clsx(
-                      'py-2 px-3 text-xs font-black uppercase border-2 transition-all cursor-pointer flex items-center justify-center gap-1.5',
-                      selectedLength === 4
-                        ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm'
-                        : 'bg-transparent text-neutral-600 border-transparent hover:text-black'
-                    )}
-                  >
-                    4-Digit PIN
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedLength(6);
-                      setNewPin('');
-                      setConfirmPin('');
-                      setError('');
-                    }}
-                    className={clsx(
-                      'py-2 px-3 text-xs font-black uppercase border-2 transition-all cursor-pointer flex items-center justify-center gap-1.5',
-                      selectedLength === 6
-                        ? 'bg-[#FFE600] text-[#121212] border-[#121212] shadow-neo-sm'
-                        : 'bg-transparent text-neutral-600 border-transparent hover:text-black'
-                    )}
-                  >
-                    6-Digit PIN
-                  </button>
+              <div className="flex items-center justify-between bg-[#FFFDF5] border-2 border-[#121212] px-4 py-3">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs font-black uppercase tracking-wider text-[#121212]">
+                    PIN Length
+                  </span>
+                  <span className="text-[10px] font-bold text-neutral-500">
+                    {selectedLength === 4 ? 'Quick & simple' : 'Extra secure'}
+                  </span>
                 </div>
+                <PinLengthSlider
+                  value={selectedLength}
+                  onChange={(len) => {
+                    setSelectedLength(len);
+                    setNewPin('');
+                    setConfirmPin('');
+                    setError('');
+                  }}
+                />
               </div>
             )}
 
+            {/* Enter new PIN */}
             {step === 'create' && (
               <div className="flex flex-col gap-3">
                 <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
@@ -198,7 +262,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
                   maxLength={selectedLength}
                   value={newPin}
                   onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
-                  placeholder={selectedLength === 4 ? '••••' : '••••••'}
+                  placeholder={selectedLength === 4 ? '\u2022\u2022\u2022\u2022' : '\u2022\u2022\u2022\u2022\u2022\u2022'}
                   className="neo-input text-center text-2xl tracking-[0.5em] font-mono py-3"
                   autoFocus
                 />
@@ -228,6 +292,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
               </div>
             )}
 
+            {/* Confirm PIN */}
             {step === 'confirm' && (
               <div className="flex flex-col gap-3">
                 <label className="text-xs font-black uppercase tracking-wider text-[#121212]">
@@ -239,7 +304,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
                   maxLength={selectedLength}
                   value={confirmPin}
                   onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
-                  placeholder={selectedLength === 4 ? '••••' : '••••••'}
+                  placeholder={selectedLength === 4 ? '\u2022\u2022\u2022\u2022' : '\u2022\u2022\u2022\u2022\u2022\u2022'}
                   className="neo-input text-center text-2xl tracking-[0.5em] font-mono py-3"
                   autoFocus
                 />
@@ -260,16 +325,33 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
             )}
           </div>
         ) : (
-          /* Manage Existing PIN: Change PIN, Update Timeout, or Disable */
+          /* Manage Existing PIN */
           <div className="flex flex-col gap-4">
-            {/* Quick action to change PIN or switch length */}
-            <div className="p-3.5 bg-[#FFFDF5] border-2 border-[#121212] flex items-center justify-between gap-3">
+
+            {/* PIN Length Slider - lives OUTSIDE the change flow, always visible */}
+            <div className="flex items-center justify-between bg-[#FFFDF5] border-2 border-[#121212] px-4 py-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-black uppercase tracking-wider text-[#121212]">
+                  PIN Length
+                </span>
+                <span className="text-[10px] font-bold text-neutral-500 leading-tight">
+                  Slide to switch — will prompt re-entry
+                </span>
+              </div>
+              <PinLengthSlider
+                value={selectedLength}
+                onChange={handleManageLengthChange}
+              />
+            </div>
+
+            {/* Change PIN code */}
+            <div className="p-3.5 bg-white border-2 border-[#121212] flex items-center justify-between gap-3">
               <div>
                 <span className="text-xs font-black uppercase text-[#121212] block">
-                  Current PIN: {pinLength || 6}-Digit
+                  Change PIN Code
                 </span>
                 <span className="text-[11px] font-bold text-neutral-600">
-                  Switch between 4-digit and 6-digit or change code
+                  Keep {pinLength || 6}-digit format, set a new code
                 </span>
               </div>
               <NeoButton
@@ -279,9 +361,13 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
                   setIsChangingMode(true);
                   setStep('create');
                   setSelectedLength(pinLength || 6);
+                  setNewPin('');
+                  setConfirmPin('');
+                  setError('');
                 }}
               >
-                Change PIN
+                <KeyRound size={13} />
+                Change
               </NeoButton>
             </div>
 
