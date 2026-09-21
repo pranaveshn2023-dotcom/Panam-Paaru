@@ -11,77 +11,81 @@ interface PinSetupModalProps {
   isChangingPin?: boolean;
 }
 
-// Reusable sliding pill toggle for 4 vs 6 digit selection
+// Full-width premium sliding toggle for 4 vs 6 digit PIN selection
 interface PinLengthSliderProps {
   value: 4 | 6;
   onChange: (v: 4 | 6) => void;
   disabled?: boolean;
 }
 
+const OPTIONS: { len: 4 | 6; label: string; hint: string }[] = [
+  { len: 4, label: '4', hint: 'Quick & simple' },
+  { len: 6, label: '6', hint: 'Extra secure' },
+];
+
 const PinLengthSlider: React.FC<PinLengthSliderProps> = ({ value, onChange, disabled }) => {
   return (
     <div
       className={clsx(
-        'relative inline-flex items-stretch bg-[#121212] border-2 border-[#121212] shadow-neo-sm select-none overflow-hidden',
-        disabled && 'opacity-50 pointer-events-none'
+        'relative flex w-full border-2 border-[#121212] shadow-neo bg-[#121212] select-none overflow-hidden',
+        disabled && 'opacity-40 pointer-events-none'
       )}
-      style={{ height: '2.75rem' }}
+      style={{ height: '5.5rem' }}
     >
-      {/* Sliding yellow indicator */}
+      {/* Animated yellow slide */}
       <span
         aria-hidden
         className="absolute inset-y-0 w-1/2 bg-[#FFE600] transition-transform duration-200 ease-out"
         style={{ transform: value === 4 ? 'translateX(0%)' : 'translateX(100%)' }}
       />
 
-      {/* 4-digit option */}
-      <button
-        type="button"
-        onClick={() => onChange(4)}
-        className={clsx(
-          'relative z-10 flex flex-col items-center justify-center px-6 gap-0.5 cursor-pointer transition-colors duration-150',
-          value === 4 ? 'text-[#121212]' : 'text-white/70 hover:text-white'
-        )}
-      >
-        <span className="flex items-center gap-[3px]">
-          {[0, 1, 2, 3].map((i) => (
-            <span
-              key={i}
-              className={clsx(
-                'block w-[5px] h-[5px] rounded-full transition-colors duration-150',
-                value === 4 ? 'bg-[#121212]' : 'bg-white/50'
-              )}
-            />
-          ))}
-        </span>
-        <span className="text-[11px] font-black uppercase tracking-widest leading-none">4</span>
-      </button>
+      {OPTIONS.map(({ len, hint }) => {
+        const active = value === len;
+        return (
+          <button
+            key={len}
+            type="button"
+            onClick={() => onChange(len)}
+            className={clsx(
+              'relative z-10 flex-1 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-colors duration-150 group',
+              active ? 'text-[#121212]' : 'text-white/50 hover:text-white/80'
+            )}
+          >
+            {/* PIN dot row */}
+            <div className="flex items-center gap-[5px]">
+              {Array.from({ length: len }).map((_, i) => (
+                <span
+                  key={i}
+                  className={clsx(
+                    'rounded-full transition-all duration-200',
+                    active
+                      ? 'bg-[#121212] w-[10px] h-[10px]'
+                      : 'bg-white/40 w-[7px] h-[7px] group-hover:bg-white/60'
+                  )}
+                />
+              ))}
+            </div>
 
-      {/* Divider */}
-      <span className="relative z-10 w-px bg-[#121212]" />
+            {/* Big digit number */}
+            <div className="flex items-baseline gap-[3px] leading-none">
+              <span className={clsx('font-black transition-all duration-150', active ? 'text-3xl' : 'text-2xl opacity-60')}>
+                {len}
+              </span>
+              <span className={clsx('text-[9px] font-black uppercase tracking-[0.12em] leading-none pb-0.5', active ? '' : 'opacity-50')}>
+                -digit
+              </span>
+            </div>
 
-      {/* 6-digit option */}
-      <button
-        type="button"
-        onClick={() => onChange(6)}
-        className={clsx(
-          'relative z-10 flex flex-col items-center justify-center px-6 gap-0.5 cursor-pointer transition-colors duration-150',
-          value === 6 ? 'text-[#121212]' : 'text-white/70 hover:text-white'
-        )}
-      >
-        <span className="flex items-center gap-[3px]">
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <span
-              key={i}
-              className={clsx(
-                'block w-[5px] h-[5px] rounded-full transition-colors duration-150',
-                value === 6 ? 'bg-[#121212]' : 'bg-white/50'
-              )}
-            />
-          ))}
-        </span>
-        <span className="text-[11px] font-black uppercase tracking-widest leading-none">6</span>
-      </button>
+            {/* Hint */}
+            <span className={clsx('text-[9px] font-bold uppercase tracking-wider leading-none', active ? 'opacity-60' : 'opacity-30')}>
+              {hint}
+            </span>
+          </button>
+        );
+      })}
+
+      {/* Center rule */}
+      <span className="absolute inset-y-0 left-1/2 w-0.5 bg-[#121212] z-20" />
     </div>
   );
 };
@@ -229,13 +233,11 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
 
             {/* PIN Length Slider - shown on create step */}
             {step === 'create' && (
-              <div className="flex items-center justify-between bg-[#FFFDF5] border-2 border-[#121212] px-4 py-3">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-xs font-black uppercase tracking-wider text-[#121212]">
-                    PIN Length
-                  </span>
-                  <span className="text-[10px] font-bold text-neutral-500">
-                    {selectedLength === 4 ? 'Quick & simple' : 'Extra secure'}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-wider text-[#121212]">PIN Length</span>
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wide">
+                    {selectedLength === 4 ? '— Quick & simple' : '— Extra secure'}
                   </span>
                 </div>
                 <PinLengthSlider
@@ -328,15 +330,11 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
           /* Manage Existing PIN */
           <div className="flex flex-col gap-4">
 
-            {/* PIN Length Slider - lives OUTSIDE the change flow, always visible */}
-            <div className="flex items-center justify-between bg-[#FFFDF5] border-2 border-[#121212] px-4 py-3">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-xs font-black uppercase tracking-wider text-[#121212]">
-                  PIN Length
-                </span>
-                <span className="text-[10px] font-bold text-neutral-500 leading-tight">
-                  Slide to switch — will prompt re-entry
-                </span>
+            {/* PIN Length Slider — full-width, outside the change flow */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-[#121212]">PIN Length</span>
+                <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wide">Slide to switch</span>
               </div>
               <PinLengthSlider
                 value={selectedLength}
