@@ -227,7 +227,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
           /* Setup / Change PIN Flow */
           <div className="flex flex-col gap-4">
             <p className="text-xs font-bold text-neutral-700">
-              Set up a {selectedLength}-digit PIN to lock your finances when inactive. Data is securely hashed in the cloud.
+              Set up a {selectedLength}-digit PIN to lock your finances when inactive.
             </p>
 
             {/* PIN Length Slider - shown on create step */}
