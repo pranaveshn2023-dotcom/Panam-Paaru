@@ -3208,6 +3208,7 @@ export const syncLiveMarketPrices = action({
     userId: v.optional(v.id("users")),
     investmentIds: v.optional(v.array(v.id("investments"))),
     force: v.optional(v.boolean()),
+    assetTypes: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     let userId = args.userId;
@@ -3227,6 +3228,10 @@ export const syncLiveMarketPrices = action({
       return { success: true, count: 0, updates: [] };
     }
 
+    const marketStatus = getIndianMarketStatus();
+    const isMktOpen = marketStatus.isOpen; // 9:15 AM - 3:30 PM IST on regular trading weekdays
+    const now = Date.now();
+
     // 1. Build deduplicated tasks for unique price targets
     interface PriceTask {
       key: string;
@@ -3245,12 +3250,34 @@ export const syncLiveMarketPrices = action({
       if (at === "fd_rd" || at === "ppf_epf" || at === "real_estate" || at === "other") {
         continue;
       }
+      if (args.assetTypes && args.assetTypes.length > 0 && !args.assetTypes.includes(at)) {
+        continue;
+      }
       const isInvested =
         (inv.investedAmount && inv.investedAmount > 0) ||
         (inv.units && inv.units > 0) ||
         (inv.currentValue && inv.currentValue > 0);
       if (!isInvested) {
         continue;
+      }
+
+      // ── Intelligent Staleness Filter for Unchanged Instruments in Non-Market Hours ──
+      if (!args.force) {
+        // A. Mutual Funds: AMCs release NAVs once per day in the evening (9 PM - 12 AM IST)
+        if (at === "mutual_fund" && inv.currentPrice && inv.currentPrice > 0) {
+          const ageHours = (now - (inv.updatedAt || inv.createdAt)) / (1000 * 60 * 60);
+          if (ageHours < 6 && !marketStatus.isNightNavWindow) {
+            continue;
+          }
+        }
+
+        // B. Stocks / SGBs: Outside market hours (after 3:30 PM, weekends, holidays), prices are closed/settled.
+        if ((at === "stocks" || at === "gold") && !isMktOpen && inv.currentPrice && inv.currentPrice > 0) {
+          const ageHours = (now - (inv.updatedAt || inv.createdAt)) / (1000 * 60 * 60);
+          if (ageHours < 12) {
+            continue;
+          }
+        }
       }
 
       const combined = `${inv.name} ${inv.notes || ""}`;

@@ -303,14 +303,39 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
 
     if (!isAutoSyncEnabled) return;
 
+    // Helper: Is Indian stock market open right now? (Mon-Fri 9:15 AM - 3:30 PM IST)
+    const isIndianMarketOpenNow = () => {
+      const now = new Date();
+      const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+      const ist = new Date(utcMs + 5.5 * 60 * 60 * 1000);
+      const day = ist.getDay();
+      if (day === 0 || day === 6) return false;
+      const mins = ist.getHours() * 60 + ist.getMinutes();
+      return mins >= 555 && mins <= 930;
+    };
+
+    // 45-Second Interval: Strictly optimized for live instruments only
+    // - Stocks/ETFs: ONLY during Indian market hours (9:15 AM - 3:30 PM IST, Mon-Fri)
+    // - Crypto: 24/7 (global market never closes)
+    // - Mutual funds / closed markets: NEVER polled every 45s (avoids redundant API spam)
     const timer = setInterval(() => {
-      if (investments.length > 0) {
-        handleSyncLiveMarket(true);
+      if (investments.length === 0) return;
+
+      const hasCrypto = investments.some((i) => i.assetType === 'crypto' && (i.investedAmount > 0 || (i.units && i.units > 0)));
+      const hasStocks = investments.some((i) => (i.assetType === 'stocks' || (i.assetType === 'gold' && !/fund/i.test(i.name))) && (i.investedAmount > 0 || (i.units && i.units > 0)));
+      const mktOpen = isIndianMarketOpenNow();
+
+      if (hasCrypto && (!hasStocks || !mktOpen)) {
+        // Outside market hours or no stocks: only tick crypto 24/7
+        syncLiveMarketPricesAction({ assetTypes: ['crypto'], force: false }).catch(() => {});
+      } else if (mktOpen && (hasStocks || hasCrypto)) {
+        // Market is open: tick stocks, ETFs, gold, and crypto live
+        syncLiveMarketPricesAction({ assetTypes: hasCrypto ? ['stocks', 'crypto', 'gold'] : ['stocks', 'gold'], force: false }).catch(() => {});
       }
     }, 45000);
 
     return () => clearInterval(timer);
-  }, [isAutoSyncEnabled, investments.length, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation]);
+  }, [isAutoSyncEnabled, investments.length, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation, syncLiveMarketPricesAction]);
 
   const ASSET_TABS: { label: string; value: 'all' | AssetType }[] = [
     { label: 'All', value: 'all' },
