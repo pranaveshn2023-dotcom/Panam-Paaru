@@ -110,6 +110,7 @@ export default defineSchema({
     importBatchId: v.optional(v.string()), // Id for 1-click batch undo
     xirr: v.optional(v.string()), // e.g. "17.3%", "26.81%", "-6.15%"
     notes: v.optional(v.string()),
+    manualPrice: v.optional(v.boolean()), // true if user manually set/corrected NAV/CP
     createdAt: v.number(),
     updatedAt: v.number(),
   })

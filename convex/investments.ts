@@ -794,6 +794,7 @@ export const update = mutation({
       sipDay: args.sipDay,
       xirr: args.xirr,
       notes: args.notes,
+      manualPrice: Boolean(resolvedPrice && resolvedPrice > 0),
       updatedAt: now,
     });
 
@@ -880,6 +881,7 @@ export const quickUpdateValue = mutation({
     await ctx.db.patch(args.id, {
       currentValue: Math.max(0, resolvedValue),
       currentPrice: resolvedPrice,
+      manualPrice: true,
       updatedAt: now,
     });
 
@@ -1760,50 +1762,172 @@ function schemeNameSimilarity(a: string, b: string): number {
   return (2 * overlap) / (ta.length + tb.length);
 }
 
-async function fetchMfNav(
+// ──────────────────────────────────────────
+// Official AMFI Daily NAV Engine (Direct from amfiindia.com)
+// ──────────────────────────────────────────
+
+interface AmfiTableEntry {
+  code: number;
+  isin: string;
+  name: string;
+  nav: number;
+  date: string;
+  isDirect: boolean;
+  isGrowth: boolean;
+}
+
+let amfiTableCache: {
+  timestamp: number;
+  isinMap: Map<string, AmfiTableEntry>;
+  codeMap: Map<number, AmfiTableEntry>;
+  entries: AmfiTableEntry[];
+} | null = null;
+
+const AMFI_CACHE_DURATION_MS = 20 * 60 * 1000; // 20 min in-memory cache
+
+export async function getAmfiOfficialNavTable(): Promise<{
+  isinMap: Map<string, AmfiTableEntry>;
+  codeMap: Map<number, AmfiTableEntry>;
+  entries: AmfiTableEntry[];
+} | null> {
+  const now = Date.now();
+  if (amfiTableCache && now - amfiTableCache.timestamp < AMFI_CACHE_DURATION_MS) {
+    return amfiTableCache;
+  }
+
+  try {
+    const res = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
+      headers: STANDARD_HEADERS,
+      signal: AbortSignal.timeout(6500),
+    });
+    if (!res.ok) return amfiTableCache;
+
+    const text = await res.text();
+    const lines = text.split("\n");
+    const isinMap = new Map<string, AmfiTableEntry>();
+    const codeMap = new Map<number, AmfiTableEntry>();
+    const entries: AmfiTableEntry[] = [];
+
+    for (const line of lines) {
+      const parts = line.split(";");
+      if (parts.length >= 8) {
+        const code = parseInt(parts[0]?.trim(), 10);
+        if (isNaN(code) || code <= 0) continue;
+
+        const isin1 = parts[1]?.trim() || "";
+        const isin2 = parts[2]?.trim() || "";
+        const schemeName = parts[3]?.trim() || "";
+        const plan = parts[4]?.trim() || "";
+        const option = parts[5]?.trim() || "";
+        const navStr = parts[6]?.trim() || "";
+        const dateStr = parts[7]?.trim() || "";
+        const nav = parseFloat(navStr);
+
+        if (isNaN(nav) || nav <= 0) continue;
+
+        const primaryIsin = (isin1 && isin1 !== "-") ? isin1 : (isin2 && isin2 !== "-") ? isin2 : "";
+        const entry: AmfiTableEntry = {
+          code,
+          isin: primaryIsin,
+          name: schemeName,
+          nav,
+          date: dateStr,
+          isDirect: /direct/i.test(plan) || /direct/i.test(schemeName),
+          isGrowth: /growth/i.test(option) || /growth/i.test(schemeName),
+        };
+
+        codeMap.set(code, entry);
+        if (isin1 && isin1 !== "-") isinMap.set(isin1.toUpperCase(), entry);
+        if (isin2 && isin2 !== "-") isinMap.set(isin2.toUpperCase(), entry);
+        entries.push(entry);
+      }
+    }
+
+    amfiTableCache = { timestamp: now, isinMap, codeMap, entries };
+    return amfiTableCache;
+  } catch (err) {
+    console.warn("[AMFI] Error fetching live NAVAll.txt from amfiindia.com:", err);
+    return amfiTableCache;
+  }
+}
+
+export async function fetchMfNav(
   name: string,
   notes?: string,
   knownSchemeCode?: number,
   knownIsin?: string
 ): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number; isin?: string } | null> {
-  const combined = `${name} ${notes || ''}`;
+  const combined = `${name} ${notes || ""}`;
   const isin = knownIsin || (combined.match(/\b(INF[A-Z0-9]{9})\b/i)?.[1]?.toUpperCase());
 
-  // 1. Direct scheme code check (Fastest & 100% accurate)
-  if (knownSchemeCode && knownSchemeCode > 0) {
-    try {
-      const detailRes = await fetch(`https://api.mfapi.in/mf/${knownSchemeCode}`, {
-        headers: STANDARD_HEADERS,
-        signal: AbortSignal.timeout(4500),
-      });
-      if (detailRes.ok) {
-        const details: any = await detailRes.json();
-        const latest = details?.data?.[0];
-        const prev = details?.data?.[1];
-        if (latest && latest.nav) {
-          const navNum = parseFloat(latest.nav);
-          if (!isNaN(navNum) && navNum > 0) {
-            return {
-              nav: navNum,
-              date: latest.date || '',
-              schemeName: details.meta?.scheme_name || name,
-              prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-              schemeCode: knownSchemeCode,
-              isin,
-            };
-          }
-        }
+  // Extract any explicit scheme code from notes
+  const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, "");
+  const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
+  const codeNum = knownSchemeCode && knownSchemeCode > 0 ? knownSchemeCode : explicitSchemeMatch ? parseInt(explicitSchemeMatch[1] || explicitSchemeMatch[0], 10) : undefined;
+
+  // 1. Primary: Official Live AMFI Portal (Direct from amfiindia.com)
+  const amfiTable = await getAmfiOfficialNavTable();
+  if (amfiTable) {
+    // 1A. Instant ISIN Match (100% precision)
+    if (isin && amfiTable.isinMap.has(isin)) {
+      const match = amfiTable.isinMap.get(isin)!;
+      return {
+        nav: match.nav,
+        date: match.date,
+        schemeName: match.name,
+        schemeCode: match.code,
+        isin: match.isin || isin,
+      };
+    }
+
+    // 1B. Instant Scheme Code Match (100% precision)
+    if (codeNum && amfiTable.codeMap.has(codeNum)) {
+      const match = amfiTable.codeMap.get(codeNum)!;
+      return {
+        nav: match.nav,
+        date: match.date,
+        schemeName: match.name,
+        schemeCode: match.code,
+        isin: match.isin || isin,
+      };
+    }
+
+    // 1C. High-Accuracy Name Match from Official AMFI Table
+    const strippedName = stripBrokerSuffix(name);
+    const wantsDirect = /\bdirect\b/i.test(strippedName);
+    const wantsRegular = /\bregular\b/i.test(strippedName);
+    const wantsGrowth = !/\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
+
+    let bestMatch: AmfiTableEntry | null = null;
+    let bestScore = -1;
+
+    for (const item of amfiTable.entries) {
+      // Fast plan filter
+      if (wantsDirect && !item.isDirect) continue;
+      if (wantsRegular && item.isDirect) continue;
+      if (wantsGrowth && !item.isGrowth) continue;
+
+      const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, strippedName);
+      if (score > bestScore && score >= 50) {
+        bestScore = score;
+        bestMatch = item;
       }
-    } catch { }
+    }
+
+    if (bestMatch && bestScore >= 60) {
+      return {
+        nav: bestMatch.nav,
+        date: bestMatch.date,
+        schemeName: bestMatch.name,
+        schemeCode: bestMatch.code,
+        isin: bestMatch.isin || isin,
+      };
+    }
   }
 
-  // 2. Direct scheme code check from notes (e.g. 6-digit AMFI code)
-  const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, '');
-  const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
-  if (explicitSchemeMatch) {
+  // 2. Secondary Fallback: api.mfapi.in direct by code
+  if (codeNum && codeNum > 0) {
     try {
-      const code = explicitSchemeMatch[1] || explicitSchemeMatch[0];
-      const codeNum = parseInt(code, 10);
       const detailRes = await fetch(`https://api.mfapi.in/mf/${codeNum}`, {
         headers: STANDARD_HEADERS,
         signal: AbortSignal.timeout(4500),
@@ -1817,7 +1941,7 @@ async function fetchMfNav(
           if (!isNaN(navNum) && navNum > 0) {
             return {
               nav: navNum,
-              date: latest.date || '',
+              date: latest.date || "",
               schemeName: details.meta?.scheme_name || name,
               prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
               schemeCode: codeNum,
@@ -1829,118 +1953,61 @@ async function fetchMfNav(
     } catch { }
   }
 
-  // 3. Fast Targeted Search by Clean Scheme Name
-  const strippedName = stripBrokerSuffix(name);
-  const rawWords = strippedName
-    .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
-    .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
-    .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+  // 3. Fallback: mfapi.in search
+  try {
+    const strippedName = stripBrokerSuffix(name);
+    const rawWords = strippedName
+      .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, "")
+      .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, "")
+      .replace(/[\.\(\)₹\$\[\]\/\\-]/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
 
-  if (rawWords.length === 0) return null;
-
-  const baseQuery = rawWords.slice(0, 4).join(' ');
-  const fallbackQuery = rawWords.slice(0, 2).join(' ');
-  const queries = [baseQuery];
-  if (fallbackQuery !== baseQuery && fallbackQuery.length >= 3) queries.push(fallbackQuery);
-
-  const candidateMap = new Map<number, { schemeCode: number; schemeName: string; score: number }>();
-
-  for (const query of queries) {
-    try {
+    if (rawWords.length > 0) {
+      const query = rawWords.slice(0, 3).join(" ");
       const searchRes = await fetch(
         `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
         { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
       );
       if (searchRes.ok) {
         const list: any[] = await searchRes.json();
-        if (Array.isArray(list)) {
-          for (const item of list) {
-            if (!candidateMap.has(item.schemeCode)) {
-              const score = scoreMfCandidate(item, strippedName);
-              candidateMap.set(item.schemeCode, { ...item, score });
+        if (Array.isArray(list) && list.length > 0) {
+          const sorted = list
+            .map((item) => ({ ...item, score: scoreMfCandidate(item, strippedName) }))
+            .sort((a, b) => b.score - a.score);
+          const top = sorted[0];
+          if (top && top.score >= 50) {
+            const detailRes = await fetch(
+              `https://api.mfapi.in/mf/${top.schemeCode}`,
+              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+            );
+            if (detailRes.ok) {
+              const details: any = await detailRes.json();
+              const latest = details?.data?.[0];
+              const prev = details?.data?.[1];
+              if (latest && latest.nav) {
+                const navNum = parseFloat(latest.nav);
+                if (!isNaN(navNum) && navNum > 0) {
+                  return {
+                    nav: navNum,
+                    date: latest.date,
+                    schemeName: details.meta?.scheme_name || top.schemeName,
+                    prevNav: prev ? parseFloat(prev.nav) : undefined,
+                    schemeCode: top.schemeCode,
+                    isin,
+                  };
+                }
+              }
             }
           }
         }
       }
-    } catch { }
-    if (candidateMap.size >= 5) break;
-  }
-
-  const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
-  if (sortedCandidates.length === 0) return null;
-
-  const topCandidates = sortedCandidates.slice(0, 3);
-  const validResults: { nav: number; date: string; schemeName: string; prevNav?: number; score: number; isDirect: boolean; schemeCode?: number }[] = [];
-
-  for (const candidate of topCandidates) {
-    try {
-      const detailRes = await fetch(
-        `https://api.mfapi.in/mf/${candidate.schemeCode}`,
-        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
-      );
-      if (!detailRes.ok) continue;
-      const details: any = await detailRes.json();
-      const latest = details?.data?.[0];
-      const prev = details?.data?.[1];
-
-      if (latest && latest.nav) {
-        const navNum = parseFloat(latest.nav);
-        if (isNaN(navNum) || navNum <= 0) continue;
-
-        const resolvedName = String(details.meta?.scheme_name || candidate.schemeName || '');
-        if (resolvedName && schemeNameSimilarity(name, resolvedName) < 0.20) {
-          continue;
-        }
-
-        validResults.push({
-          nav: navNum,
-          date: latest.date,
-          schemeName: resolvedName,
-          prevNav: prev ? parseFloat(prev.nav) : undefined,
-          score: candidate.score,
-          isDirect: /direct/i.test(resolvedName) || /direct/i.test(candidate.schemeName),
-          schemeCode: candidate.schemeCode,
-        });
-      }
-    } catch { }
-  }
-
-  if (validResults.length === 0) return null;
-
-  const wantsDirect = /\bdirect\b/i.test(strippedName);
-  const wantsRegular = /\bregular\b/i.test(strippedName);
-  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
-
-  validResults.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (wantsRegular) {
-      if (!a.isDirect && b.isDirect) return -1;
-      if (a.isDirect && !b.isDirect) return 1;
-    } else if (wantsDirect) {
-      if (a.isDirect && !b.isDirect) return -1;
-      if (!a.isDirect && b.isDirect) return 1;
     }
-    if (wantsIdcw) {
-      if (a.nav !== b.nav) return a.nav - b.nav;
-    } else {
-      if (b.nav !== a.nav) return b.nav - a.nav;
-    }
-    return (a.schemeCode || 0) - (b.schemeCode || 0);
-  });
+  } catch { }
 
-  const best = validResults[0];
-  return {
-    nav: best.nav,
-    date: best.date,
-    schemeName: best.schemeName,
-    prevNav: best.prevNav,
-    schemeCode: best.schemeCode,
-    isin,
-  };
+  return null;
 }
 
 export const internalListInvestments = internalQuery({
@@ -3368,6 +3435,11 @@ export const syncLiveMarketPrices = action({
       }
 
       const livePrice = res.livePrice;
+
+      // Respect user's manual price input during automated background sync (!args.force)
+      if (inv.manualPrice && !args.force) {
+        continue;
+      }
 
       // Sanity Guard: If holding has an existing currentPrice but lacks an exact verified identifier (isin/schemeCode),
       // guard against fuzzy search mis-matches causing >75% erroneous price swings (e.g. matching penny stocks or foreign tickers)

@@ -113,6 +113,7 @@ export interface Investment {
   sipDay?: number;
   xirr?: string;
   notes?: string;
+  manualPrice?: boolean;
   createdAt: number;
   updatedAt: number;
   returnsAmount?: number;
