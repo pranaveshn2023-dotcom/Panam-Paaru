@@ -3,6 +3,15 @@ import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
+export const DESKTOP_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+export const STANDARD_HEADERS: Record<string, string> = {
+  "User-Agent": DESKTOP_USER_AGENT,
+  "Accept": "application/json, text/plain, */*",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
 // Universal dynamic commodity and precious metal matcher from name or ticker symbols (Gold, Silver, DigiGold, SGB, Bullion)
 const COMMODITY_TICKER_NAME_REGEX =
   /(?:gold(?!man)|silver|silve|sgb|sovereign.*gold|bullion|digi(?:tal)?\s*(?:gold|silver|metal)|precious\s*metal)/i;
@@ -111,38 +120,8 @@ export const list = query({
       .order("desc")
       .collect();
 
-    // Query-level deduplication to ensure multiple duplicate uploads never show duplicate cards
-    const dedupedMap = new Map<string, (typeof investments)[0]>();
-    for (const inv of investments) {
-      const key = getHoldingDedupeKey(inv.name, inv.notes, inv.isin, inv.schemeCode);
-
-      let matchKey: string | null = null;
-      if (dedupedMap.has(key)) {
-        matchKey = key;
-      } else {
-        for (const [k, v] of dedupedMap.entries()) {
-          if (areHoldingsEquivalent(v, inv)) {
-            matchKey = k;
-            break;
-          }
-        }
-      }
-
-      if (matchKey) {
-        const existing = dedupedMap.get(matchKey)!;
-        const keepExisting =
-          (existing.updatedAt || existing.createdAt || 0) >=
-          (inv.updatedAt || inv.createdAt || 0);
-        if (!keepExisting) {
-          dedupedMap.delete(matchKey);
-          dedupedMap.set(key, inv);
-        }
-      } else {
-        dedupedMap.set(key, inv);
-      }
-    }
-
-    const uniqueInvestments = Array.from(dedupedMap.values());
+    // Cleanly normalize all user investments without dropping distinct holdings
+    const uniqueInvestments = investments;
 
     // Dynamically classify commodity holdings (gold / silver) by name/ticker patterns
     const normalized = uniqueInvestments.map((inv) => {
@@ -216,38 +195,7 @@ export const getPortfolioSummary = query({
       .order("desc")
       .collect();
 
-    // Query-level deduplication for portfolio summary
-    const dedupedMap = new Map<string, (typeof investments)[0]>();
-    for (const inv of investments) {
-      const key = getHoldingDedupeKey(inv.name, inv.notes, inv.isin, inv.schemeCode);
-
-      let matchKey: string | null = null;
-      if (dedupedMap.has(key)) {
-        matchKey = key;
-      } else {
-        for (const [k, v] of dedupedMap.entries()) {
-          if (areHoldingsEquivalent(v, inv)) {
-            matchKey = k;
-            break;
-          }
-        }
-      }
-
-      if (matchKey) {
-        const existing = dedupedMap.get(matchKey)!;
-        const keepExisting =
-          (existing.updatedAt || existing.createdAt || 0) >=
-          (inv.updatedAt || inv.createdAt || 0);
-        if (!keepExisting) {
-          dedupedMap.delete(matchKey);
-          dedupedMap.set(key, inv);
-        }
-      } else {
-        dedupedMap.set(key, inv);
-      }
-    }
-
-    const uniqueInvestments = Array.from(dedupedMap.values());
+    const uniqueInvestments = investments;
 
     let totalInvested = 0;
     let totalCurrentValue = 0;
@@ -724,6 +672,52 @@ export const batchUpdateLivePrices = mutation({
           ticker: u.ticker ?? inv.ticker,
           updatedAt: now,
         });
+
+        // Sync to cache so cache DB has the newest verified quote
+        const price = u.currentPrice ?? inv.currentPrice;
+        if (price && price > 0) {
+          const isin = u.isin ?? inv.isin;
+          if (inv.assetType === "mutual_fund" || (inv.assetType === "gold" && /fund/i.test(inv.name))) {
+            const cleanKey = normalizeMfSearchKey(inv.name);
+            const schemeCode = u.schemeCode ?? inv.schemeCode ?? 0;
+            const existingCache = isin
+              ? await ctx.db.query("mfNavCache").withIndex("by_isin", (q) => q.eq("isin", isin)).first()
+              : schemeCode > 0
+                ? await ctx.db.query("mfNavCache").withIndex("by_scheme_code", (q) => q.eq("schemeCode", schemeCode)).first()
+                : await ctx.db.query("mfNavCache").withIndex("by_search_key", (q) => q.eq("searchKey", cleanKey)).first();
+            if (existingCache) {
+              await ctx.db.patch(existingCache._id, { nav: price, lastFetchedAt: now });
+            } else {
+              await ctx.db.insert("mfNavCache", {
+                schemeCode,
+                schemeName: inv.name,
+                nav: price,
+                navDate: getLatestExpectedMfNavDate(),
+                searchKey: cleanKey,
+                isin,
+                lastFetchedAt: now,
+              });
+            }
+          } else {
+            const searchKey = normalizeStockSearchKey(inv.name);
+            const symbol = u.ticker ?? inv.ticker ?? inv.name.trim().toUpperCase();
+            const existingCache = isin
+              ? await ctx.db.query("stockPriceCache").withIndex("by_isin", (q) => q.eq("isin", isin)).first()
+              : await ctx.db.query("stockPriceCache").withIndex("by_symbol", (q) => q.eq("symbol", symbol)).first();
+            if (existingCache) {
+              await ctx.db.patch(existingCache._id, { price, lastFetchedAt: now });
+            } else {
+              await ctx.db.insert("stockPriceCache", {
+                isin,
+                symbol,
+                name: inv.name,
+                price,
+                searchKey,
+                lastFetchedAt: now,
+              });
+            }
+          }
+        }
       }
     }
 
@@ -773,14 +767,26 @@ export const update = mutation({
     const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi)\s*[:#-]?\s*(\d{6})\b/i);
     const autoSchemeCode = args.schemeCode ?? existing.schemeCode ?? (explicitSchemeMatch ? parseInt(explicitSchemeMatch[1], 10) : undefined);
 
+    let resolvedPrice = args.currentPrice ?? existing.currentPrice;
+    let resolvedValue = args.currentValue;
+
+    // Mathematical reconciliation:
+    // If units and price are present, keep value = units * price
+    if (args.units && args.units > 0 && resolvedPrice && resolvedPrice > 0) {
+      resolvedValue = Math.round(args.units * resolvedPrice * 100) / 100;
+    } else if (resolvedValue > 0 && args.units && args.units > 0 && (!resolvedPrice || resolvedPrice <= 0)) {
+      resolvedPrice = Math.round((resolvedValue / args.units) * 100) / 100;
+    }
+
+    const now = Date.now();
     await ctx.db.patch(args.id, {
       name: args.name.trim(),
       assetType: args.assetType,
       investedAmount: Math.max(0, args.investedAmount),
-      currentValue: Math.max(0, args.currentValue),
+      currentValue: Math.max(0, resolvedValue),
       units: args.units,
       buyPrice: args.buyPrice,
-      currentPrice: args.currentPrice,
+      currentPrice: resolvedPrice,
       schemeCode: autoSchemeCode,
       isin: autoIsin,
       ticker: args.ticker ?? existing.ticker,
@@ -788,8 +794,57 @@ export const update = mutation({
       sipDay: args.sipDay,
       xirr: args.xirr,
       notes: args.notes,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
+
+    // CRITICAL: Synchronize cache DB with the user's manual correction
+    if (resolvedPrice && resolvedPrice > 0) {
+      if (args.assetType === "mutual_fund" || (args.assetType === "gold" && /fund/i.test(args.name))) {
+        const cleanKey = normalizeMfSearchKey(args.name);
+        const schemeCode = autoSchemeCode || 0;
+        const existingCache = autoIsin
+          ? await ctx.db.query("mfNavCache").withIndex("by_isin", (q) => q.eq("isin", autoIsin)).first()
+          : schemeCode > 0
+            ? await ctx.db.query("mfNavCache").withIndex("by_scheme_code", (q) => q.eq("schemeCode", schemeCode)).first()
+            : await ctx.db.query("mfNavCache").withIndex("by_search_key", (q) => q.eq("searchKey", cleanKey)).first();
+        if (existingCache) {
+          await ctx.db.patch(existingCache._id, {
+            nav: resolvedPrice,
+            schemeCode: schemeCode > 0 ? schemeCode : existingCache.schemeCode,
+            schemeName: args.name.trim(),
+            lastFetchedAt: now,
+          });
+        } else {
+          await ctx.db.insert("mfNavCache", {
+            schemeCode,
+            schemeName: args.name.trim(),
+            nav: resolvedPrice,
+            navDate: getLatestExpectedMfNavDate(),
+            searchKey: cleanKey,
+            isin: autoIsin,
+            lastFetchedAt: now,
+          });
+        }
+      } else {
+        const searchKey = normalizeStockSearchKey(args.name);
+        const symbol = args.ticker ?? existing.ticker ?? args.name.trim().toUpperCase();
+        const existingCache = autoIsin
+          ? await ctx.db.query("stockPriceCache").withIndex("by_isin", (q) => q.eq("isin", autoIsin)).first()
+          : await ctx.db.query("stockPriceCache").withIndex("by_symbol", (q) => q.eq("symbol", symbol)).first();
+        if (existingCache) {
+          await ctx.db.patch(existingCache._id, { price: resolvedPrice, lastFetchedAt: now });
+        } else {
+          await ctx.db.insert("stockPriceCache", {
+            isin: autoIsin,
+            symbol,
+            name: args.name.trim(),
+            price: resolvedPrice,
+            searchKey,
+            lastFetchedAt: now,
+          });
+        }
+      }
+    }
 
     return { success: true };
   },
@@ -810,11 +865,72 @@ export const quickUpdateValue = mutation({
       throw new Error("Investment not found or unauthorized");
     }
 
+    let resolvedPrice = args.currentPrice ?? existing.currentPrice;
+    let resolvedValue = args.currentValue;
+
+    // Mathematical reconciliation:
+    // If units and price are passed, calculate currentValue = units * price
+    if (args.currentPrice && args.currentPrice > 0 && existing.units && existing.units > 0) {
+      resolvedValue = Math.round(existing.units * args.currentPrice * 100) / 100;
+    } else if (resolvedValue > 0 && existing.units && existing.units > 0 && (!resolvedPrice || resolvedPrice <= 0)) {
+      resolvedPrice = Math.round((resolvedValue / existing.units) * 100) / 100;
+    }
+
+    const now = Date.now();
     await ctx.db.patch(args.id, {
-      currentValue: Math.max(0, args.currentValue),
-      currentPrice: args.currentPrice ?? existing.currentPrice,
-      updatedAt: Date.now(),
+      currentValue: Math.max(0, resolvedValue),
+      currentPrice: resolvedPrice,
+      updatedAt: now,
     });
+
+    // CRITICAL: Update the cache DB so the 45s auto-sync does not revert to old values!
+    if (resolvedPrice && resolvedPrice > 0) {
+      if (existing.assetType === "mutual_fund" || (existing.assetType === "gold" && /fund/i.test(existing.name))) {
+        const cleanKey = normalizeMfSearchKey(existing.name);
+        const schemeCode = existing.schemeCode || 0;
+        const existingCache = existing.isin
+          ? await ctx.db.query("mfNavCache").withIndex("by_isin", (q) => q.eq("isin", existing.isin!)).first()
+          : schemeCode > 0
+            ? await ctx.db.query("mfNavCache").withIndex("by_scheme_code", (q) => q.eq("schemeCode", schemeCode)).first()
+            : await ctx.db.query("mfNavCache").withIndex("by_search_key", (q) => q.eq("searchKey", cleanKey)).first();
+        if (existingCache) {
+          await ctx.db.patch(existingCache._id, {
+            nav: resolvedPrice,
+            schemeCode: schemeCode > 0 ? schemeCode : existingCache.schemeCode,
+            schemeName: existing.name,
+            lastFetchedAt: now,
+          });
+        } else {
+          await ctx.db.insert("mfNavCache", {
+            schemeCode,
+            schemeName: existing.name,
+            nav: resolvedPrice,
+            navDate: getLatestExpectedMfNavDate(),
+            searchKey: cleanKey,
+            isin: existing.isin,
+            lastFetchedAt: now,
+          });
+        }
+      } else {
+        const searchKey = normalizeStockSearchKey(existing.name);
+        const symbol = existing.ticker || existing.name.trim().toUpperCase();
+        const existingCache = existing.isin
+          ? await ctx.db.query("stockPriceCache").withIndex("by_isin", (q) => q.eq("isin", existing.isin!)).first()
+          : await ctx.db.query("stockPriceCache").withIndex("by_symbol", (q) => q.eq("symbol", symbol)).first();
+        if (existingCache) {
+          await ctx.db.patch(existingCache._id, { price: resolvedPrice, lastFetchedAt: now });
+        } else {
+          await ctx.db.insert("stockPriceCache", {
+            isin: existing.isin,
+            symbol,
+            name: existing.name,
+            price: resolvedPrice,
+            searchKey,
+            lastFetchedAt: now,
+          });
+        }
+      }
+    }
 
     return { success: true };
   },
@@ -849,7 +965,7 @@ export async function resolveTickerFromIsin(isin: string): Promise<string | null
   try {
     const res = await fetch(
       `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(upper)}&quotesCount=6`,
-      { signal: AbortSignal.timeout(4000) }
+      { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
     );
     if (res.ok) {
       const data: any = await res.json();
@@ -927,7 +1043,6 @@ async function fetchStockQuote(
   }
 
   // 3. Dynamic Yahoo Finance Search: Universal resolution for ANY stock, ETF, or fund
-  // Runs dynamically for all names/queries to resolve official ticker (e.g. 'State Bank of India' -> SBIN.NS)
   const searchQueries: string[] = [];
   if (clean) searchQueries.push(clean);
   if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
@@ -952,7 +1067,7 @@ async function fetchStockQuote(
     try {
       const searchRes = await fetch(
         `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
-        { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(3500) }
+        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
       );
       if (searchRes.ok) {
         const data: any = await searchRes.json();
@@ -1013,10 +1128,16 @@ async function fetchStockQuote(
   // Make live price API call to existing Yahoo Finance chart endpoint using resolved ticker
   for (const sym of candidates) {
     try {
-      const chartRes = await fetch(
+      let chartRes = await fetch(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
-        { signal: AbortSignal.timeout(4000) }
+        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
       );
+      if (!chartRes.ok) {
+        chartRes = await fetch(
+          `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+          { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+        );
+      }
       if (!chartRes.ok) continue;
       const data: any = await chartRes.json();
       const meta = data?.chart?.result?.[0]?.meta;
@@ -1639,31 +1760,6 @@ function schemeNameSimilarity(a: string, b: string): number {
   return (2 * overlap) / (ta.length + tb.length);
 }
 
-let cachedMfMasterList: { schemeCode: number; schemeName: string; isinGrowth?: string; isinDivReinvestment?: string }[] | null = null;
-let mfMasterListFetchedAt = 0;
-
-/**
- * Loads and in-memory caches the official AMFI master list of all schemes & ISINs.
- * Used for instant, zero-latency resolution of scheme codes and ISINs across all categories.
- */
-export async function getMfMasterList(): Promise<{ schemeCode: number; schemeName: string; isinGrowth?: string; isinDivReinvestment?: string }[]> {
-  const now = Date.now();
-  if (cachedMfMasterList && cachedMfMasterList.length > 0 && now - mfMasterListFetchedAt < 60 * 60 * 1000) {
-    return cachedMfMasterList;
-  }
-  try {
-    const res = await fetch("https://api.mfapi.in/mf", { signal: AbortSignal.timeout(8000) });
-    if (res.ok) {
-      cachedMfMasterList = await res.json();
-      mfMasterListFetchedAt = now;
-      return cachedMfMasterList || [];
-    }
-  } catch (err) {
-    console.warn("[MFMasterList] Error loading master list:", err);
-  }
-  return cachedMfMasterList || [];
-}
-
 async function fetchMfNav(
   name: string,
   notes?: string,
@@ -1672,223 +1768,179 @@ async function fetchMfNav(
 ): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number; isin?: string } | null> {
   const combined = `${name} ${notes || ''}`;
   const isin = knownIsin || (combined.match(/\b(INF[A-Z0-9]{9})\b/i)?.[1]?.toUpperCase());
-    // 1. Direct ISIN check (Highest Priority & 100% Unique per scheme variant e.g. INF200K01QV8 from CAS)
-    if (isin) {
-      try {
-        const masterList = await getMfMasterList();
-        const found = masterList.find((x: any) => x.isinGrowth === isin || x.isinDivReinvestment === isin);
-        if (found && found.schemeCode) {
-          const detailRes = await fetch(`https://api.mfapi.in/mf/${found.schemeCode}`, { signal: AbortSignal.timeout(4500) });
-          if (detailRes.ok) {
-            const details: any = await detailRes.json();
-            const latest = details?.data?.[0];
-            const prev = details?.data?.[1];
-            if (latest && latest.nav) {
-              const navNum = parseFloat(latest.nav);
-              if (!isNaN(navNum) && navNum > 0) {
-                return {
-                  nav: navNum,
-                  date: latest.date || '',
-                  schemeName: details.meta?.scheme_name || found.schemeName || name,
-                  prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-                  schemeCode: found.schemeCode,
-                  isin,
-                };
-              }
-            }
-          }
-        }
-      } catch { }
-    }
 
-    // 2. Direct scheme code check (Fastest & 100% accurate)
-    if (knownSchemeCode && knownSchemeCode > 0) {
-      try {
-        const detailRes = await fetch(`https://api.mfapi.in/mf/${knownSchemeCode}`, { signal: AbortSignal.timeout(4500) });
-        if (detailRes.ok) {
-          const details: any = await detailRes.json();
-          const latest = details?.data?.[0];
-          const prev = details?.data?.[1];
-          if (latest && latest.nav) {
-            const navNum = parseFloat(latest.nav);
-            if (!isNaN(navNum) && navNum > 0) {
-              const masterList = await getMfMasterList();
-              const foundInMaster = masterList.find((x: any) => x.schemeCode === knownSchemeCode);
-              const resolvedIsin = isin || foundInMaster?.isinGrowth || foundInMaster?.isinDivReinvestment;
-              return {
-                nav: navNum,
-                date: latest.date || '',
-                schemeName: details.meta?.scheme_name || name,
-                prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-                schemeCode: knownSchemeCode,
-                isin: resolvedIsin,
-              };
-            }
-          }
-        }
-      } catch { }
-    }
-
-    // 3. Direct scheme code check from notes (Explicitly stripping out any Folio numbers!)
-    const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, '');
-    const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
-    if (explicitSchemeMatch) {
-      try {
-        const code = explicitSchemeMatch[1] || explicitSchemeMatch[0];
-        const codeNum = parseInt(code, 10);
-        const detailRes = await fetch(`https://api.mfapi.in/mf/${codeNum}`, { signal: AbortSignal.timeout(4500) });
-        if (detailRes.ok) {
-          const details: any = await detailRes.json();
-          const latest = details?.data?.[0];
-          const prev = details?.data?.[1];
-          if (latest && latest.nav) {
-            const navNum = parseFloat(latest.nav);
-            const resolvedName = String(details.meta?.scheme_name || '');
-            const sim = resolvedName ? schemeNameSimilarity(name, resolvedName) : 0;
-            if (!isNaN(navNum) && navNum > 0 && sim >= 0.35) {
-              const masterList = await getMfMasterList();
-              const foundInMaster = masterList.find((x: any) => x.schemeCode === codeNum);
-              const resolvedIsin = isin || foundInMaster?.isinGrowth || foundInMaster?.isinDivReinvestment;
-              return {
-                nav: navNum,
-                date: latest.date || '',
-                schemeName: details.meta?.scheme_name || name,
-                prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-                schemeCode: codeNum,
-                isin: resolvedIsin,
-              };
-            }
-          }
-        }
-      } catch { }
-    }
-
-    const strippedName = stripBrokerSuffix(name);
-    const rawWords = strippedName
-      .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
-      .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
-      .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
-      .replace(/\s{2,}/g, ' ')
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-
-    if (rawWords.length === 0) return null;
-
-    const baseQuery = rawWords.join(' ');
-    const queries: string[] = [
-      baseQuery,
-      rawWords.slice(0, 4).join(' '),
-      rawWords.slice(0, 3).join(' '),
-      rawWords.slice(0, 2).join(' '),
-    ].filter((q): q is string => Boolean(q) && q.length >= 3);
-
-    const uniqueQueries = [...new Set(queries)];
-    const candidateMap = new Map<number, { schemeCode: number; schemeName: string; score: number }>();
-
-    for (const query of uniqueQueries) {
-      try {
-        const searchRes = await fetch(
-          `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
-          { signal: AbortSignal.timeout(3500) }
-        );
-        if (searchRes.ok) {
-          const list: any[] = await searchRes.json();
-          if (Array.isArray(list)) {
-            for (const item of list) {
-              if (!candidateMap.has(item.schemeCode)) {
-                const score = scoreMfCandidate(item, strippedName);
-                candidateMap.set(item.schemeCode, { ...item, score });
-              }
-            }
-          }
-        }
-      } catch { }
-      const strong = [...candidateMap.values()].filter((c) => c.score >= 80).length;
-      if (strong >= 3) break;
-    }
-
-    const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
-    if (sortedCandidates.length === 0) return null;
-
-    const topCandidates = sortedCandidates.slice(0, 6);
-    const validResults: { nav: number; date: string; schemeName: string; prevNav?: number; score: number; isDirect: boolean; schemeCode?: number }[] = [];
-
-    for (const candidate of topCandidates) {
-      try {
-        let detailRes = await fetch(
-          `https://api.mfapi.in/mf/${candidate.schemeCode}`,
-          { signal: AbortSignal.timeout(4500) }
-        );
-        if (!detailRes.ok) {
-          detailRes = await fetch(
-            `https://api.mfapi.in/mf/${candidate.schemeCode}/latest`,
-            { signal: AbortSignal.timeout(3500) }
-          );
-        }
-        if (!detailRes.ok) continue;
+  // 1. Direct scheme code check (Fastest & 100% accurate)
+  if (knownSchemeCode && knownSchemeCode > 0) {
+    try {
+      const detailRes = await fetch(`https://api.mfapi.in/mf/${knownSchemeCode}`, {
+        headers: STANDARD_HEADERS,
+        signal: AbortSignal.timeout(4500),
+      });
+      if (detailRes.ok) {
         const details: any = await detailRes.json();
         const latest = details?.data?.[0];
         const prev = details?.data?.[1];
-
         if (latest && latest.nav) {
           const navNum = parseFloat(latest.nav);
-          if (isNaN(navNum) || navNum <= 0) continue;
-
-          const resolvedName = String(details.meta?.scheme_name || candidate.schemeName || '');
-          if (resolvedName && schemeNameSimilarity(name, resolvedName) < 0.25) {
-            continue;
+          if (!isNaN(navNum) && navNum > 0) {
+            return {
+              nav: navNum,
+              date: latest.date || '',
+              schemeName: details.meta?.scheme_name || name,
+              prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
+              schemeCode: knownSchemeCode,
+              isin,
+            };
           }
-
-          validResults.push({
-            nav: navNum,
-            date: latest.date,
-            schemeName: resolvedName,
-            prevNav: prev ? parseFloat(prev.nav) : undefined,
-            score: candidate.score,
-            isDirect: /direct/i.test(resolvedName) || /direct/i.test(candidate.schemeName),
-            schemeCode: candidate.schemeCode,
-          });
         }
-      } catch { }
+      }
+    } catch { }
+  }
+
+  // 2. Direct scheme code check from notes (e.g. 6-digit AMFI code)
+  const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, '');
+  const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
+  if (explicitSchemeMatch) {
+    try {
+      const code = explicitSchemeMatch[1] || explicitSchemeMatch[0];
+      const codeNum = parseInt(code, 10);
+      const detailRes = await fetch(`https://api.mfapi.in/mf/${codeNum}`, {
+        headers: STANDARD_HEADERS,
+        signal: AbortSignal.timeout(4500),
+      });
+      if (detailRes.ok) {
+        const details: any = await detailRes.json();
+        const latest = details?.data?.[0];
+        const prev = details?.data?.[1];
+        if (latest && latest.nav) {
+          const navNum = parseFloat(latest.nav);
+          if (!isNaN(navNum) && navNum > 0) {
+            return {
+              nav: navNum,
+              date: latest.date || '',
+              schemeName: details.meta?.scheme_name || name,
+              prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
+              schemeCode: codeNum,
+              isin,
+            };
+          }
+        }
+      }
+    } catch { }
+  }
+
+  // 3. Fast Targeted Search by Clean Scheme Name
+  const strippedName = stripBrokerSuffix(name);
+  const rawWords = strippedName
+    .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
+    .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
+    .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (rawWords.length === 0) return null;
+
+  const baseQuery = rawWords.slice(0, 4).join(' ');
+  const fallbackQuery = rawWords.slice(0, 2).join(' ');
+  const queries = [baseQuery];
+  if (fallbackQuery !== baseQuery && fallbackQuery.length >= 3) queries.push(fallbackQuery);
+
+  const candidateMap = new Map<number, { schemeCode: number; schemeName: string; score: number }>();
+
+  for (const query of queries) {
+    try {
+      const searchRes = await fetch(
+        `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
+        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
+      );
+      if (searchRes.ok) {
+        const list: any[] = await searchRes.json();
+        if (Array.isArray(list)) {
+          for (const item of list) {
+            if (!candidateMap.has(item.schemeCode)) {
+              const score = scoreMfCandidate(item, strippedName);
+              candidateMap.set(item.schemeCode, { ...item, score });
+            }
+          }
+        }
+      }
+    } catch { }
+    if (candidateMap.size >= 5) break;
+  }
+
+  const sortedCandidates = Array.from(candidateMap.values()).sort((a, b) => b.score - a.score);
+  if (sortedCandidates.length === 0) return null;
+
+  const topCandidates = sortedCandidates.slice(0, 3);
+  const validResults: { nav: number; date: string; schemeName: string; prevNav?: number; score: number; isDirect: boolean; schemeCode?: number }[] = [];
+
+  for (const candidate of topCandidates) {
+    try {
+      const detailRes = await fetch(
+        `https://api.mfapi.in/mf/${candidate.schemeCode}`,
+        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+      );
+      if (!detailRes.ok) continue;
+      const details: any = await detailRes.json();
+      const latest = details?.data?.[0];
+      const prev = details?.data?.[1];
+
+      if (latest && latest.nav) {
+        const navNum = parseFloat(latest.nav);
+        if (isNaN(navNum) || navNum <= 0) continue;
+
+        const resolvedName = String(details.meta?.scheme_name || candidate.schemeName || '');
+        if (resolvedName && schemeNameSimilarity(name, resolvedName) < 0.20) {
+          continue;
+        }
+
+        validResults.push({
+          nav: navNum,
+          date: latest.date,
+          schemeName: resolvedName,
+          prevNav: prev ? parseFloat(prev.nav) : undefined,
+          score: candidate.score,
+          isDirect: /direct/i.test(resolvedName) || /direct/i.test(candidate.schemeName),
+          schemeCode: candidate.schemeCode,
+        });
+      }
+    } catch { }
+  }
+
+  if (validResults.length === 0) return null;
+
+  const wantsDirect = /\bdirect\b/i.test(strippedName);
+  const wantsRegular = /\bregular\b/i.test(strippedName);
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
+
+  validResults.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (wantsRegular) {
+      if (!a.isDirect && b.isDirect) return -1;
+      if (a.isDirect && !b.isDirect) return 1;
+    } else if (wantsDirect) {
+      if (a.isDirect && !b.isDirect) return -1;
+      if (!a.isDirect && b.isDirect) return 1;
     }
+    if (wantsIdcw) {
+      if (a.nav !== b.nav) return a.nav - b.nav;
+    } else {
+      if (b.nav !== a.nav) return b.nav - a.nav;
+    }
+    return (a.schemeCode || 0) - (b.schemeCode || 0);
+  });
 
-    if (validResults.length === 0) return null;
-
-    const wantsDirect = /\bdirect\b/i.test(strippedName);
-    const wantsRegular = /\bregular\b/i.test(strippedName);
-    const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
-
-    validResults.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (wantsRegular) {
-        if (!a.isDirect && b.isDirect) return -1;
-        if (a.isDirect && !b.isDirect) return 1;
-      } else if (wantsDirect) {
-        if (a.isDirect && !b.isDirect) return -1;
-        if (!a.isDirect && b.isDirect) return 1;
-      }
-      if (wantsIdcw) {
-        if (a.nav !== b.nav) return a.nav - b.nav;
-      } else {
-        if (b.nav !== a.nav) return b.nav - a.nav;
-      }
-      return (a.schemeCode || 0) - (b.schemeCode || 0);
-    });
-
-    const best = validResults[0];
-    const masterList = await getMfMasterList();
-    const foundInMaster = masterList.find((x: any) => x.schemeCode === best.schemeCode);
-    const resolvedIsin = isin || foundInMaster?.isinGrowth || foundInMaster?.isinDivReinvestment;
-
-    return {
-      nav: best.nav,
-      date: best.date,
-      schemeName: best.schemeName,
-      prevNav: best.prevNav,
-      schemeCode: best.schemeCode,
-      isin: resolvedIsin,
-    };
+  const best = validResults[0];
+  return {
+    nav: best.nav,
+    date: best.date,
+    schemeName: best.schemeName,
+    prevNav: best.prevNav,
+    schemeCode: best.schemeCode,
+    isin,
+  };
 }
 
 export const internalListInvestments = internalQuery({
@@ -2222,7 +2274,13 @@ export function getIndianMarketStatus(): IndianMarketStatus {
   const istDate = new Date(utcMs + 5.5 * 60 * 60 * 1000);
 
   const dayOfWeek = istDate.getDay(); // 0 = Sunday, 6 = Saturday
-  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const hours = istDate.getHours();
+  const minutes = istDate.getMinutes();
+  const currentMinutes = hours * 60 + minutes;
+
+  // Friday night AMC NAV publishing window extends until 02:00 AM IST on Saturday
+  const isSaturdayEarlyMorning = dayOfWeek === 6 && currentMinutes <= 120;
+  const isWeekend = dayOfWeek === 0 || (dayOfWeek === 6 && !isSaturdayEarlyMorning);
 
   const m = String(istDate.getMonth() + 1).padStart(2, "0");
   const d = String(istDate.getDate()).padStart(2, "0");
@@ -2230,21 +2288,18 @@ export function getIndianMarketStatus(): IndianMarketStatus {
 
   const isHoliday = INDIAN_MARKET_HOLIDAYS.has(monthDay);
 
-  const hours = istDate.getHours();
-  const minutes = istDate.getMinutes();
-  const currentMinutes = hours * 60 + minutes;
-
   // NSE/BSE Trading Hours: 09:15 AM to 03:30 PM IST (555 to 930 minutes)
   const isTradingSession = currentMinutes >= 555 && currentMinutes <= 930;
   const isOpen = !isWeekend && !isHoliday && isTradingSession;
   const isNonMarketHours = !isOpen;
 
-  // AMC Daily NAV Release Window: 09:00 PM to 12:00 AM IST on regular trading weekdays
-  // Weekends and official NSE/BSE holidays have NO NAV releases
-  const isNightNavWindow = !isWeekend && !isHoliday && currentMinutes >= 1260;
+  // AMC Daily NAV Release Window: 09:00 PM to 12:00 AM IST on regular weekdays + Friday night rollover to Saturday 02:00 AM IST
+  const isNightNavWindow = (!isWeekend && !isHoliday && currentMinutes >= 1260) || isSaturdayEarlyMorning;
 
   let reason = "Market Open (Trading Active)";
-  if (isWeekend) {
+  if (isSaturdayEarlyMorning) {
+    reason = "Market Closed (Friday Night AMC NAV Release Window: 9 PM - 2 AM IST)";
+  } else if (isWeekend) {
     reason = dayOfWeek === 6 ? "Market Closed (Saturday - No NAV Updates)" : "Market Closed (Sunday - No NAV Updates)";
   } else if (isHoliday) {
     reason = "Market Closed (NSE/BSE Public Holiday - No NAV Updates)";
@@ -3313,6 +3368,18 @@ export const syncLiveMarketPrices = action({
       }
 
       const livePrice = res.livePrice;
+
+      // Sanity Guard: If holding has an existing currentPrice but lacks an exact verified identifier (isin/schemeCode),
+      // guard against fuzzy search mis-matches causing >75% erroneous price swings (e.g. matching penny stocks or foreign tickers)
+      const hasVerifiedId = Boolean(inv.isin || inv.schemeCode || (inv.ticker && inv.ticker.includes(".")));
+      if (!hasVerifiedId && inv.currentPrice && inv.currentPrice > 0) {
+        const priceRatio = livePrice / inv.currentPrice;
+        if (priceRatio < 0.25 || priceRatio > 4.0) {
+          console.warn(`[SyncLiveMarket] Rejecting wild unverified price swing for ${inv.name}: existing=${inv.currentPrice}, live=${livePrice}`);
+          continue;
+        }
+      }
+
       const hasQty = inv.units && inv.units > 0;
       const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
       const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
@@ -3324,7 +3391,7 @@ export const syncLiveMarketPrices = action({
         const derivedUnits = inv.investedAmount / inv.buyPrice;
         updatedVal = Math.round(derivedUnits * livePrice * 100) / 100;
       } else if (hasPriceRatio) {
-        const ratio = livePrice / inv.currentPrice;
+        const ratio = Math.max(0.5, Math.min(2.0, livePrice / inv.currentPrice));
         updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
       } else {
         updatedVal = inv.currentValue > 0 ? inv.currentValue : inv.investedAmount;
@@ -3375,28 +3442,6 @@ export const migrateAndRefreshCacheDb = action({
     const syncRes = await ctx.runAction(api.investments.syncLiveMarketPrices, {
       force: args.force ?? true,
     });
-
-    // 2. Backfill ISIN into mfNavCache for any existing entries that were created earlier
-    const mfCacheBefore: any[] = await ctx.runQuery(internal.investments.internalListAllMfCache, {});
-    const masterList = await getMfMasterList();
-
-    for (const entry of mfCacheBefore) {
-      if (!entry.isin && entry.schemeCode > 0) {
-        const match = masterList.find((m: any) => m.schemeCode === entry.schemeCode);
-        const resolvedIsin = match?.isinGrowth || match?.isinDivReinvestment;
-        if (resolvedIsin) {
-          await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
-            isin: resolvedIsin,
-            schemeCode: entry.schemeCode,
-            schemeName: entry.schemeName,
-            nav: entry.nav,
-            navDate: entry.navDate,
-            prevNav: entry.prevNav,
-            searchKey: entry.searchKey,
-          });
-        }
-      }
-    }
 
     const stockCache: any[] = await ctx.runQuery(internal.investments.internalListAllStockCache, {});
     const mfCache: any[] = await ctx.runQuery(internal.investments.internalListAllMfCache, {});
@@ -3500,10 +3545,7 @@ export const getMarketIndices = action({
     if (!args.force && !marketStatus.isOpen) {
       const allClosedCached = indices.every((idx) => {
         const c = cachedMap.get(idx.key);
-        const isKnownStale =
-          (idx.key === "sensex" && Math.abs((c?.price || 0) - 74906.37) < 0.1) ||
-          (idx.key === "nifty50" && Math.abs((c?.price || 0) - 23429) < 0.1);
-        return !isKnownStale && c && c.price > 0 && c.lastFetchedAt >= latestCloseTime;
+        return c && c.price > 0 && c.lastFetchedAt >= latestCloseTime;
       });
       if (allClosedCached) {
         return indices.map((idx) => {
@@ -3541,7 +3583,7 @@ export const getMarketIndices = action({
       }
     }
 
-    // 2. Multi-tier Official Exchange + Yahoo Finance index resolver
+    // 2. Multi-tier Yahoo Finance + Official Exchange index resolver
     const fetchSingleIndex = async (idx: (typeof indices)[0]) => {
       try {
         const searchKey = `__benchmark_index_${idx.key}__`;
@@ -3551,93 +3593,70 @@ export const getMarketIndices = action({
         let liveChange = 0;
         let liveChangePct = 0;
 
-        // Tier 1: Direct official exchange feeds (BSE for SENSEX, NSE for NIFTY 50)
-        if (idx.key === "sensex") {
+        // Tier 1: Yahoo Finance chart API with desktop browser headers (query1 + query2 failover)
+        let res: Response | null = null;
+        try {
+          res = await fetch(
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}?interval=1d&range=1d`,
+            { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+          );
+        } catch {
           try {
-            const bseRes = await fetch("https://m.bseindia.com/", {
-              headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-              },
-              signal: AbortSignal.timeout(3500),
-            });
-            if (bseRes.ok) {
-              const html = await bseRes.text();
-              const ltpMatch = html.match(/id="UcHeaderMenu1_sensexLtp"[^>]*>([^<]+)</);
-              const chgMatch = html.match(/id="UcHeaderMenu1_sensexChange"[^>]*>([^<]+)</);
-              const pctMatch = html.match(/id="UcHeaderMenu1_sensexPerChange"[^>]*>([^<]+)</);
-              if (ltpMatch) {
-                const parsedPrice = parseFloat(ltpMatch[1].replace(/,/g, "").trim());
-                if (!isNaN(parsedPrice) && parsedPrice > 0) {
-                  livePrice = parsedPrice;
-                  liveChange = chgMatch ? parseFloat(chgMatch[1].replace(/[+,]/g, "").trim()) : 0;
-                  liveChangePct = pctMatch ? parseFloat(pctMatch[1].replace(/[+%,]/g, "").trim()) : 0;
-                }
-              }
-            }
-          } catch {}
-        } else if (idx.key === "nifty50") {
-          try {
-            const nseRes = await fetch("https://www.nseindia.com/api/allIndices", {
-              headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Referer": "https://www.nseindia.com/",
-                "Accept": "application/json",
-              },
-              signal: AbortSignal.timeout(3500),
-            });
-            if (nseRes.ok) {
-              const data: any = await nseRes.json();
-              const n50 = data?.data?.find((x: any) => x.index === "NIFTY 50");
-              if (n50 && typeof n50.last === "number" && n50.last > 0) {
-                livePrice = n50.last;
-                liveChange = typeof n50.variation === "number" ? n50.variation : 0;
-                liveChangePct = typeof n50.percentChange === "number" ? n50.percentChange : 0;
-              }
-            }
+            res = await fetch(
+              `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}?interval=1d&range=1d`,
+              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+            );
           } catch {}
         }
 
-        // Tier 2: Yahoo Finance chart API fallback
-        if (!livePrice) {
-          let res: Response | null = null;
-          try {
-            res = await fetch(
-              `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
-              { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(4000) }
-            );
-          } catch {
-            try {
-              res = await fetch(
-                `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}`,
-                { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(4000) }
-              );
-            } catch {}
-          }
-
-          if (res && res.ok) {
-            const d: any = await res.json();
-            const meta = d?.chart?.result?.[0]?.meta;
-            if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
-              livePrice = meta.regularMarketPrice;
-              if (typeof meta.fulldayChange === "number" && !isNaN(meta.fulldayChange)) {
-                liveChange = meta.fulldayChange;
-              } else if (typeof meta.regularMarketChange === "number" && !isNaN(meta.regularMarketChange)) {
-                liveChange = meta.regularMarketChange;
-              } else {
-                const prev = meta.previousClose || meta.chartPreviousClose || livePrice;
-                liveChange = livePrice - prev;
-              }
-
-              if (typeof meta.regularMarketChangePercent === "number" && !isNaN(meta.regularMarketChangePercent)) {
-                liveChangePct = Number(meta.regularMarketChangePercent.toFixed(2));
-              } else if (typeof meta.fulldayChangePercent === "number" && !isNaN(meta.fulldayChangePercent)) {
-                liveChangePct = Number(meta.fulldayChangePercent.toFixed(2));
-              } else {
-                const prev = livePrice - liveChange;
-                liveChangePct = prev > 0 ? Number(((liveChange / prev) * 100).toFixed(2)) : 0;
-              }
+        if (res && res.ok) {
+          const d: any = await res.json();
+          const meta = d?.chart?.result?.[0]?.meta;
+          if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
+            livePrice = meta.regularMarketPrice;
+            if (typeof meta.regularMarketChange === "number" && !isNaN(meta.regularMarketChange)) {
+              liveChange = meta.regularMarketChange;
+            } else if (typeof meta.fulldayChange === "number" && !isNaN(meta.fulldayChange)) {
+              liveChange = meta.fulldayChange;
+            } else {
+              const prev = meta.previousClose || meta.chartPreviousClose || livePrice;
+              liveChange = livePrice - prev;
             }
+
+            if (typeof meta.regularMarketChangePercent === "number" && !isNaN(meta.regularMarketChangePercent)) {
+              liveChangePct = Number(meta.regularMarketChangePercent.toFixed(2));
+            } else if (typeof meta.fulldayChangePercent === "number" && !isNaN(meta.fulldayChangePercent)) {
+              liveChangePct = Number(meta.fulldayChangePercent.toFixed(2));
+            } else {
+              const prev = livePrice - liveChange;
+              liveChangePct = prev > 0 ? Number(((liveChange / prev) * 100).toFixed(2)) : 0;
+            }
+          }
+        }
+
+        // Tier 2: Official exchange mobile feeds if Yahoo unavailable
+        if (!livePrice) {
+          if (idx.key === "sensex") {
+            try {
+              const bseRes = await fetch("https://m.bseindia.com/", {
+                headers: STANDARD_HEADERS,
+                signal: AbortSignal.timeout(3500),
+              });
+              if (bseRes.ok) {
+                const html = await bseRes.text();
+                const ltpMatch = html.match(/id="UcHeaderMenu1_sensexLtp"[^>]*>([^<]+)</);
+                const chgMatch = html.match(/id="UcHeaderMenu1_sensexChange"[^>]*>([^<]+)</);
+                const pctMatch = html.match(/id="UcHeaderMenu1_sensexPerChange"[^>]*>([^<]+)</);
+                if (ltpMatch) {
+                  const parsedPrice = parseFloat(ltpMatch[1].replace(/,/g, "").trim());
+                  if (!isNaN(parsedPrice) && parsedPrice > 0) {
+                    livePrice = parsedPrice;
+                    liveChange = chgMatch ? parseFloat(chgMatch[1].replace(/[+,]/g, "").trim()) : 0;
+                    liveChangePct = pctMatch ? parseFloat(pctMatch[1].replace(/[+%,]/g, "").trim()) : 0;
+                  }
+                }
+              }
+            } catch {}
           }
         }
 
@@ -3728,7 +3747,8 @@ export const autoClassifyCommodities = mutation({
 
 /**
  * Deduplicates any existing duplicate holdings in the user's database portfolio
- * that were created by previous duplicate file uploads, keeping the latest/most accurate record.
+ * strictly created by identical duplicate file uploads or true accidental double inserts.
+ * Safeguards: Never deletes user manual entries; only removes if identical batch/ISIN/folio/units.
  */
 export const autoDeduplicateExistingHoldings = mutation({
   args: {},
@@ -3741,44 +3761,140 @@ export const autoDeduplicateExistingHoldings = mutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
 
-    const seenMap = new Map<string, (typeof holdings)[0]>();
     let removedCount = 0;
+    const seen = new Map<string, (typeof holdings)[0]>();
 
     for (const holding of holdings) {
-      const key = getHoldingDedupeKey(holding.name, holding.notes);
+      // Never auto-deduplicate manually created holdings (holdings without importBatchId)
+      if (!holding.importBatchId) continue;
 
-      let matchKey: string | null = null;
-      if (seenMap.has(key)) {
-        matchKey = key;
-      } else {
-        for (const [k, v] of seenMap.entries()) {
-          if (areHoldingsEquivalent(v, holding)) {
-            matchKey = k;
-            break;
-          }
-        }
-      }
+      const folio = extractFolio(holding.notes || "");
+      const isin = holding.isin || extractSecurityIsin(holding.notes || "");
+      const unitsKey = holding.units ? Math.round(holding.units * 1000) / 1000 : 0;
+      const amountKey = Math.round((holding.investedAmount || 0) * 100) / 100;
 
-      if (matchKey) {
-        const existing = seenMap.get(matchKey)!;
-        const keepExisting =
-          (existing.updatedAt || existing.createdAt || 0) >=
-          (holding.updatedAt || holding.createdAt || 0);
+      // Deduplication key requires exact batch or exact ISIN+folio+units match
+      const key = `${holding.importBatchId}_${isin || holding.name.trim().toLowerCase()}_${folio || ""}_${unitsKey}_${amountKey}`;
 
+      if (seen.has(key)) {
+        const existing = seen.get(key)!;
+        const keepExisting = (existing.updatedAt || existing.createdAt || 0) >= (holding.updatedAt || holding.createdAt || 0);
         if (keepExisting) {
           await ctx.db.delete(holding._id);
         } else {
           await ctx.db.delete(existing._id);
-          seenMap.delete(matchKey);
-          seenMap.set(key, holding);
+          seen.set(key, holding);
         }
         removedCount++;
       } else {
-        seenMap.set(key, holding);
+        seen.set(key, holding);
       }
     }
 
     return { removedCount };
+  },
+});
+
+/**
+ * Verifies a holding against official AMFI or Yahoo Finance live API,
+ * permanently locks in the verified price, schemeCode, and ISIN into the cache DB,
+ * and recalculates portfolio current value with mathematical consistency.
+ */
+export const verifyAndCorrectHolding = action({
+  args: {
+    id: v.id("investments"),
+    manualNav: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Unauthorized");
+
+    const items: any[] = await ctx.runQuery(internal.investments.internalListInvestments, {
+      userId,
+      investmentIds: [args.id],
+    });
+    const inv = items?.[0];
+    if (!inv) {
+      throw new Error("Holding not found or unauthorized");
+    }
+
+    const isMf = inv.assetType === "mutual_fund" || (inv.assetType === "gold" && /fund/i.test(inv.name));
+    let targetPrice = args.manualNav;
+    let verifiedSchemeCode = inv.schemeCode;
+    let verifiedIsin = inv.isin;
+    let verifiedTicker = inv.ticker;
+
+    if (isMf) {
+      // Query AMFI live API directly
+      const amfi = await fetchMfNav(inv.name, inv.notes, inv.schemeCode, inv.isin);
+      if (amfi && amfi.nav > 0) {
+        if (!targetPrice) {
+          targetPrice = amfi.nav;
+        }
+        verifiedSchemeCode = amfi.schemeCode || verifiedSchemeCode;
+        verifiedIsin = amfi.isin || verifiedIsin;
+      }
+    } else {
+      // Query Yahoo live quote
+      const stk = await fetchStockQuote(inv.name, inv.notes, inv.isin, inv.ticker);
+      if (stk && stk.price > 0) {
+        if (!targetPrice) {
+          targetPrice = stk.price;
+        }
+        verifiedTicker = stk.symbol || verifiedTicker;
+        verifiedIsin = stk.isin || verifiedIsin;
+      }
+    }
+
+    const finalPrice = targetPrice ?? inv.currentPrice;
+    if (finalPrice && finalPrice > 0) {
+      const finalUnits = inv.units && inv.units > 0 ? inv.units : 0;
+      const finalValue = finalUnits > 0 ? Math.round(finalUnits * finalPrice * 100) / 100 : (inv.currentValue || inv.investedAmount);
+
+      await ctx.runMutation(internal.investments.internalBatchUpdatePrices, {
+        userId,
+        updates: [
+          {
+            id: inv._id,
+            currentPrice: finalPrice,
+            currentValue: finalValue,
+            schemeCode: verifiedSchemeCode,
+            isin: verifiedIsin,
+            ticker: verifiedTicker,
+          },
+        ],
+      });
+
+      if (isMf) {
+        await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
+          isin: verifiedIsin,
+          schemeCode: verifiedSchemeCode || 0,
+          schemeName: inv.name,
+          nav: finalPrice,
+          navDate: getLatestExpectedMfNavDate(),
+          searchKey: normalizeMfSearchKey(inv.name),
+        });
+      } else {
+        await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+          isin: verifiedIsin,
+          symbol: verifiedTicker || normalizeStockSearchKey(inv.name),
+          name: inv.name,
+          price: finalPrice,
+          searchKey: normalizeStockSearchKey(inv.name),
+        });
+      }
+
+      return {
+        success: true,
+        currentPrice: finalPrice,
+        currentValue: finalValue,
+        schemeCode: verifiedSchemeCode,
+        isin: verifiedIsin,
+        ticker: verifiedTicker,
+      };
+    }
+
+    return { success: false, reason: "Could not verify price from live market API" };
   },
 });
 

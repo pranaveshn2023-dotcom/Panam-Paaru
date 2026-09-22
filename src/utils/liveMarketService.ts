@@ -273,16 +273,15 @@ export async function fetchAmfiNav(
     if (isinMatch) {
       try {
         const isin = isinMatch[1].toUpperCase();
-        const masterRes = await fetch('https://api.mfapi.in/mf', { signal: AbortSignal.timeout(5000) });
-        if (masterRes.ok) {
-          const masterList: { schemeCode: number; schemeName: string; isinGrowth?: string; isinDivReinvestment?: string }[] =
-            await masterRes.json();
-          const found = masterList.find(
-            (x) => x.isinGrowth === isin || x.isinDivReinvestment === isin
-          );
-          if (found && found.schemeCode) {
-            const detailRes = await fetch(`https://api.mfapi.in/mf/${found.schemeCode}`, {
-              signal: AbortSignal.timeout(4500),
+        const searchRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(isin)}`, {
+          signal: AbortSignal.timeout(3500),
+        });
+        if (searchRes.ok) {
+          const list: { schemeCode: number; schemeName: string }[] = await searchRes.json();
+          const first = Array.isArray(list) ? list[0] : null;
+          if (first && first.schemeCode) {
+            const detailRes = await fetch(`https://api.mfapi.in/mf/${first.schemeCode}/latest`, {
+              signal: AbortSignal.timeout(4000),
             });
             if (detailRes.ok) {
               const details = await detailRes.json();
@@ -294,8 +293,8 @@ export async function fetchAmfiNav(
                   const res = {
                     nav: navNum,
                     date: latest.date || '',
-                    schemeName: details.meta?.scheme_name || found.schemeName || fundName,
-                    schemeCode: found.schemeCode,
+                    schemeName: details.meta?.scheme_name || first.schemeName || fundName,
+                    schemeCode: first.schemeCode,
                     prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
                   };
                   navCache.set(normKey, res);
@@ -478,13 +477,18 @@ export async function fetchAmfiNav(
  * call is blocked or rate-limited. Avoids single-point-of-failure on the proxy.
  */
 async function fetchYahooChart(symbol: string): Promise<any | null> {
-  const directUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`;
+  const directUrl1 = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  const directUrl2 = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
   try {
-    const res = await fetch(directUrl, { signal: AbortSignal.timeout(4000) });
+    const res = await fetch(directUrl1, { signal: AbortSignal.timeout(4000) });
     if (res.ok) return await res.json();
   } catch {}
   try {
-    const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
+    const res = await fetch(directUrl2, { signal: AbortSignal.timeout(4000) });
+    if (res.ok) return await res.json();
+  } catch {}
+  try {
+    const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl1)}`;
     const res = await fetch(proxiedUrl, { signal: AbortSignal.timeout(4000) });
     if (res.ok) return await res.json();
   } catch {}
@@ -1191,8 +1195,31 @@ export async function fetchLiveMarketIndices(): Promise<LiveMarketIndex[]> {
       let liveChange = 0;
       let liveChangePct = 0;
 
-      // Primary for Sensex: BSE official mobile portal
-      if (idx.key === 'sensex') {
+      // Primary: Yahoo Finance chart endpoint (supports both ^BSESN and ^NSEI with reliable CORS/proxies)
+      const data = await fetchYahooChart(idx.symbol);
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
+        livePrice = meta.regularMarketPrice;
+        if (typeof meta.regularMarketChange === 'number' && !isNaN(meta.regularMarketChange)) {
+          liveChange = meta.regularMarketChange;
+        } else if (typeof meta.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
+          liveChange = meta.fulldayChange;
+        } else {
+          const prev = meta.previousClose || meta.chartPreviousClose || livePrice;
+          liveChange = livePrice - prev;
+        }
+        if (typeof meta.regularMarketChangePercent === 'number' && !isNaN(meta.regularMarketChangePercent)) {
+          liveChangePct = Number(meta.regularMarketChangePercent.toFixed(2));
+        } else if (typeof meta.fulldayChangePercent === 'number' && !isNaN(meta.fulldayChangePercent)) {
+          liveChangePct = Number(meta.fulldayChangePercent.toFixed(2));
+        } else {
+          const prev = livePrice - liveChange;
+          liveChangePct = prev > 0 ? Number(((liveChange / prev) * 100).toFixed(2)) : 0;
+        }
+      }
+
+      // Secondary fallback for Sensex: BSE mobile portal
+      if (!livePrice && idx.key === 'sensex') {
         try {
           const bseRes = await fetch('https://m.bseindia.com/', {
             headers: {
@@ -1215,31 +1242,6 @@ export async function fetchLiveMarketIndices(): Promise<LiveMarketIndex[]> {
             }
           }
         } catch {}
-      }
-
-      // Fallback / Primary for Nifty: Yahoo Finance chart endpoint
-      if (!livePrice) {
-        const data = await fetchYahooChart(idx.symbol);
-        const meta = data?.chart?.result?.[0]?.meta;
-        if (meta && typeof meta.regularMarketPrice === 'number' && meta.regularMarketPrice > 0) {
-          livePrice = meta.regularMarketPrice;
-          if (typeof meta.fulldayChange === 'number' && !isNaN(meta.fulldayChange)) {
-            liveChange = meta.fulldayChange;
-          } else if (typeof meta.regularMarketChange === 'number' && !isNaN(meta.regularMarketChange)) {
-            liveChange = meta.regularMarketChange;
-          } else {
-            const prev = meta.previousClose || meta.chartPreviousClose || livePrice;
-            liveChange = livePrice - prev;
-          }
-          if (typeof meta.regularMarketChangePercent === 'number' && !isNaN(meta.regularMarketChangePercent)) {
-            liveChangePct = Number(meta.regularMarketChangePercent.toFixed(2));
-          } else if (typeof meta.fulldayChangePercent === 'number' && !isNaN(meta.fulldayChangePercent)) {
-            liveChangePct = Number(meta.fulldayChangePercent.toFixed(2));
-          } else {
-            const prev = livePrice - liveChange;
-            liveChangePct = prev > 0 ? Number(((liveChange / prev) * 100).toFixed(2)) : 0;
-          }
-        }
       }
 
       if (livePrice && livePrice > 0) {
