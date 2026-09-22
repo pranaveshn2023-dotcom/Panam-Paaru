@@ -2789,6 +2789,13 @@ export const internalVerifyAndCleanMfCacheJob = internalAction({
     // 2. Propagate newly verified authentic NAVs to matching holdings across ALL users
     await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
 
+    // 3. Fully sync and reconcile all active portfolio holdings with official live market prices
+    try {
+      await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+    } catch (err) {
+      console.warn("[CronVerify] Error in syncLiveMarketPrices:", err);
+    }
+
     return { verified: investedSchemes.length, updated: updatedCount };
   },
 });
@@ -3519,8 +3526,14 @@ export const syncLiveMarketPrices = action({
       } else if (hasPriceRatio) {
         const ratio = Math.max(0.5, Math.min(2.0, livePrice / inv.currentPrice));
         updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
+        if (!newUnits && inv.currentValue > 0 && inv.currentPrice > 0) {
+          newUnits = Math.round((inv.currentValue / inv.currentPrice) * 10000) / 10000;
+        }
       } else {
-        updatedVal = inv.currentValue > 0 ? inv.currentValue : inv.investedAmount;
+        if (!newUnits && inv.investedAmount > 0 && livePrice > 0) {
+          newUnits = Math.round((inv.investedAmount / livePrice) * 10000) / 10000;
+        }
+        updatedVal = newUnits ? Math.round(newUnits * livePrice * 100) / 100 : (inv.currentValue > 0 ? inv.currentValue : inv.investedAmount);
       }
 
       const valDiff = Math.abs(updatedVal - inv.currentValue);
