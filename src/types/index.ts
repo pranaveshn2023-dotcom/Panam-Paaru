@@ -114,6 +114,7 @@ export interface Investment {
   xirr?: string;
   notes?: string;
   manualPrice?: boolean;
+  manualPriceUpdatedAt?: number;
   createdAt: number;
   updatedAt: number;
   returnsAmount?: number;

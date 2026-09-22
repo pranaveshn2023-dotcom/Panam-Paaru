@@ -111,6 +111,7 @@ export default defineSchema({
     xirr: v.optional(v.string()), // e.g. "17.3%", "26.81%", "-6.15%"
     notes: v.optional(v.string()),
     manualPrice: v.optional(v.boolean()), // true if user manually set/corrected NAV/CP
+    manualPriceUpdatedAt: v.optional(v.number()), // timestamp of when manual price was set (expires next day)
     createdAt: v.number(),
     updatedAt: v.number(),
   })

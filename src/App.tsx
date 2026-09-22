@@ -567,6 +567,9 @@ export function AppContent() {
   const handleQuickUpdateInvestmentValue = async (id: string, currentValue: number, currentPrice?: number) => {
     if (navigator.vibrate) navigator.vibrate(15);
     await quickUpdateInvestmentMutation({ id: id as any, currentValue, currentPrice });
+    // Immediately verify and reconcile against live official AMFI / Yahoo feed
+    // If correct, binds official metadata; if wrong, immediately corrects to true live rate
+    syncLiveMarketPricesAction({ investmentIds: [id as any], force: true }).catch(() => {});
   };
 
   const handleDeleteInvestment = async (id: string) => {

@@ -883,62 +883,19 @@ export const quickUpdateValue = mutation({
     }
 
     const now = Date.now();
-    await ctx.db.patch(args.id, {
+    const patchData: any = {
       currentValue: Math.max(0, resolvedValue),
       currentPrice: resolvedPrice,
       manualPrice: true,
+      manualPriceUpdatedAt: now,
       updatedAt: now,
-    });
+    };
 
-    // CRITICAL: Update the cache DB so the 45s auto-sync does not revert to old values!
-    if (resolvedPrice && resolvedPrice > 0) {
-      if (existing.assetType === "mutual_fund" || (existing.assetType === "gold" && /fund/i.test(existing.name))) {
-        const cleanKey = normalizeMfSearchKey(existing.name);
-        const schemeCode = existing.schemeCode || 0;
-        const existingCache = existing.isin
-          ? await ctx.db.query("mfNavCache").withIndex("by_isin", (q) => q.eq("isin", existing.isin!)).first()
-          : schemeCode > 0
-            ? await ctx.db.query("mfNavCache").withIndex("by_scheme_code", (q) => q.eq("schemeCode", schemeCode)).first()
-            : await ctx.db.query("mfNavCache").withIndex("by_search_key", (q) => q.eq("searchKey", cleanKey)).first();
-        if (existingCache) {
-          await ctx.db.patch(existingCache._id, {
-            nav: resolvedPrice,
-            schemeCode: schemeCode > 0 ? schemeCode : existingCache.schemeCode,
-            schemeName: existing.name,
-            lastFetchedAt: now,
-          });
-        } else {
-          await ctx.db.insert("mfNavCache", {
-            schemeCode,
-            schemeName: existing.name,
-            nav: resolvedPrice,
-            navDate: getLatestExpectedMfNavDate(),
-            searchKey: cleanKey,
-            isin: existing.isin,
-            lastFetchedAt: now,
-          });
-        }
-      } else {
-        const searchKey = normalizeStockSearchKey(existing.name);
-        const symbol = existing.ticker || existing.name.trim().toUpperCase();
-        const existingCache = existing.isin
-          ? await ctx.db.query("stockPriceCache").withIndex("by_isin", (q) => q.eq("isin", existing.isin!)).first()
-          : await ctx.db.query("stockPriceCache").withIndex("by_symbol", (q) => q.eq("symbol", symbol)).first();
-        if (existingCache) {
-          await ctx.db.patch(existingCache._id, { price: resolvedPrice, lastFetchedAt: now });
-        } else {
-          await ctx.db.insert("stockPriceCache", {
-            isin: existing.isin,
-            symbol,
-            name: existing.name,
-            price: resolvedPrice,
-            searchKey,
-            lastFetchedAt: now,
-          });
-        }
-      }
+    if (args.currentPrice && args.currentPrice > 0 && (!existing.units || existing.units <= 0)) {
+      patchData.units = Math.round((resolvedValue / args.currentPrice) * 10000) / 10000;
     }
 
+    await ctx.db.patch(args.id, patchData);
     return { success: true };
   },
 });
@@ -2081,6 +2038,8 @@ export const internalBatchUpdatePrices = internalMutation({
         schemeCode: v.optional(v.number()),
         isin: v.optional(v.string()),
         ticker: v.optional(v.string()),
+        manualPrice: v.optional(v.boolean()),
+        manualPriceUpdatedAt: v.optional(v.number()),
       })
     ),
   },
@@ -2089,7 +2048,7 @@ export const internalBatchUpdatePrices = internalMutation({
     for (const u of args.updates) {
       const inv = await ctx.db.get(u.id);
       if (inv && (!args.userId || inv.userId === args.userId)) {
-        await ctx.db.patch(u.id, {
+        const patchData: any = {
           currentValue: Math.max(0, u.currentValue),
           currentPrice: u.currentPrice ?? inv.currentPrice,
           units: u.units ?? inv.units,
@@ -2097,7 +2056,14 @@ export const internalBatchUpdatePrices = internalMutation({
           isin: u.isin ?? inv.isin,
           ticker: u.ticker ?? inv.ticker,
           updatedAt: now,
-        });
+        };
+        if (u.manualPrice !== undefined) {
+          patchData.manualPrice = u.manualPrice;
+        }
+        if (u.manualPriceUpdatedAt !== undefined) {
+          patchData.manualPriceUpdatedAt = u.manualPriceUpdatedAt;
+        }
+        await ctx.db.patch(u.id, patchData);
       }
     }
     return { success: true, count: args.updates.length };
@@ -3432,6 +3398,8 @@ export const syncLiveMarketPrices = action({
       schemeCode?: number;
       isin?: string;
       ticker?: string;
+      manualPrice?: boolean;
+      manualPriceUpdatedAt?: number;
     }[] = [];
 
     for (const inv of allInvestments) {
@@ -3463,16 +3431,71 @@ export const syncLiveMarketPrices = action({
         continue;
       }
 
+      const now = Date.now();
       const livePrice = res.livePrice;
 
-      // Respect user's manual price input during automated background sync (!args.force)
+      // ── Intelligent 1-Day & Live Truth Reconciler ──
+      // Requirement:
+      // 1. "if its correct ok, but if its wrong then immediately correctly fetch the correct and true live price NAV or CP and update that"
+      // 2. "also that price is for 1 day only and the next day or if their is a live change in price then it must update only the correct and true price for NAV or CP"
+      let shouldApplyLivePrice = true;
+      let clearManualFlag = false;
+
       if (inv.manualPrice && !args.force) {
+        const manualAgeMs = inv.manualPriceUpdatedAt ? now - inv.manualPriceUpdatedAt : now - (inv.updatedAt || inv.createdAt);
+        const todayIst = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(now);
+        const manualDateIst = inv.manualPriceUpdatedAt
+          ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(inv.manualPriceUpdatedAt)
+          : null;
+        const isNextDay = manualAgeMs >= 18 * 60 * 60 * 1000 || (manualDateIst !== null && manualDateIst !== todayIst);
+
+        if (isNextDay) {
+          // Manual price expires after 1 day: next day / new cycle updates to authentic live price
+          shouldApplyLivePrice = true;
+          clearManualFlag = true;
+        } else if (inv.currentPrice && inv.currentPrice > 0) {
+          // Same day validation: compare entered price with verified live rate
+          const deviationRatio = Math.abs(livePrice - inv.currentPrice) / livePrice;
+          if (deviationRatio > 0.005) {
+            // Entered price was wrong or divergent -> immediately correct to the true live price
+            shouldApplyLivePrice = true;
+            clearManualFlag = true;
+          } else {
+            // Price is correct! Keep it for today, but ensure verified official metadata is attached
+            shouldApplyLivePrice = false;
+          }
+        }
+      }
+
+      const finalSchemeCode = res.resolvedSchemeCode ?? inv.schemeCode;
+      const finalIsin = res.resolvedIsin ?? inv.isin;
+      const finalTicker = res.resolvedTicker ?? inv.ticker;
+
+      if (!shouldApplyLivePrice) {
+        // Price is correct for today; if official identifiers were resolved, update them
+        const identifierChanged =
+          (finalSchemeCode !== undefined && finalSchemeCode !== inv.schemeCode) ||
+          (finalIsin !== undefined && finalIsin !== inv.isin) ||
+          (finalTicker !== undefined && finalTicker !== inv.ticker);
+        if (identifierChanged) {
+          updates.push({
+            id: inv._id,
+            currentValue: inv.currentValue,
+            currentPrice: inv.currentPrice,
+            units: inv.units,
+            schemeCode: finalSchemeCode,
+            isin: finalIsin,
+            ticker: finalTicker,
+            manualPrice: true,
+            manualPriceUpdatedAt: inv.manualPriceUpdatedAt,
+          });
+        }
         continue;
       }
 
       // Sanity Guard: If holding has an existing currentPrice but lacks an exact verified identifier (isin/schemeCode),
       // guard against fuzzy search mis-matches causing >75% erroneous price swings (e.g. matching penny stocks or foreign tickers)
-      const hasVerifiedId = Boolean(inv.isin || inv.schemeCode || (inv.ticker && inv.ticker.includes(".")));
+      const hasVerifiedId = Boolean(finalIsin || finalSchemeCode || (finalTicker && finalTicker.includes(".")));
       if (!hasVerifiedId && inv.currentPrice && inv.currentPrice > 0) {
         const priceRatio = livePrice / inv.currentPrice;
         if (priceRatio < 0.25 || priceRatio > 4.0) {
@@ -3503,16 +3526,14 @@ export const syncLiveMarketPrices = action({
       const valDiff = Math.abs(updatedVal - inv.currentValue);
       const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));
       const unitsDiff = newUnits !== inv.units;
-      const finalSchemeCode = res.resolvedSchemeCode ?? inv.schemeCode;
-      const finalIsin = res.resolvedIsin ?? inv.isin;
-      const finalTicker = res.resolvedTicker ?? inv.ticker;
+      const manualCleared = clearManualFlag && inv.manualPrice;
 
       const identifierChanged =
         (finalSchemeCode !== undefined && finalSchemeCode !== inv.schemeCode) ||
         (finalIsin !== undefined && finalIsin !== inv.isin) ||
         (finalTicker !== undefined && finalTicker !== inv.ticker);
 
-      if (valDiff > 0.01 || priceDiff > 0.0001 || unitsDiff || identifierChanged) {
+      if (valDiff > 0.01 || priceDiff > 0.0001 || unitsDiff || identifierChanged || manualCleared) {
         updates.push({
           id: inv._id,
           currentValue: updatedVal,
@@ -3521,6 +3542,8 @@ export const syncLiveMarketPrices = action({
           schemeCode: finalSchemeCode,
           isin: finalIsin,
           ticker: finalTicker,
+          manualPrice: clearManualFlag ? false : (args.force ? false : inv.manualPrice),
+          manualPriceUpdatedAt: clearManualFlag ? undefined : inv.manualPriceUpdatedAt,
         });
       }
     }
