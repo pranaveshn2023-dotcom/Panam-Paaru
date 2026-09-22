@@ -212,21 +212,26 @@ export const getPortfolioSummary = query({
         assetType = "gold";
       }
 
-      totalInvested += rawInv.investedAmount;
-      totalCurrentValue += rawInv.currentValue;
-      if (rawInv.sipAmount) {
-        totalMonthlySip += rawInv.sipAmount;
-      }
+      const invAmt = typeof rawInv.investedAmount === "number" && !isNaN(rawInv.investedAmount) ? Math.max(0, rawInv.investedAmount) : 0;
+      const curVal = typeof rawInv.currentValue === "number" && !isNaN(rawInv.currentValue) ? Math.max(0, rawInv.currentValue) : 0;
+      const sip = typeof rawInv.sipAmount === "number" && !isNaN(rawInv.sipAmount) ? Math.max(0, rawInv.sipAmount) : 0;
+
+      totalInvested += invAmt;
+      totalCurrentValue += curVal;
+      totalMonthlySip += sip;
 
       if (!assetAllocationMap[assetType]) {
         assetAllocationMap[assetType] = { invested: 0, current: 0, count: 0 };
       }
-      assetAllocationMap[assetType].invested += rawInv.investedAmount;
-      assetAllocationMap[assetType].current += rawInv.currentValue;
+      assetAllocationMap[assetType].invested += invAmt;
+      assetAllocationMap[assetType].current += curVal;
       assetAllocationMap[assetType].count += 1;
     }
 
-    const totalReturnsAmount = totalCurrentValue - totalInvested;
+    totalInvested = Math.round(totalInvested * 100) / 100;
+    totalCurrentValue = Math.round(totalCurrentValue * 100) / 100;
+    totalMonthlySip = Math.round(totalMonthlySip * 100) / 100;
+    const totalReturnsAmount = Math.round((totalCurrentValue - totalInvested) * 100) / 100;
     const totalReturnsPercent =
       totalInvested > 0
         ? Number(((totalReturnsAmount / totalInvested) * 100).toFixed(2))
@@ -234,8 +239,8 @@ export const getPortfolioSummary = query({
 
     const assetBreakdown = Object.entries(assetAllocationMap).map(([type, data]) => ({
       assetType: type,
-      investedAmount: data.invested,
-      currentValue: data.current,
+      investedAmount: Math.round(data.invested * 100) / 100,
+      currentValue: Math.round(data.current * 100) / 100,
       itemCount: data.count,
       allocationPercent:
         totalCurrentValue > 0
@@ -1662,9 +1667,24 @@ export function stripBrokerSuffix(name: string): string {
   return cleaned;
 }
 
+export function canonicalizeMfQuery(q: string): string {
+  return q
+    .toLowerCase()
+    .replace(/\bppfas\b/g, 'parag parikh')
+    .replace(/\bbluechip\b|\bblue\s+chip\b/g, 'large cap')
+    .replace(/\btax\s*saver\b|\btaxsaver\b/g, 'elss')
+    .replace(/\breliance\b/g, 'nippon india')
+    .replace(/\bidfc\b/g, 'bandhan')
+    .replace(/\bl&t\b|\blnt\b/g, 'hsbc')
+    .replace(/\bdspbr\b|\bdsp\s+blackrock\b/g, 'dsp')
+    .replace(/\bft\b|\bfranklin\s+templeton\b/g, 'franklin')
+    .replace(/\babsl\b|\bbirla\s+sun\s+life\b/g, 'aditya birla sun life');
+}
+
 export function scoreMfCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
   const stripped = stripBrokerSuffix(rawQuery);
-  const qLower = stripped.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const normQuery = canonicalizeMfQuery(stripped);
+  const qLower = normQuery.replace(/[^a-z0-9]+/g, ' ').trim();
   const sName = item.schemeName || '';
   const sLower = sName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -1770,6 +1790,7 @@ interface AmfiTableEntry {
   code: number;
   isin: string;
   name: string;
+  baseName: string;
   nav: number;
   date: string;
   isDirect: boolean;
@@ -1816,7 +1837,7 @@ export async function getAmfiOfficialNavTable(): Promise<{
 
         const isin1 = parts[1]?.trim() || "";
         const isin2 = parts[2]?.trim() || "";
-        const schemeName = parts[3]?.trim() || "";
+        const baseSchemeName = parts[3]?.trim() || "";
         const plan = parts[4]?.trim() || "";
         const option = parts[5]?.trim() || "";
         const navStr = parts[6]?.trim() || "";
@@ -1825,15 +1846,20 @@ export async function getAmfiOfficialNavTable(): Promise<{
 
         if (isNaN(nav) || nav <= 0) continue;
 
+        const fullName = [baseSchemeName, plan, option].filter(Boolean).join(" - ");
         const primaryIsin = (isin1 && isin1 !== "-") ? isin1 : (isin2 && isin2 !== "-") ? isin2 : "";
+        const isDirect = /direct/i.test(plan) || /direct/i.test(baseSchemeName);
+        const isGrowth = /growth/i.test(option) || /growth/i.test(baseSchemeName);
+
         const entry: AmfiTableEntry = {
           code,
           isin: primaryIsin,
-          name: schemeName,
+          name: fullName,
+          baseName: baseSchemeName,
           nav,
           date: dateStr,
-          isDirect: /direct/i.test(plan) || /direct/i.test(schemeName),
-          isGrowth: /growth/i.test(option) || /growth/i.test(schemeName),
+          isDirect,
+          isGrowth,
         };
 
         codeMap.set(code, entry);
@@ -1896,7 +1922,7 @@ export async function fetchMfNav(
     const strippedName = stripBrokerSuffix(name);
     const wantsDirect = /\bdirect\b/i.test(strippedName);
     const wantsRegular = /\bregular\b/i.test(strippedName);
-    const wantsGrowth = !/\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
+    const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
 
     let bestMatch: AmfiTableEntry | null = null;
     let bestScore = -1;
@@ -1905,7 +1931,7 @@ export async function fetchMfNav(
       // Fast plan filter
       if (wantsDirect && !item.isDirect) continue;
       if (wantsRegular && item.isDirect) continue;
-      if (wantsGrowth && !item.isGrowth) continue;
+      if (wantsIdcw && item.isGrowth) continue;
 
       const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, strippedName);
       if (score > bestScore && score >= 50) {
@@ -1914,7 +1940,7 @@ export async function fetchMfNav(
       }
     }
 
-    if (bestMatch && bestScore >= 60) {
+    if (bestMatch && bestScore >= 55) {
       return {
         nav: bestMatch.nav,
         date: bestMatch.date,
@@ -2051,6 +2077,7 @@ export const internalBatchUpdatePrices = internalMutation({
         id: v.id("investments"),
         currentValue: v.number(),
         currentPrice: v.optional(v.number()),
+        units: v.optional(v.number()),
         schemeCode: v.optional(v.number()),
         isin: v.optional(v.string()),
         ticker: v.optional(v.string()),
@@ -2065,6 +2092,7 @@ export const internalBatchUpdatePrices = internalMutation({
         await ctx.db.patch(u.id, {
           currentValue: Math.max(0, u.currentValue),
           currentPrice: u.currentPrice ?? inv.currentPrice,
+          units: u.units ?? inv.units,
           schemeCode: u.schemeCode ?? inv.schemeCode,
           isin: u.isin ?? inv.isin,
           ticker: u.ticker ?? inv.ticker,
@@ -3400,6 +3428,7 @@ export const syncLiveMarketPrices = action({
       id: any;
       currentValue: number;
       currentPrice?: number;
+      units?: number;
       schemeCode?: number;
       isin?: string;
       ticker?: string;
@@ -3457,10 +3486,12 @@ export const syncLiveMarketPrices = action({
       const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
 
       let updatedVal = inv.currentValue;
+      let newUnits: number | undefined = inv.units;
       if (hasQty) {
         updatedVal = Math.round(inv.units * livePrice * 100) / 100;
       } else if (hasBuyBasis) {
-        const derivedUnits = inv.investedAmount / inv.buyPrice;
+        const derivedUnits = Math.round((inv.investedAmount / inv.buyPrice) * 10000) / 10000;
+        newUnits = derivedUnits;
         updatedVal = Math.round(derivedUnits * livePrice * 100) / 100;
       } else if (hasPriceRatio) {
         const ratio = Math.max(0.5, Math.min(2.0, livePrice / inv.currentPrice));
@@ -3471,6 +3502,7 @@ export const syncLiveMarketPrices = action({
 
       const valDiff = Math.abs(updatedVal - inv.currentValue);
       const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));
+      const unitsDiff = newUnits !== inv.units;
       const finalSchemeCode = res.resolvedSchemeCode ?? inv.schemeCode;
       const finalIsin = res.resolvedIsin ?? inv.isin;
       const finalTicker = res.resolvedTicker ?? inv.ticker;
@@ -3480,11 +3512,12 @@ export const syncLiveMarketPrices = action({
         (finalIsin !== undefined && finalIsin !== inv.isin) ||
         (finalTicker !== undefined && finalTicker !== inv.ticker);
 
-      if (valDiff > 0.01 || priceDiff > 0.0001 || identifierChanged) {
+      if (valDiff > 0.01 || priceDiff > 0.0001 || unitsDiff || identifierChanged) {
         updates.push({
           id: inv._id,
           currentValue: updatedVal,
           currentPrice: livePrice,
+          units: newUnits,
           schemeCode: finalSchemeCode,
           isin: finalIsin,
           ticker: finalTicker,

@@ -56,8 +56,10 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
   );
 
   const badgeInfo = ASSET_COLORS[inv.assetType] || { label: inv.assetType, color: '#FFE600' };
-  const gain = inv.currentValue - inv.investedAmount;
-  const gainPercent = inv.investedAmount > 0 ? Number(((gain / inv.investedAmount) * 100).toFixed(2)) : 0;
+  const invested = typeof inv.investedAmount === 'number' && !isNaN(inv.investedAmount) ? inv.investedAmount : 0;
+  const currentVal = typeof inv.currentValue === 'number' && !isNaN(inv.currentValue) ? inv.currentValue : 0;
+  const gain = currentVal - invested;
+  const gainPercent = invested > 0 ? Number(((gain / invested) * 100).toFixed(2)) : 0;
   const isGain = gain >= 0;
 
   const effectivePrice =
@@ -173,7 +175,7 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
               {inv.units} units
             </span>
           )}
-          {effectivePrice && (
+          {effectivePrice ? (
             <button
               type="button"
               onClick={() => {
@@ -191,7 +193,22 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
               </span>
               <Edit size={10} className="ml-0.5 opacity-60 hover:opacity-100" />
             </button>
-          )}
+          ) : (inv.assetType === 'mutual_fund' || inv.assetType === 'stocks' || inv.assetType === 'crypto' || inv.assetType === 'gold') ? (
+            <button
+              type="button"
+              onClick={() => {
+                setUpdateNav('');
+                setUpdateValue(String(inv.currentValue));
+                setUpdateMode('nav');
+                setIsUpdating(true);
+              }}
+              className="text-[10px] font-mono font-bold bg-neutral-100 hover:bg-[#FFE600] text-neutral-700 hover:text-[#121212] px-1.5 py-0.5 border border-[#121212] flex items-center gap-1 shadow-neo-sm cursor-pointer transition-all"
+              title={`Set ${inv.assetType === 'mutual_fund' ? 'NAV' : 'Market Price'}`}
+            >
+              <Plus size={10} strokeWidth={3} />
+              <span>Set {inv.assetType === 'mutual_fund' ? 'NAV' : 'CP'}</span>
+            </button>
+          ) : null}
           {inv.sipAmount && (
             <span className="text-[10px] font-mono font-bold bg-[#121212] text-[#00F0FF] px-1.5 py-0.5 border border-[#121212]">
               SIP: {formatPrivateAmount(inv.sipAmount, currencySymbol)}/mo
@@ -286,13 +303,13 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
         <div>
           <span className="text-[10px] font-black uppercase text-neutral-500 block">INVESTED BASIS</span>
           <span className="text-base font-mono font-bold text-[#121212]">
-            {formatPrivateAmount(inv.investedAmount, currencySymbol)}
+            {formatPrivateAmount(invested, currencySymbol)}
           </span>
         </div>
         <div className="text-right">
           <span className="text-[10px] font-black uppercase text-neutral-500 block">CURRENT VALUE</span>
           <span className="text-lg font-mono font-bold text-[#121212]">
-            {formatPrivateAmount(inv.currentValue, currencySymbol)}
+            {formatPrivateAmount(currentVal, currencySymbol)}
           </span>
         </div>
       </div>

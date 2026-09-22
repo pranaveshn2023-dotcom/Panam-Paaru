@@ -199,14 +199,16 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       const lookupNotes = customNotes !== undefined ? customNotes : notes;
 
       if (type === 'mutual_fund') {
-        const mf = await fetchAmfiNav(assetName, lookupNotes);
-        if (mf && mf.nav > 0) {
-          result = { price: mf.nav, symbol: mf.schemeName };
-        } else {
-          try {
-            const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes: lookupNotes });
-            if (serverRes && serverRes.price > 0) result = serverRes;
-          } catch { }
+        try {
+          const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes: lookupNotes });
+          if (serverRes && serverRes.price > 0) result = serverRes;
+        } catch { }
+
+        if (!result || result.price <= 0) {
+          const mf = await fetchAmfiNav(assetName, lookupNotes);
+          if (mf && mf.nav > 0) {
+            result = { price: mf.nav, symbol: mf.schemeName };
+          }
         }
       } else if (type === 'crypto') {
         result = await fetchLiveCryptoPrice(assetName);
@@ -478,9 +480,17 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
 
     const numInvested = parseFloat(investedAmount);
     const numCurrent = currentValue ? parseFloat(currentValue) : numInvested;
-    const numUnits = units ? parseFloat(units) : undefined;
+    let numUnits = units ? parseFloat(units) : undefined;
     const numBuyPrice = buyPrice ? parseFloat(buyPrice) : undefined;
     const numCurrentPrice = currentPrice ? parseFloat(currentPrice) : undefined;
+
+    // Auto-derive units if not explicitly provided so the holding can track future market movements
+    if ((numUnits === undefined || isNaN(numUnits) || numUnits <= 0) && !isNaN(numInvested) && numInvested > 0) {
+      const effPrice = (numBuyPrice && numBuyPrice > 0) ? numBuyPrice : (numCurrentPrice && numCurrentPrice > 0) ? numCurrentPrice : undefined;
+      if (effPrice && effPrice > 0) {
+        numUnits = Math.round((numInvested / effPrice) * 10000) / 10000;
+      }
+    }
     const numSip = sipAmount ? parseFloat(sipAmount) : undefined;
     const numSipDay = sipDay ? parseInt(sipDay, 10) : undefined;
 

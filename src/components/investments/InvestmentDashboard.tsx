@@ -94,7 +94,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   const totalSip = portfolioSummary?.totalMonthlySip ?? 0;
   const totalHoldings = portfolioSummary?.totalHoldingsCount ?? investments.length;
   const isPositiveReturns = totalReturns >= 0;
-  const portfolioGainPercent = totalCurrentValue > 0 ? Number(((totalReturns / totalInvested) * 100).toFixed(2)) : 0;
+  const portfolioGainPercent = totalInvested > 0 ? Number(((totalReturns / totalInvested) * 100).toFixed(2)) : 0;
 
   // Distinct brokers present in portfolio
   const availableBrokers = Array.from(
