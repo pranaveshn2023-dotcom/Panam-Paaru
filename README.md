@@ -15,7 +15,7 @@ Panam Paaru ("Look at Your Money") is a real-time personal finance and portfolio
 - **Calendar-Aware Budget Engine**: Deterministic leap-year and variable month-end rollover calculations (28, 29, 30, and 31-day months) that prevent end-of-month configuration drift.
 - **Strict Cloud-First Resilience**: 100% server-authoritative state via Convex. Eliminates fragile browser storage; enforces real-time transactional persistence with a network connectivity guard (`NoInternetScreen`).
 - **Universal Statement Ingestion**: Direct client-side parsing of CAMS, KFintech, Zerodha, and Groww statements (PDF, XLSX, CSV, and DOCX) via keyboard shortcut (`Ctrl + U` / `Cmd + U`), with 1-click batch undo via `importBatches`.
-- **Enterprise Privacy & Security**: 4 and 6-digit cloud-salted master PIN enforcement with virtual keypad, configurable inactivity screen lockout, transitional securing session guard, and instant numeric privacy blur.
+- **Privacy & Security**: 4 and 6-digit cloud-salted master PIN enforcement with virtual keypad, configurable inactivity screen lockout, transitional securing session guard, and instant numeric privacy blur.
 - **Spending Insights Hub**: Visual analytics containing 6-month income vs. expense trend lines, category distribution breakdowns, and daily burn-rate calculations.
 - **XIRR & Performance Tracking**: Extended Internal Rate of Return (`xirr`) tracking per investment holding for accurate annualized return attribution.
 - **Intelligent Auto-Maintenance**: On authenticated login, automatically triggers commodity re-classification and deduplicates overlapping investment holdings seamlessly.
