@@ -63,7 +63,7 @@ The user interface is segmented into four primary operational domains:
 - **BSE SENSEX Official Feed**: Directly ingested from the Bombay Stock Exchange mobile gateway (`https://m.bseindia.com/`), extracting the authentic post-auction settled closing figure and real-time Last Traded Price (LTP). Eliminates the common 15-minute delay found on generic aggregators.
 - **NSE NIFTY 50 Feed**: Ingested directly from official National Stock Exchange feeds and verified chart endpoints, guaranteeing exact alignment with national trading terminals.
 - **Multi-Tier Resilient Fallback**: In the rare event an official exchange portal experiences network latency, requests seamlessly cascade to secondary chart endpoints without service interruption or UI freezes.
-- **Zero Hardcoding Guarantee**: No index prices or holding values are ever hardcoded; all data is dynamically fetched and verified against live exchange calculations.
+- **Zero Hardcoding**: No index prices or holding values are ever hardcoded; all data is dynamically fetched and verified against live exchange calculations.
 
 #### Automated 3-Stage Market Ending Settlement Pipeline
 To ensure portfolio valuations and index benchmarks permanently reflect official post-market closing prices without requiring any manual intervention:
