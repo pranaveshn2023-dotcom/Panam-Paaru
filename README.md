@@ -32,7 +32,7 @@ Panam Paaru ("Look at Your Money") is a real-time personal finance and portfolio
 | **Index Benchmarks** | Delayed 15-min third-party quotes or unverified feeds | Official BSE (`m.bseindia.com`) & NSE direct feeds with multi-tier fallback |
 | **Trading Hours Logic** | Naive continuous polling 24/7 or manual refresh | Indian Market Hours engine (35s live ticks; 0 calls off-hours/holidays) |
 | **Market-Close Settle** | Single arbitrary snapshot or manual daily checking | 3-stage smart settle pipeline (3:15, 3:25, 3:30 PM IST) with match skipping |
-| **Mutual Fund NAVs** | Stale end-of-day checks or static entries | Nightly AMC release sync window (9 PM – 12 AM IST) with automated crons |
+| **Mutual Fund NAVs** | Stale end-of-day checks or static entries | Midday (12:00–12:30 PM IST) & Nightly (9 PM–12 AM IST) smart sync crons |
 | **Data Persistence** | Client-side local storage prone to browser cache wipes | Transactional Convex cloud database with instant reactive subscriptions |
 | **Offline Resilience** | Fragile offline sync prone to conflicting writes | Cloud-authoritative with proactive `NoInternetScreen` connectivity guard |
 | **Statement Processing** | Manual line-by-line spreadsheet entry | Automated client-side file parsing for CAMS/KFintech PDFs, XLSX, CSV, and DOCX |
@@ -82,6 +82,22 @@ To ensure portfolio valuations and index benchmarks permanently reflect official
   - `LIVE MARKET`: Pulsing emerald badge indicating active market hours.
   - `AMC NAV RELEASE`: Amber badge indicating the nightly mutual fund publishing window.
   - `MARKET CLOSED`: Slate badge indicating frozen closing prices.
+
+#### Automated 3-Stage Mid-Day Mutual Fund NAV Synchronization Pipeline (12:00 PM – 12:30 PM IST)
+To capture intra-day or mid-day NAV updates published by AMCs while maintaining high cloud execution efficiency:
+- **Stage 1 — Initial Fetch & Match Detection at 12:00 PM IST** (`30 6 * * 1-5` UTC):
+  - Fetches the latest published NAVs from official AMFI for all invested mutual fund schemes across all users.
+  - Compares the fetched AMFI NAVs with existing values stored in the database (`mfNavCache`).
+  - *If no change detected*: Marks the midday session as `SETTLED_NO_CHANGE` (`price: 1`), **terminating both the 12:15 PM and 12:30 PM cron runs early**, moving straight to the nightly sync window.
+  - *If changes detected*: Updates `mfNavCache`, propagates the new NAVs to matching user holdings, and sets status to `UPDATED_1200_PENDING_1215` (`price: 0`) so the 12:15 PM verification cron runs.
+- **Stage 2 — Verification & Early Termination at 12:15 PM IST** (`45 6 * * 1-5` UTC):
+  - Checks if 12:00 PM already settled early; if so, skips immediately.
+  - Calls official AMFI API and compares freshly fetched values with current database values.
+  - *If fetched values match DB values*: Marks status as `SETTLED_MATCHED_1215` (`price: 1`), **terminates the final 12:30 PM cron**, and moves straight to the night job.
+  - *If values still moved*: Updates the database with the latest figures, propagates to holdings, and schedules Stage 3 to finalize.
+- **Stage 3 — Final Midday Sync at 12:30 PM IST** (`0 7 * * 1-5` UTC):
+  - Only executes if Stage 2 detected continued price movement.
+  - Runs final midday synchronization, updates database, marks status as `FINALIZED_1230`, and moves to the nightly sync window.
 
 #### Nightly AMC Mutual Fund Synchronization
 - **AMC Release Window**: Indian Asset Management Companies (AMCs) calculate and publish final day NAVs to AMFI between 09:00 PM and 12:00 AM IST on regular trading weekdays.

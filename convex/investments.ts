@@ -4247,5 +4247,325 @@ export const internalSyncMarketClose330Job = internalAction({
 // Backward compatibility alias for any existing trigger
 export const internalSyncPostMarketCloseJob = internalSyncMarketClose330Job;
 
+/**
+ * 12:00 PM IST Mid-Day Mutual Fund NAV Release Sync (12:00 IST = 06:30 UTC, Mon-Fri):
+ * Stage 1: Fetches latest published NAVs from official AMFI for all invested mutual fund schemes across all users.
+ * Checks whether there is any change compared to the current DB NAV values:
+ * - If NO CHANGE detected (and all funds successfully verified against AMFI): Marks midday status as SETTLED_NO_CHANGE (price = 1).
+ *   This terminates the other two crons (12:15 and 12:30 PM) so cloud execution skips straight to the nightly sync!
+ * - If CHANGES detected: Updates mfNavCache and propagates to holdings, then sets status to PENDING (price = 0)
+ *   so the 12:15 PM job will run to re-verify if any further values shifted.
+ * - If AMFI API is unreachable or partially timed out: Does NOT terminate early; leaves status as price = 0
+ *   so 12:15 PM will automatically act as a failover retry.
+ */
+export const internalSyncMfMidday1200Job = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const marketStatus = getIndianMarketStatus();
+    if (marketStatus.isWeekend || marketStatus.isHoliday) {
+      console.log(`[Midday MF 12:00 PM] Market closed today (${marketStatus.reason}). Skipping.`);
+      return { skipped: true, reason: marketStatus.reason };
+    }
+
+    console.log("[Midday MF 12:00 PM] Stage 1: Fetching AMFI NAVs and checking for changes against DB...");
+
+    const investedSchemes: any[] = await ctx.runQuery(internal.investments.internalListAllInvestedMfSchemes, {});
+    if (!investedSchemes || investedSchemes.length === 0) {
+      console.log("[Midday MF 12:00 PM] No invested mutual fund schemes found. Skipping.");
+      return { verified: 0 };
+    }
+
+    const expectedDate = getLatestExpectedMfNavDate();
+    let hasChanges = false;
+    const fetchedUpdates: Array<{
+      scheme: any;
+      amfi: { nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number; isin?: string };
+    }> = [];
+
+    for (const scheme of investedSchemes) {
+      try {
+        const cached: any = await ctx.runQuery(internal.investments.internalGetCachedMfNav, {
+          isin: scheme.isin,
+          schemeCode: scheme.schemeCode,
+          searchKey: scheme.searchKey,
+        });
+
+        const amfi = await fetchMfNav(scheme.name, scheme.notes, scheme.schemeCode, scheme.isin);
+        if (amfi && amfi.nav > 0) {
+          const diff = Math.abs(amfi.nav - (cached?.nav ?? 0));
+          const dateChanged = amfi.date && cached?.navDate && amfi.date !== cached.navDate;
+          if (!cached?.nav || diff > 0.0001 || dateChanged) {
+            hasChanges = true;
+          }
+          fetchedUpdates.push({ scheme, amfi });
+        }
+      } catch (err) {
+        console.warn(`[Midday MF 12:00 PM] Error checking ${scheme.name}:`, err);
+      }
+    }
+
+    const allFundsVerified = fetchedUpdates.length > 0 && fetchedUpdates.length === investedSchemes.length;
+
+    if (allFundsVerified && !hasChanges) {
+      // Genuine match: all funds verified against AMFI and none changed.
+      // Terminate the other 2 crons (12:15 and 12:30 PM) and go straight to night job!
+      await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+        symbol: "__MIDDAY_MF_STATUS__",
+        name: "SETTLED_NO_CHANGE",
+        price: 1, // 1 = settled/terminated, stops 12:15 and 12:30 jobs
+        searchKey: `__midday_mf_${marketStatus.istDateStr}__`,
+      });
+      console.log("[Midday MF 12:00 PM] All funds verified: no NAV changes detected vs DB. Terminating 12:15 & 12:30 PM jobs; proceeding straight to night job.");
+      return { matched: true, changed: false, terminatedOtherJobs: true };
+    }
+
+    if (hasChanges) {
+      // Changes detected: update the DB and trigger/allow the 12:15 PM cron job
+      console.log(`[Midday MF 12:00 PM] NAV changes detected in ${fetchedUpdates.length} schemes. Updating DB...`);
+      for (const { scheme, amfi } of fetchedUpdates) {
+        await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
+          isin: amfi.isin || scheme.isin,
+          schemeCode: amfi.schemeCode || scheme.schemeCode || 0,
+          schemeName: amfi.schemeName || scheme.name,
+          nav: amfi.nav,
+          navDate: amfi.date || expectedDate,
+          prevNav: amfi.prevNav,
+          searchKey: scheme.searchKey,
+        });
+      }
+
+      await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
+
+      try {
+        await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+      } catch (err) {
+        console.warn("[Midday MF 12:00 PM] Error in syncLiveMarketPrices:", err);
+      }
+
+      await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+        symbol: "__MIDDAY_MF_STATUS__",
+        name: "UPDATED_1200_PENDING_1215",
+        price: 0, // 0 = not yet settled, 12:15 PM will run
+        searchKey: `__midday_mf_${marketStatus.istDateStr}__`,
+      });
+
+      console.log(`[Midday MF 12:00 PM] DB successfully updated with new NAV values. 12:15 PM cron will verify.`);
+      return { matched: false, changed: true, updatedCount: fetchedUpdates.length };
+    }
+
+    // Fallback: If external AMFI network failed or partial funds timed out, do NOT terminate.
+    // Leave status as price = 0 so 12:15 PM acts as automatic self-healing retry.
+    console.log(`[Midday MF 12:00 PM] AMFI API returned partial or no data (${fetchedUpdates.length}/${investedSchemes.length} funds). Retrying at 12:15 PM.`);
+    await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+      symbol: "__MIDDAY_MF_STATUS__",
+      name: "RETRY_NEEDED_1215",
+      price: 0,
+      searchKey: `__midday_mf_${marketStatus.istDateStr}__`,
+    });
+    return { matched: false, retryScheduled: true, fetchedCount: fetchedUpdates.length };
+  },
+});
+
+/**
+ * 12:15 PM IST Mid-Day Mutual Fund NAV Verification (12:15 IST = 06:45 UTC, Mon-Fri):
+ * Stage 2: Checks if 12:00 PM job already terminated early. If so, skips immediately.
+ * Otherwise, calls AMFI API and compares fetched values with current DB values:
+ * - If fetched value and DB value are SAME (all funds verified): Marks status as SETTLED_MATCHED_1215 (price = 1).
+ *   This terminates the last cron (12:30 PM) and moves straight to the night job!
+ * - If values still differ (more NAVs published): Updates DB and leaves status as price = 0
+ *   so 12:30 PM cron will run the final sync.
+ * - If AMFI timed out or failed: Does not terminate; leaves price = 0 so 12:30 PM retries.
+ */
+export const internalSyncMfMidday1215Job = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const marketStatus = getIndianMarketStatus();
+    if (marketStatus.isWeekend || marketStatus.isHoliday) {
+      console.log(`[Midday MF 12:15 PM] Market closed today (${marketStatus.reason}). Skipping.`);
+      return { skipped: true, reason: marketStatus.reason };
+    }
+
+    // Check if 12:00 PM detected no change and already terminated the remaining jobs
+    const status: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
+      symbol: "__MIDDAY_MF_STATUS__",
+      searchKey: `__midday_mf_${marketStatus.istDateStr}__`,
+    });
+
+    if (status && status.price === 1) {
+      console.log(`[Midday MF 12:15 PM] Stopped: Midday MF NAV already terminated/settled (${status.name}). Skipping 12:15 PM cron.`);
+      return { skipped: true, reason: `Already settled: ${status.name}` };
+    }
+
+    console.log("[Midday MF 12:15 PM] Stage 2: Calling AMFI API and comparing with DB NAV values...");
+
+    const investedSchemes: any[] = await ctx.runQuery(internal.investments.internalListAllInvestedMfSchemes, {});
+    if (!investedSchemes || investedSchemes.length === 0) return { verified: 0 };
+
+    const expectedDate = getLatestExpectedMfNavDate();
+    let pricesMoved = false;
+    const fetchedUpdates: Array<{
+      scheme: any;
+      amfi: { nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number; isin?: string };
+    }> = [];
+
+    for (const scheme of investedSchemes) {
+      try {
+        const cached: any = await ctx.runQuery(internal.investments.internalGetCachedMfNav, {
+          isin: scheme.isin,
+          schemeCode: scheme.schemeCode,
+          searchKey: scheme.searchKey,
+        });
+
+        const amfi = await fetchMfNav(scheme.name, scheme.notes, scheme.schemeCode, scheme.isin);
+        if (amfi && amfi.nav > 0) {
+          const diff = Math.abs(amfi.nav - (cached?.nav ?? 0));
+          const dateChanged = amfi.date && cached?.navDate && amfi.date !== cached.navDate;
+          if (!cached?.nav || diff > 0.0001 || dateChanged) {
+            pricesMoved = true;
+          }
+          fetchedUpdates.push({ scheme, amfi });
+        }
+      } catch (err) {
+        console.warn(`[Midday MF 12:15 PM] Error checking ${scheme.name}:`, err);
+      }
+    }
+
+    const allFundsVerified = fetchedUpdates.length > 0 && fetchedUpdates.length === investedSchemes.length;
+
+    if (allFundsVerified && !pricesMoved) {
+      // Fetched AMFI value and DB value are the same: terminate the last cron (12:30 PM) and move to night job!
+      await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+        symbol: "__MIDDAY_MF_STATUS__",
+        name: "SETTLED_MATCHED_1215",
+        price: 1, // 1 = settled & verified, terminate last cron (12:30 PM)
+        searchKey: `__midday_mf_${marketStatus.istDateStr}__`,
+      });
+      console.log("[Midday MF 12:15 PM] Fetched AMFI NAVs match DB values! Terminating 12:30 PM cron; moving straight to night job.");
+      return { matched: true, skippedThirdCall: true };
+    }
+
+    if (pricesMoved) {
+      // Prices differed: update DB with newly published NAVs and let 12:30 PM finalize
+      console.log(`[Midday MF 12:15 PM] Additional NAV updates detected between 12:00 and 12:15 PM. Updating DB...`);
+      for (const { scheme, amfi } of fetchedUpdates) {
+        await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
+          isin: amfi.isin || scheme.isin,
+          schemeCode: amfi.schemeCode || scheme.schemeCode || 0,
+          schemeName: amfi.schemeName || scheme.name,
+          nav: amfi.nav,
+          navDate: amfi.date || expectedDate,
+          prevNav: amfi.prevNav,
+          searchKey: scheme.searchKey,
+        });
+      }
+
+      await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
+
+      try {
+        await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+      } catch (err) {
+        console.warn("[Midday MF 12:15 PM] Error in syncLiveMarketPrices:", err);
+      }
+
+      await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+        symbol: "__MIDDAY_MF_STATUS__",
+        name: "UPDATED_1215_NEEDS_FINAL_1230",
+        price: 0,
+        searchKey: `__midday_mf_${marketStatus.istDateStr}__`,
+      });
+
+      return { matched: false, updatedCount: fetchedUpdates.length };
+    }
+
+    // Partial/network issue: keep price = 0 so 12:30 PM retries
+    console.log(`[Midday MF 12:15 PM] Partial or no responses from AMFI (${fetchedUpdates.length}/${investedSchemes.length}). 12:30 PM will retry.`);
+    await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+      symbol: "__MIDDAY_MF_STATUS__",
+      name: "RETRY_NEEDED_1230",
+      price: 0,
+      searchKey: `__midday_mf_${marketStatus.istDateStr}__`,
+    });
+    return { matched: false, retryScheduled: true };
+  },
+});
+
+/**
+ * 12:30 PM IST Mid-Day Mutual Fund NAV Final Close Sync (12:30 IST = 07:00 UTC, Mon-Fri):
+ * Stage 3: Checks if 12:00 PM or 12:15 PM already verified matching prices and marked settled.
+ * If already settled, stops and skips to prevent wasted API calls and redundant processing.
+ * If values shifted at 12:15 PM, runs final midday sync, updates DB, marks as FINALIZED_1230,
+ * and moves straight to the nightly sync window.
+ */
+export const internalSyncMfMidday1230Job = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const marketStatus = getIndianMarketStatus();
+    if (marketStatus.isWeekend || marketStatus.isHoliday) {
+      console.log(`[Midday MF 12:30 PM] Market closed today (${marketStatus.reason}). Skipping.`);
+      return { skipped: true, reason: marketStatus.reason };
+    }
+
+    // Check if 12:00 PM or 12:15 PM already settled
+    const status: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
+      symbol: "__MIDDAY_MF_STATUS__",
+      searchKey: `__midday_mf_${marketStatus.istDateStr}__`,
+    });
+
+    if (status && status.price === 1) {
+      console.log(`[Midday MF 12:30 PM] Stopped: Midday MF NAV already settled and verified (${status.name}). Skipping 3rd cron call.`);
+      return { skipped: true, reason: `Already settled: ${status.name}` };
+    }
+
+    console.log("[Midday MF 12:30 PM] Running 12:30 PM midday sync...");
+
+    const investedSchemes: any[] = await ctx.runQuery(internal.investments.internalListAllInvestedMfSchemes, {});
+    if (!investedSchemes || investedSchemes.length === 0) return { verified: 0 };
+
+    const expectedDate = getLatestExpectedMfNavDate();
+    let updatedCount = 0;
+
+    for (const scheme of investedSchemes) {
+      try {
+        const amfi = await fetchMfNav(scheme.name, scheme.notes, scheme.schemeCode, scheme.isin);
+        if (amfi && amfi.nav > 0) {
+          await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
+            isin: amfi.isin || scheme.isin,
+            schemeCode: amfi.schemeCode || scheme.schemeCode || 0,
+            schemeName: amfi.schemeName || scheme.name,
+            nav: amfi.nav,
+            navDate: amfi.date || expectedDate,
+            prevNav: amfi.prevNav,
+            searchKey: scheme.searchKey,
+          });
+          updatedCount++;
+        }
+      } catch (err) {
+        console.warn(`[Midday MF 12:30 PM] Error syncing ${scheme.name}:`, err);
+      }
+    }
+
+    if (updatedCount > 0) {
+      await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
+
+      try {
+        await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+      } catch (err) {
+        console.warn("[Midday MF 12:30 PM] Error in syncLiveMarketPrices:", err);
+      }
+    }
+
+    await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+      symbol: "__MIDDAY_MF_STATUS__",
+      name: "FINALIZED_1230",
+      price: 1, // Finalized
+      searchKey: `__midday_mf_${marketStatus.istDateStr}__`,
+    });
+
+    console.log(`[Midday MF 12:30 PM] Midday NAV processing completed (updated: ${updatedCount}). Moving straight to night job.`);
+    return { success: true, count: updatedCount };
+  },
+});
+
+
 
 

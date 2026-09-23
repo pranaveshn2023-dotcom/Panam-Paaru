@@ -67,5 +67,31 @@ crons.cron(
   internal.investments.internalSyncMarketClose330Job
 );
 
+/**
+ * Mid-Day Mutual Fund NAV Release Window (12:00 PM to 12:30 PM IST)
+ * Runs on trading weekdays (Monday through Friday, 1-5).
+ * - 12:00 PM IST (06:30 UTC): Stage 1 - Fetches latest AMFI NAVs. If no change detected vs DB, terminates 12:15 & 12:30 PM crons and proceeds straight to night job.
+ * - 12:15 PM IST (06:45 UTC): Stage 2 - Verifies if fetched AMFI NAV matches DB. If matched, terminates 12:30 PM cron and moves to night job.
+ * - 12:30 PM IST (07:00 UTC): Stage 3 - Final midday sync (only runs if 12:15 PM detected further movement).
+ * Automatically skips on weekends and public market holidays.
+ */
+crons.cron(
+  "amfi-midday-sync-1200-ist",
+  "30 6 * * 1-5",
+  internal.investments.internalSyncMfMidday1200Job
+);
+
+crons.cron(
+  "amfi-midday-sync-1215-ist",
+  "45 6 * * 1-5",
+  internal.investments.internalSyncMfMidday1215Job
+);
+
+crons.cron(
+  "amfi-midday-sync-1230-ist",
+  "0 7 * * 1-5",
+  internal.investments.internalSyncMfMidday1230Job
+);
+
 export default crons;
 
