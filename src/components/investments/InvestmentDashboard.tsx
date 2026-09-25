@@ -350,15 +350,25 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     };
 
     // 45-Second Interval: Strictly optimized for live instruments only
-    // - Stocks/ETFs: ONLY during Indian market hours (9:15 AM - 3:30 PM IST, Mon-Fri)
+    // - Stocks/ETFs & Benchmark Indices: ONLY during Indian market hours (9:15 AM - 3:30 PM IST, Mon-Fri)
     // - Crypto: 24/7 (global market never closes)
     // - Mutual funds / closed markets: NEVER polled every 45s (avoids redundant API spam)
     const timer = setInterval(() => {
+      const mktOpen = isIndianMarketOpenNow();
+
+      // 1. Refresh live benchmark indices (NIFTY 50 & SENSEX) during market hours
+      if (mktOpen) {
+        getMarketIndicesAction({ force: false })
+          .then((res) => {
+            if (res && res.length > 0) setMarketIndices(res);
+          })
+          .catch(() => {});
+      }
+
       if (investments.length === 0) return;
 
       const hasCrypto = investments.some((i) => i.assetType === 'crypto' && (i.investedAmount > 0 || (i.units && i.units > 0)));
       const hasStocks = investments.some((i) => (i.assetType === 'stocks' || (i.assetType === 'gold' && !/fund/i.test(i.name))) && (i.investedAmount > 0 || (i.units && i.units > 0)));
-      const mktOpen = isIndianMarketOpenNow();
 
       if (hasCrypto && (!hasStocks || !mktOpen)) {
         // Outside market hours or no stocks: only tick crypto 24/7
@@ -370,7 +380,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     }, 45000);
 
     return () => clearInterval(timer);
-  }, [isAutoSyncEnabled, investments.length, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation, syncLiveMarketPricesAction]);
+  }, [isAutoSyncEnabled, investments.length, autoClassifyCommoditiesMutation, autoDeduplicateHoldingsMutation, syncLiveMarketPricesAction, getMarketIndicesAction]);
 
   const ASSET_TABS: { label: string; value: 'all' | AssetType }[] = [
     { label: 'All', value: 'all' },
@@ -473,7 +483,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             {marketIndices.map((idx) => (
               <div key={idx.symbol} className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-700 px-2.5 py-1 text-xs font-mono shrink-0">
                 <span className="font-bold text-neutral-400">{idx.name}:</span>
-                <span className="font-black text-white">₹{idx.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="font-black text-white">{idx.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 <span className={`text-[10px] font-black flex items-center ${idx.isPositive ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
                   {idx.change > 0 ? '+' : ''}{idx.change.toFixed(2)} ({idx.changePercent > 0 ? '+' : ''}{idx.changePercent.toFixed(2)}%)
                 </span>

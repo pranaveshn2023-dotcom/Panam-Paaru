@@ -4170,8 +4170,8 @@ export const getMarketIndices = action({
   },
   handler: async (ctx, args) => {
     const indices = [
-      { key: "nifty50", symbol: "^NSEI", name: "NIFTY 50" },
-      { key: "sensex", symbol: "^BSESN", name: "SENSEX" },
+      { key: "nifty50", symbol: "^NSEI", name: "NIFTY 50", googleTicker: "NIFTY_50:INDEXNSE" },
+      { key: "sensex", symbol: "^BSESN", name: "SENSEX", googleTicker: "SENSEX:INDEXBOM" },
     ];
     const marketStatus = getIndianMarketStatus();
     const now = Date.now();
@@ -4235,7 +4235,7 @@ export const getMarketIndices = action({
       }
     }
 
-    // 2. Multi-tier Yahoo Finance + Official Exchange index resolver
+    // 2. Multi-tier Google Finance + Yahoo Finance index resolver
     const fetchSingleIndex = async (idx: (typeof indices)[0]) => {
       try {
         const searchKey = `__benchmark_index_${idx.key}__`;
@@ -4245,70 +4245,81 @@ export const getMarketIndices = action({
         let liveChange = 0;
         let liveChangePct = 0;
 
-        // Tier 1: Yahoo Finance chart API with desktop browser headers (query1 + query2 failover)
-        let res: Response | null = null;
-        try {
-          res = await fetch(
-            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}?interval=1d&range=1d`,
-            { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
-          );
-        } catch {
+        // Tier 1: Real-time Google Finance official exchange feed (zero 15-minute delay)
+        if (idx.googleTicker) {
           try {
-            res = await fetch(
-              `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}?interval=1d&range=1d`,
-              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+            const gRes = await fetch(
+              `https://www.google.com/finance/quote/${encodeURIComponent(idx.googleTicker)}`,
+              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
             );
-          } catch {}
-        }
+            if (gRes.ok) {
+              const html = await gRes.text();
+              const priceMatch = html.match(/class="ujg0He"[\s\S]*?<div class="N6SYTe"><span[^>]*><span>([0-9,.]+)<\/span>/);
+              const pctMatch = html.match(/class="ujg0He"[\s\S]*?<span jsname="vY9t3b"[^>]*><span[^>]*>([+-]?[0-9,.]+)%<\/span>/);
+              const chgMatch = html.match(/class="ujg0He"[\s\S]*?<span jsname="xnruHf"[^>]*><span>([+-]?[0-9,.]+)<\/span>/);
 
-        if (res && res.ok) {
-          const d: any = await res.json();
-          const meta = d?.chart?.result?.[0]?.meta;
-          if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
-            livePrice = meta.regularMarketPrice;
-            if (typeof meta.regularMarketChange === "number" && !isNaN(meta.regularMarketChange)) {
-              liveChange = meta.regularMarketChange;
-            } else if (typeof meta.fulldayChange === "number" && !isNaN(meta.fulldayChange)) {
-              liveChange = meta.fulldayChange;
-            } else {
-              const prev = meta.previousClose || meta.chartPreviousClose || livePrice;
-              liveChange = livePrice - prev;
-            }
+              if (priceMatch) {
+                const parsedPrice = parseFloat(priceMatch[1].replace(/,/g, ""));
+                let parsedChange = chgMatch ? parseFloat(chgMatch[1].replace(/,/g, "")) : 0;
+                let parsedPct = pctMatch ? parseFloat(pctMatch[1].replace(/%/g, "")) : 0;
 
-            if (typeof meta.regularMarketChangePercent === "number" && !isNaN(meta.regularMarketChangePercent)) {
-              liveChangePct = Number(meta.regularMarketChangePercent.toFixed(2));
-            } else if (typeof meta.fulldayChangePercent === "number" && !isNaN(meta.fulldayChangePercent)) {
-              liveChangePct = Number(meta.fulldayChangePercent.toFixed(2));
-            } else {
-              const prev = livePrice - liveChange;
-              liveChangePct = prev > 0 ? Number(((liveChange / prev) * 100).toFixed(2)) : 0;
+                const daicsdIdx = html.indexOf('class="DAicsd"');
+                const isDownward = daicsdIdx !== -1 && html.substring(daicsdIdx, daicsdIdx + 300).includes("arrow_downward");
+                if (isDownward && parsedChange > 0) parsedChange = -parsedChange;
+                if (isDownward && parsedPct > 0) parsedPct = -parsedPct;
+
+                if (!isNaN(parsedPrice) && parsedPrice > 0) {
+                  livePrice = parsedPrice;
+                  liveChange = parsedChange;
+                  liveChangePct = parsedPct;
+                }
+              }
             }
+          } catch (gErr) {
+            console.warn(`[GoogleFinance] Failed to fetch index ${idx.name}:`, gErr);
           }
         }
 
-        // Tier 2: Official exchange mobile feeds if Yahoo unavailable
+        // Tier 2: Yahoo Finance chart API with desktop browser headers (query1 + query2 failover)
         if (!livePrice) {
-          if (idx.key === "sensex") {
+          let res: Response | null = null;
+          try {
+            res = await fetch(
+              `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}?interval=1d&range=1d`,
+              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+            );
+          } catch {
             try {
-              const bseRes = await fetch("https://m.bseindia.com/", {
-                headers: STANDARD_HEADERS,
-                signal: AbortSignal.timeout(3500),
-              });
-              if (bseRes.ok) {
-                const html = await bseRes.text();
-                const ltpMatch = html.match(/id="UcHeaderMenu1_sensexLtp"[^>]*>([^<]+)</);
-                const chgMatch = html.match(/id="UcHeaderMenu1_sensexChange"[^>]*>([^<]+)</);
-                const pctMatch = html.match(/id="UcHeaderMenu1_sensexPerChange"[^>]*>([^<]+)</);
-                if (ltpMatch) {
-                  const parsedPrice = parseFloat(ltpMatch[1].replace(/,/g, "").trim());
-                  if (!isNaN(parsedPrice) && parsedPrice > 0) {
-                    livePrice = parsedPrice;
-                    liveChange = chgMatch ? parseFloat(chgMatch[1].replace(/[+,]/g, "").trim()) : 0;
-                    liveChangePct = pctMatch ? parseFloat(pctMatch[1].replace(/[+%,]/g, "").trim()) : 0;
-                  }
-                }
-              }
+              res = await fetch(
+                `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}?interval=1d&range=1d`,
+                { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+              );
             } catch {}
+          }
+
+          if (res && res.ok) {
+            const d: any = await res.json();
+            const meta = d?.chart?.result?.[0]?.meta;
+            if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
+              livePrice = meta.regularMarketPrice;
+              if (typeof meta.regularMarketChange === "number" && !isNaN(meta.regularMarketChange)) {
+                liveChange = meta.regularMarketChange;
+              } else if (typeof meta.fulldayChange === "number" && !isNaN(meta.fulldayChange)) {
+                liveChange = meta.fulldayChange;
+              } else {
+                const prev = meta.previousClose || meta.chartPreviousClose || livePrice;
+                liveChange = livePrice - prev;
+              }
+
+              if (typeof meta.regularMarketChangePercent === "number" && !isNaN(meta.regularMarketChangePercent)) {
+                liveChangePct = Number(meta.regularMarketChangePercent.toFixed(2));
+              } else if (typeof meta.fulldayChangePercent === "number" && !isNaN(meta.fulldayChangePercent)) {
+                liveChangePct = Number(meta.fulldayChangePercent.toFixed(2));
+              } else {
+                const prev = livePrice - liveChange;
+                liveChangePct = prev > 0 ? Number(((liveChange / prev) * 100).toFixed(2)) : 0;
+              }
+            }
           }
         }
 
