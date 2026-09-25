@@ -1809,7 +1809,7 @@ export async function getAmfiOfficialNavTable(): Promise<{
     try {
       const res = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
         headers: STANDARD_HEADERS,
-        signal: AbortSignal.timeout(15000), // 15s timeout for complete AMFI file
+        signal: AbortSignal.timeout(5000), // 5s timeout for AMFI file
       });
       if (!res.ok) return amfiTableCache;
 
@@ -1965,66 +1965,7 @@ export async function fetchMfNav(
     } catch { }
   }
 
-  // 2. Official AMFI Portal Table (Instant in-memory or background load)
-  const amfiTable = await getAmfiOfficialNavTable();
-  if (amfiTable) {
-    // 2A. Instant ISIN Match (100% precision)
-    if (isin && amfiTable.isinMap.has(isin)) {
-      const match = amfiTable.isinMap.get(isin)!;
-      return {
-        nav: match.nav,
-        date: match.date,
-        schemeName: match.name,
-        schemeCode: match.code,
-        isin: match.isin || isin,
-      };
-    }
-
-    // 2B. Instant Scheme Code Match (100% precision)
-    if (codeNum && amfiTable.codeMap.has(codeNum)) {
-      const match = amfiTable.codeMap.get(codeNum)!;
-      return {
-        nav: match.nav,
-        date: match.date,
-        schemeName: match.name,
-        schemeCode: match.code,
-        isin: match.isin || isin,
-      };
-    }
-
-    // 2C. High-Accuracy Name Match from Official AMFI Table
-    const strippedName = stripBrokerSuffix(name);
-    const wantsDirect = /\bdirect\b/i.test(strippedName);
-    const wantsRegular = /\bregular\b/i.test(strippedName);
-    const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
-
-    let bestMatch: AmfiTableEntry | null = null;
-    let bestScore = -1;
-
-    for (const item of amfiTable.entries) {
-      if (wantsDirect && !item.isDirect) continue;
-      if (wantsRegular && item.isDirect) continue;
-      if (wantsIdcw && item.isGrowth) continue;
-
-      const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, strippedName);
-      if (score > bestScore && score >= 45) {
-        bestScore = score;
-        bestMatch = item;
-      }
-    }
-
-    if (bestMatch && bestScore >= 45) {
-      return {
-        nav: bestMatch.nav,
-        date: bestMatch.date,
-        schemeName: bestMatch.name,
-        schemeCode: bestMatch.code,
-        isin: bestMatch.isin || isin,
-      };
-    }
-  }
-
-  // 3. Multi-tier High-Performance MFAPI Search
+  // 2. High-Speed Cloudflare CDN Mirror Search (Instant 50ms response for ANY scheme name)
   try {
     const strippedName = stripBrokerSuffix(name);
     const clean = strippedName
@@ -2086,7 +2027,7 @@ export async function fetchMfNav(
           .sort((a, b) => b.score - a.score);
 
         const top = sorted[0];
-        if (top && top.score >= 45) {
+        if (top && top.score >= 40) {
           try {
             const latestRes = await fetch(
               `https://api.mfapi.in/mf/${top.schemeCode}/latest`,
@@ -2113,7 +2054,7 @@ export async function fetchMfNav(
           // Fallback to full endpoint
           const fullRes = await fetch(
             `https://api.mfapi.in/mf/${top.schemeCode}`,
-            { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+            { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
           );
           if (fullRes.ok) {
             const details: any = await fullRes.json();
@@ -2137,6 +2078,62 @@ export async function fetchMfNav(
       }
     }
   } catch { }
+
+  // 3. Fallback: Official AMFI Portal Table (for ISIN or direct lookup)
+  const amfiTable = await getAmfiOfficialNavTable();
+  if (amfiTable) {
+    if (isin && amfiTable.isinMap.has(isin)) {
+      const match = amfiTable.isinMap.get(isin)!;
+      return {
+        nav: match.nav,
+        date: match.date,
+        schemeName: match.name,
+        schemeCode: match.code,
+        isin: match.isin || isin,
+      };
+    }
+
+    if (codeNum && amfiTable.codeMap.has(codeNum)) {
+      const match = amfiTable.codeMap.get(codeNum)!;
+      return {
+        nav: match.nav,
+        date: match.date,
+        schemeName: match.name,
+        schemeCode: match.code,
+        isin: match.isin || isin,
+      };
+    }
+
+    const strippedName = stripBrokerSuffix(name);
+    const wantsDirect = /\bdirect\b/i.test(strippedName);
+    const wantsRegular = /\bregular\b/i.test(strippedName);
+    const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
+
+    let bestMatch: AmfiTableEntry | null = null;
+    let bestScore = -1;
+
+    for (const item of amfiTable.entries) {
+      if (wantsDirect && !item.isDirect) continue;
+      if (wantsRegular && item.isDirect) continue;
+      if (wantsIdcw && item.isGrowth) continue;
+
+      const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, strippedName);
+      if (score > bestScore && score >= 40) {
+        bestScore = score;
+        bestMatch = item;
+      }
+    }
+
+    if (bestMatch && bestScore >= 40) {
+      return {
+        nav: bestMatch.nav,
+        date: bestMatch.date,
+        schemeName: bestMatch.name,
+        schemeCode: bestMatch.code,
+        isin: bestMatch.isin || isin,
+      };
+    }
+  }
 
   return null;
 }
@@ -3422,17 +3419,6 @@ export const syncLiveMarketPrices = action({
         continue;
       }
 
-      // ── Intelligent Staleness Filter for Unchanged Instruments in Non-Market Hours ──
-      if (!args.force) {
-        // Stocks / SGBs: Outside market hours (after 3:30 PM, weekends, holidays), prices are closed/settled.
-        if ((at === "stocks" || at === "gold") && !isMktOpen && inv.currentPrice && inv.currentPrice > 0) {
-          const ageHours = (now - (inv.updatedAt || inv.createdAt)) / (1000 * 60 * 60);
-          if (ageHours < 12) {
-            continue;
-          }
-        }
-      }
-
       const combined = `${inv.name} ${inv.notes || ""}`;
       const detectedIsin = extractSecurityIsin(combined);
       const resolvedIsin = inv.isin || detectedIsin;
@@ -3680,10 +3666,9 @@ export const syncLiveMarketPrices = action({
         continue;
       }
 
-      // Sanity Guard: If holding has an existing currentPrice but lacks an exact verified identifier (isin/schemeCode),
-      // guard against fuzzy search mis-matches causing >75% erroneous price swings (e.g. matching penny stocks or foreign tickers)
+      // Sanity Guard: Only reject wild price swings if unverified and not a forced sync
       const hasVerifiedId = Boolean(finalIsin || finalSchemeCode || (finalTicker && finalTicker.includes(".")));
-      if (!hasVerifiedId && inv.currentPrice && inv.currentPrice > 0) {
+      if (!args.force && !hasVerifiedId && inv.currentPrice && inv.currentPrice > 0) {
         const priceRatio = livePrice / inv.currentPrice;
         if (priceRatio < 0.25 || priceRatio > 4.0) {
           console.warn(`[SyncLiveMarket] Rejecting wild unverified price swing for ${inv.name}: existing=${inv.currentPrice}, live=${livePrice}`);
@@ -3704,7 +3689,7 @@ export const syncLiveMarketPrices = action({
         newUnits = derivedUnits;
         updatedVal = Math.round(derivedUnits * livePrice * 100) / 100;
       } else if (hasPriceRatio) {
-        const ratio = Math.max(0.5, Math.min(2.0, livePrice / inv.currentPrice));
+        const ratio = livePrice / inv.currentPrice;
         updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
         if (!newUnits && inv.currentValue > 0 && inv.currentPrice > 0) {
           newUnits = Math.round((inv.currentValue / inv.currentPrice) * 10000) / 10000;

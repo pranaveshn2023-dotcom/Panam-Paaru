@@ -250,7 +250,9 @@ function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, 
  */
 export async function fetchAmfiNav(
   fundName: string,
-  notes?: string
+  notes?: string,
+  knownSchemeCode?: number,
+  knownIsin?: string
 ): Promise<{ nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number } | null> {
   const normKey = fundName.toLowerCase().trim();
 
@@ -269,11 +271,10 @@ export async function fetchAmfiNav(
     const combined = `${fundName} ${notes || ''}`;
 
     // 1. Direct scheme code check (Explicitly stripping out any Folio numbers!)
-    // ⚠️ Guard: A folio number is an investor's personal account number and is NOT unique to a fund.
     const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, '');
     const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
-    if (explicitSchemeMatch) {
-      const code = explicitSchemeMatch[1] || explicitSchemeMatch[0];
+    const code = (knownSchemeCode && knownSchemeCode > 0) ? String(knownSchemeCode) : (explicitSchemeMatch ? (explicitSchemeMatch[1] || explicitSchemeMatch[0]) : null);
+    if (code) {
       try {
         const latestRes = await fetch(`https://api.mfapi.in/mf/${code}/latest`, { signal: AbortSignal.timeout(3000) });
         if (latestRes.ok) {
@@ -605,12 +606,13 @@ const clientStockPriceCache = new Map<string, ClientStockCacheEntry>();
 export async function fetchLiveStockPrice(
   nameOrSymbol: string,
   notes?: string,
-  knownIsin?: string
+  knownIsin?: string,
+  knownTicker?: string
 ): Promise<{ price: number; prevClose?: number; symbol?: string; isin?: string } | null> {
   const combined = `${nameOrSymbol} ${notes || ''}`;
   const isinMatch = knownIsin || combined.match(/\b(INE[A-Z0-9]{9})\b/i)?.[1]?.toUpperCase() || combined.match(/\b(IN[A-Z0-9]{10})\b/i)?.[1]?.toUpperCase();
   const clean = nameOrSymbol.trim().toUpperCase();
-  const cacheKey = isinMatch || clean;
+  const cacheKey = knownTicker || isinMatch || clean;
   const market = isIndianStockMarketOpen();
   const cached = clientStockPriceCache.get(cacheKey) || clientStockPriceCache.get(clean);
   const now = Date.now();
@@ -639,6 +641,15 @@ export async function fetchLiveStockPrice(
     }
     if (!candidates.includes(s)) candidates.push(s);
   };
+
+  // If explicit ticker known (e.g. TATAMOTORS.NS, RELIANCE.NS), prioritize it immediately
+  if (knownTicker) {
+    const kt = knownTicker.trim().toUpperCase();
+    if (kt.endsWith('.BO')) {
+      addCandidate(kt.replace(/\.BO$/, '.NS'), true);
+    }
+    addCandidate(kt, true);
+  }
 
   // Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
   if (isinMatch) {

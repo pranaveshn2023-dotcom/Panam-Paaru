@@ -189,18 +189,34 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       } catch (actionErr) {
         console.warn('Backend sync action failed, falling back to client-side sync:', actionErr);
         // Client-side fallback sync (strictly for active invested instruments)
-        const updates: { id: any; currentValue: number; currentPrice?: number }[] = [];
+        const updates: {
+          id: any;
+          currentValue: number;
+          currentPrice?: number;
+          schemeCode?: number;
+          isin?: string;
+          ticker?: string;
+        }[] = [];
         for (const inv of activeInvestments) {
           const at = inv.assetType;
 
           let livePrice: number | null = null;
+          let resolvedSchemeCode = inv.schemeCode;
+          let resolvedIsin = inv.isin;
+          let resolvedTicker = inv.ticker;
+
           if (at === 'mutual_fund') {
-            const live = await fetchAmfiNav(inv.name, inv.notes);
+            const live = await fetchAmfiNav(inv.name, inv.notes, inv.schemeCode, inv.isin);
             if (live && live.nav > 0) {
               livePrice = live.nav;
+              if (live.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = live.schemeCode;
             } else if (/\b(etf|bees)\b/i.test(inv.name)) {
-              const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin);
-              if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
+              const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin, inv.ticker);
+              if (liveStock && liveStock.price > 0) {
+                livePrice = liveStock.price;
+                if (liveStock.symbol && !resolvedTicker) resolvedTicker = liveStock.symbol;
+                if (liveStock.isin && !resolvedIsin) resolvedIsin = liveStock.isin;
+              }
             }
           } else if (at === 'crypto') {
             const live = await fetchLiveCryptoPrice(inv.name);
@@ -208,24 +224,31 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
           } else if (at === 'gold') {
             const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(inv.name);
             if (!isSgbOrDigital) {
-              // 1. Try stock quote first for traded ETFs / tickers (e.g. GOLDBEES, SILVERBEES, AXISAMC-GOLDAXIS, ICICIPRAMC - ICICISILVE)
-              const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin);
+              // 1. Try stock quote first for traded ETFs / tickers
+              const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin, inv.ticker);
               if (liveStock && liveStock.price > 0) {
                 livePrice = liveStock.price;
+                if (liveStock.symbol && !resolvedTicker) resolvedTicker = liveStock.symbol;
+                if (liveStock.isin && !resolvedIsin) resolvedIsin = liveStock.isin;
               } else {
                 // 2. Try AMFI NAV for Gold/Silver mutual funds
-                const live = await fetchAmfiNav(inv.name, inv.notes);
-                if (live && live.nav > 0) livePrice = live.nav;
+                const live = await fetchAmfiNav(inv.name, inv.notes, inv.schemeCode, inv.isin);
+                if (live && live.nav > 0) {
+                  livePrice = live.nav;
+                  if (live.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = live.schemeCode;
+                }
               }
             }
           } else {
-            const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin);
-            if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
+            const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin, inv.ticker);
+            if (liveStock && liveStock.price > 0) {
+              livePrice = liveStock.price;
+              if (liveStock.symbol && !resolvedTicker) resolvedTicker = liveStock.symbol;
+              if (liveStock.isin && !resolvedIsin) resolvedIsin = liveStock.isin;
+            }
           }
 
           if (livePrice !== null && livePrice > 0) {
-            // A raw per-unit price must never be written as the total value
-            // without a quantity / price basis to convert it through.
             const hasQty = inv.units && inv.units > 0;
             const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
             const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
@@ -244,8 +267,20 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             }
             const valDiff = Math.abs(updatedVal - inv.currentValue);
             const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));
-            if (valDiff > 0.01 || priceDiff > 0.0001) {
-              updates.push({ id: inv._id as any, currentValue: updatedVal, currentPrice: livePrice });
+            const identifierChanged =
+              (resolvedSchemeCode !== undefined && resolvedSchemeCode !== inv.schemeCode) ||
+              (resolvedIsin !== undefined && resolvedIsin !== inv.isin) ||
+              (resolvedTicker !== undefined && resolvedTicker !== inv.ticker);
+
+            if (valDiff > 0.01 || priceDiff > 0.0001 || identifierChanged) {
+              updates.push({
+                id: inv._id as any,
+                currentValue: updatedVal,
+                currentPrice: livePrice,
+                schemeCode: resolvedSchemeCode,
+                isin: resolvedIsin,
+                ticker: resolvedTicker,
+              });
             }
           }
         }
