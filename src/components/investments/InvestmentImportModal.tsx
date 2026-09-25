@@ -196,6 +196,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           assetType: h.assetType,
           notes: h.notes,
           isin: h.isin,
+          schemeCode: h.schemeCode,
         })),
         force: true,
       });
@@ -232,6 +233,12 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             updatedHoldings[idx] = h;
             count++;
           }
+        }
+
+        console.log(`[Enrichment] Successfully synced ${count} of ${eligibleHoldings.length} holdings in batch.`);
+        if (count > 0 && enrichmentRunId.current === runId) {
+          setEnrichedCount(count);
+          setParsedHoldings([...updatedHoldings]);
         }
       }
     } catch (batchErr) {

@@ -629,6 +629,94 @@ export async function fetchLiveStockPrice(
     return { price: cached.price, prevClose: cached.prevClose, symbol: cached.symbol, isin: isinMatch };
   }
 
+  // 3. High-speed Real-Time Domestic Exchange Feed (Groww Public API)
+  // Resolves Indian equities, ETFs, and unlisted securities in ~100ms
+  try {
+    const searchQueriesToTry: string[] = [];
+
+    // If hyphenated like 'ICICIPRAMC - ICICISILVE', try the specific instrument part first!
+    if (clean.includes('-') || clean.includes('/')) {
+      const parts = clean.split(/[-/]/).map((p) => p.trim()).filter(Boolean);
+      for (const p of [...parts].reverse()) {
+        if (p.length >= 3 && !searchQueriesToTry.includes(p)) searchQueriesToTry.push(p);
+      }
+    }
+
+    // Expand standard broker statement abbreviations
+    const expanded = clean
+      .replace(/[-_]/g, ' ')
+      .replace(/\bPR\b/g, 'PRUDENTIAL')
+      .replace(/\bNIF\b/g, 'NIFTY')
+      .replace(/\bLW\b/g, 'LOW')
+      .replace(/\bVL\b/g, 'VOLATILITY')
+      .replace(/\bVAL\b/g, 'VALUE')
+      .replace(/\bMOM\b/g, 'MOMENTUM')
+      .replace(/\bQUAL\b/g, 'QUALITY')
+      .replace(/\b(LIMITED|LTD|CORPORATION|CORP|VENTURES|VEN|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, '')
+      .replace(/\bOF\s+[A-Z]{1,2}$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (expanded && !searchQueriesToTry.includes(expanded)) searchQueriesToTry.push(expanded);
+
+    const cleanSearch = clean
+      .replace(/[-_]/g, ' ')
+      .replace(/\b(limited|ltd|corporation|corp|ventures|ven|company|co|plc|pvt|private)\b\.?/gi, '')
+      .replace(/\bof\s+[A-Za-z]{1,2}$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (cleanSearch && !searchQueriesToTry.includes(cleanSearch)) searchQueriesToTry.push(cleanSearch);
+
+    const strippedAmc = clean
+      .replace(/^[A-Z0-9]+AMC[-_\s]*/i, '')
+      .replace(/[-_]/g, ' ')
+      .trim();
+    if (strippedAmc && !searchQueriesToTry.includes(strippedAmc)) searchQueriesToTry.push(strippedAmc);
+
+    const words = cleanSearch.split(/\s+/).filter((w) => w.length >= 2);
+    if (words.length >= 2) {
+      const twoWords = `${words[0]} ${words[1]}`;
+      if (!searchQueriesToTry.includes(twoWords)) searchQueriesToTry.push(twoWords);
+    } else if (words.length === 1 && words[0].length >= 3) {
+      if (!searchQueriesToTry.includes(words[0])) searchQueriesToTry.push(words[0]);
+    }
+
+    for (const q of searchQueriesToTry.slice(0, 4)) {
+      try {
+        const searchUrl = `https://groww.in/v1/api/search/v1/entity?app=false&page=0&q=${encodeURIComponent(q)}&size=4`;
+        const sRes = await fetch(searchUrl, { signal: AbortSignal.timeout(2000) });
+        if (sRes.ok) {
+          const sData: any = await sRes.json();
+          const content = sData?.content || [];
+          if (content.length > 0) {
+            let match = content[0];
+            if (/ETF|BEES|SILVER|GOLD/i.test(nameOrSymbol)) {
+              const etfMatch = content.find((c: any) => /ETF|BEES|SILVER|GOLD/i.test(c.title || c.company_name || ''));
+              if (etfMatch) match = etfMatch;
+            }
+            const rawScrip = match.bse_scrip_code || match.groww_contract_id || match.nse_scrip_code;
+            const scrip = String(rawScrip).replace(/,/g, '').trim();
+            const ex = match.bse_scrip_code ? 'BSE' : 'NSE';
+            const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ex}/segment/CASH/${scrip}/latest`;
+            const pRes = await fetch(priceUrl, { signal: AbortSignal.timeout(2000) });
+            if (pRes.ok) {
+              const pData: any = await pRes.json();
+              if (typeof pData?.ltp === 'number' && pData.ltp > 0) {
+                const res = {
+                  price: pData.ltp,
+                  prevClose: pData.close || undefined,
+                  symbol: match.bse_trading_symbol || match.nse_trading_symbol || match.company_short_name || scrip,
+                  isin: match.isin || isinMatch || undefined,
+                };
+                clientStockPriceCache.set(cacheKey, { ...res, timestamp: now });
+                return res;
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+
   const candidates: string[] = [];
   const highPriorityCandidates: string[] = [];
 

@@ -53,6 +53,8 @@ export interface ParsedHolding {
   broker?: string;
   folioNo?: string;
   isin?: string;
+  schemeCode?: number;
+  ticker?: string;
   xirr?: string;
   selected: boolean;
   isValid: boolean;

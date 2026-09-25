@@ -1074,7 +1074,96 @@ async function fetchStockQuote(
     if (!candidates.includes(s)) candidates.push(s);
   };
 
-  // 1. If explicit ticker known from holding or notes, prioritize NSE version
+  // 1. High-speed Real-Time Domestic Exchange Feed (Groww Public API)
+  // Resolves all Indian stocks, ETFs, BSE scrips, and unlisted securities in ~100ms
+  try {
+    const searchQueriesToTry: string[] = [];
+
+    // If hyphenated or slashed like 'ICICIPRAMC - ICICISILVE', try the specific instrument token FIRST!
+    if (clean.includes("-") || clean.includes("/")) {
+      const parts = clean.split(/[-/]/).map((p) => p.trim()).filter(Boolean);
+      for (const p of [...parts].reverse()) {
+        if (p.length >= 3 && !searchQueriesToTry.includes(p)) searchQueriesToTry.push(p);
+      }
+    }
+
+    // Expand common broker statement abbreviations
+    const expanded = clean
+      .replace(/[-_]/g, " ")
+      .replace(/\bPR\b/g, "PRUDENTIAL")
+      .replace(/\bNIF\b/g, "NIFTY")
+      .replace(/\bLW\b/g, "LOW")
+      .replace(/\bVL\b/g, "VOLATILITY")
+      .replace(/\bVAL\b/g, "VALUE")
+      .replace(/\bMOM\b/g, "MOMENTUM")
+      .replace(/\bQUAL\b/g, "QUALITY")
+      .replace(/\b(LIMITED|LTD|CORPORATION|CORP|VENTURES|VEN|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, "")
+      .replace(/\bOF\s+[A-Z]{1,2}$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (expanded && !searchQueriesToTry.includes(expanded)) searchQueriesToTry.push(expanded);
+
+    const cleanSearch = clean
+      .replace(/[-_]/g, " ")
+      .replace(/\b(limited|ltd|corporation|corp|ventures|ven|company|co|plc|pvt|private)\b\.?/gi, "")
+      .replace(/\bof\s+[A-Za-z]{1,2}$/i, "") // strips trailing cutoffs like "of Ir", "of In"
+      .replace(/\s+/g, " ")
+      .trim();
+    if (cleanSearch && !searchQueriesToTry.includes(cleanSearch)) searchQueriesToTry.push(cleanSearch);
+
+    const strippedAmc = clean
+      .replace(/^[A-Z0-9]+AMC[-_\s]*/i, "")
+      .replace(/[-_]/g, " ")
+      .trim();
+    if (strippedAmc && !searchQueriesToTry.includes(strippedAmc)) {
+      searchQueriesToTry.push(strippedAmc);
+    }
+
+    const words = cleanSearch.split(/\s+/).filter((w) => w.length >= 2);
+    if (words.length >= 2) {
+      const twoWords = `${words[0]} ${words[1]}`;
+      if (!searchQueriesToTry.includes(twoWords)) searchQueriesToTry.push(twoWords);
+    } else if (words.length === 1 && words[0].length >= 3) {
+      if (!searchQueriesToTry.includes(words[0])) searchQueriesToTry.push(words[0]);
+    }
+
+    for (const q of searchQueriesToTry.slice(0, 4)) {
+      try {
+        // Omitting entity_type searches across both Stocks and ETFs
+        const searchUrl = `https://groww.in/v1/api/search/v1/entity?app=false&page=0&q=${encodeURIComponent(q)}&size=4`;
+        const sRes = await fetch(searchUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) });
+        if (sRes.ok) {
+          const sData: any = await sRes.json();
+          const content = sData?.content || [];
+          if (content.length > 0) {
+            let match = content[0];
+            if (/ETF|BEES|SILVER|GOLD/i.test(name)) {
+              const etfMatch = content.find((c: any) => /ETF|BEES|SILVER|GOLD/i.test(c.title || c.company_name || ""));
+              if (etfMatch) match = etfMatch;
+            }
+            const rawScrip = match.bse_scrip_code || match.groww_contract_id || match.nse_scrip_code;
+            const scrip = String(rawScrip).replace(/,/g, "").trim();
+            const ex = match.bse_scrip_code ? "BSE" : "NSE";
+            const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ex}/segment/CASH/${scrip}/latest`;
+            const pRes = await fetch(priceUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) });
+            if (pRes.ok) {
+              const pData: any = await pRes.json();
+              if (typeof pData?.ltp === "number" && pData.ltp > 0) {
+                return {
+                  price: pData.ltp,
+                  prevClose: pData.close || undefined,
+                  symbol: match.bse_trading_symbol || match.nse_trading_symbol || match.company_short_name || scrip,
+                  isin: match.isin || isin || undefined,
+                };
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // 2. If explicit ticker known from holding or notes, prioritize NSE version
   if (knownTicker) {
     const kt = knownTicker.trim().toUpperCase();
     if (kt.endsWith(".BO")) {
@@ -1083,7 +1172,7 @@ async function fetchStockQuote(
     addCandidate(kt, true);
   }
 
-  // 2. Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
+  // 3. Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
   if (isin) {
     const resolvedTicker = await resolveTickerFromIsin(isin);
     if (resolvedTicker) {
@@ -1103,7 +1192,7 @@ async function fetchStockQuote(
     addCandidate(clean, true);
   }
 
-  // 3. Dynamic Yahoo Finance Search: Universal resolution for ANY stock, ETF, or fund
+  // 4. Dynamic Yahoo Finance Search & Candidates for Global / Fallback Securities
   const searchQueries: string[] = [];
   if (clean) searchQueries.push(clean);
   if (strippedCorporate && strippedCorporate !== clean && strippedCorporate.length >= 3) {
@@ -1118,15 +1207,6 @@ async function fetchStockQuote(
     searchQueries.push(simplified);
   }
 
-  // Strip AMC prefixes from ETF names (e.g. AXISAMC-GOLDAXIS -> GOLDAXIS, ICICIPRAMC - ICICISILVE -> ICICISILVE)
-  const strippedAmc = clean
-    .replace(/^[A-Z0-9]+AMC[-_\s]*/i, "")
-    .replace(/[-_]/g, " ")
-    .trim();
-  if (strippedAmc && strippedAmc !== clean && strippedAmc.length >= 3) {
-    searchQueries.push(strippedAmc);
-  }
-
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
   const firstToken = tokens[0];
   if (firstToken && firstToken.length >= 3 && !searchQueries.includes(firstToken)) {
@@ -1137,7 +1217,6 @@ async function fetchStockQuote(
     searchQueries.push(lastToken);
   }
 
-  // Always add first token candidate (core ticker name e.g. SUZLON, JPPOWER, NATIONALUM)
   if (firstToken && firstToken.length >= 3) {
     addCandidate(`${firstToken}.NS`);
     addCandidate(`${firstToken}.BO`);
@@ -1220,12 +1299,12 @@ async function fetchStockQuote(
     try {
       let chartRes = await fetch(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
-        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) }
       );
       if (!chartRes.ok) {
         chartRes = await fetch(
           `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
-          { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+          { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) }
         );
       }
       if (!chartRes.ok) continue;
@@ -1261,34 +1340,6 @@ async function fetchStockQuote(
       }
     } catch {}
   }
-
-  // 6. Universal dynamic domestic exchange feed fallback (NSE/BSE real-time, handles unlisted/special scrips)
-  try {
-    const cleanSearch = clean.replace(/[-_]/g, " ").trim();
-    const searchUrl = `https://groww.in/v1/api/search/v1/entity?app=false&entity_type=Stocks&page=0&q=${encodeURIComponent(cleanSearch)}&size=3`;
-    const sRes = await fetch(searchUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) });
-    if (sRes.ok) {
-      const sData: any = await sRes.json();
-      const match = sData?.content?.[0];
-      if (match) {
-        const scrip = match.bse_scrip_code || match.groww_contract_id;
-        const ex = match.bse_scrip_code ? "BSE" : "NSE";
-        const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ex}/segment/CASH/${scrip}/latest`;
-        const pRes = await fetch(priceUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) });
-        if (pRes.ok) {
-          const pData: any = await pRes.json();
-          if (typeof pData?.ltp === "number" && pData.ltp > 0) {
-            return {
-              price: pData.ltp,
-              prevClose: pData.close || undefined,
-              symbol: match.bse_trading_symbol || match.nse_trading_symbol || match.company_short_name || scrip,
-              isin: match.isin || isin || undefined,
-            };
-          }
-        }
-      }
-    }
-  } catch {}
 
   return null;
 }
@@ -3989,15 +4040,16 @@ export const fetchLivePrice = action({
     assetType: v.string(),
     notes: v.optional(v.string()),
     isin: v.optional(v.string()),
+    schemeCode: v.optional(v.number()),
     ticker: v.optional(v.string()),
     force: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { name, assetType, notes, isin, ticker, force } = args;
+    const { name, assetType, notes, isin, schemeCode, ticker, force } = args;
     if (!name || name.trim().length < 2) return null;
 
     if (assetType === "mutual_fund") {
-      const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownIsin: isin, knownTicker: ticker });
+      const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker });
       if (mf && mf.nav > 0) {
         return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
       }
@@ -4017,7 +4069,7 @@ export const fetchLivePrice = action({
         if (stk && stk.price > 0) return stk;
 
         // 2. Try AMFI Cache DB for Gold/Silver mutual funds
-        const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownIsin: isin, knownTicker: ticker });
+        const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker });
         if (mf && mf.nav > 0) {
           return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
         }
@@ -4030,7 +4082,7 @@ export const fetchLivePrice = action({
     if (stk && stk.price > 0) return stk;
 
     // Dynamic fallback for Mutual Funds searched under stocks
-    const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownIsin: isin, knownTicker: ticker });
+    const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker });
     if (mf && mf.nav > 0) {
       return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
     }
@@ -4051,6 +4103,7 @@ export const fetchBatchLivePrices = action({
         assetType: v.string(),
         notes: v.optional(v.string()),
         isin: v.optional(v.string()),
+        schemeCode: v.optional(v.number()),
         ticker: v.optional(v.string()),
       })
     ),
@@ -4072,7 +4125,7 @@ export const fetchBatchLivePrices = action({
     await Promise.all(
       args.items.map(async (item) => {
         try {
-          const { id, name, assetType, notes, isin, ticker } = item;
+          const { id, name, assetType, notes, isin, schemeCode, ticker } = item;
           if (!name || name.trim().length < 2) return;
 
           let res: {
@@ -4087,6 +4140,7 @@ export const fetchBatchLivePrices = action({
           if (assetType === "mutual_fund") {
             const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
               force: args.force,
+              knownSchemeCode: schemeCode,
               knownIsin: isin,
               knownTicker: ticker,
             });
