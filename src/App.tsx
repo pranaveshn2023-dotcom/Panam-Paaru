@@ -534,10 +534,13 @@ export function AppContent() {
         notes: data.notes,
       });
       toast.success(`Successfully topped up ${data.name}!`);
+      syncLiveMarketPricesAction({ investmentIds: [data.existingIdToMerge as any], force: true }).catch(() => {});
     } else if (editingInvestment) {
       await updateInvestmentMutation({ id: editingInvestment._id as any, ...data });
+      syncLiveMarketPricesAction({ investmentIds: [editingInvestment._id as any], force: true }).catch(() => {});
     } else {
       await addInvestmentMutation(data);
+      syncLiveMarketPricesAction({ force: true }).catch(() => {});
     }
   };
 
@@ -564,7 +567,7 @@ export function AppContent() {
         toast.info('All holdings are up to date.');
       }
       // Immediately refresh live market prices for the newly imported assets
-      syncLiveMarketPricesAction({}).catch(() => {});
+      syncLiveMarketPricesAction({ force: true }).catch(() => {});
     }
   };
 

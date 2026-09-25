@@ -693,10 +693,29 @@ export async function fetchLiveStockPrice(
     searchQueries.push(simplified);
   }
 
+  // Strip AMC prefixes from ETF names (e.g. AXISAMC-GOLDAXIS -> GOLDAXIS, ICICIPRAMC - ICICISILVE -> ICICISILVE)
+  const strippedAmc = clean
+    .replace(/^[A-Z0-9]+AMC[-_\s]*/i, '')
+    .replace(/[-_]/g, ' ')
+    .trim();
+  if (strippedAmc && strippedAmc !== clean && strippedAmc.length >= 3) {
+    searchQueries.push(strippedAmc);
+  }
+
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
+  const firstToken = tokens[0];
+  if (firstToken && firstToken.length >= 3 && !searchQueries.includes(firstToken)) {
+    searchQueries.push(firstToken);
+  }
   const lastToken = tokens[tokens.length - 1];
   if (lastToken && lastToken.length >= 4 && !searchQueries.includes(lastToken)) {
     searchQueries.push(lastToken);
+  }
+
+  // Always add first token candidate (core ticker name e.g. SUZLON, JPPOWER, NATIONALUM)
+  if (firstToken && firstToken.length >= 3) {
+    addCandidate(`${firstToken}.NS`);
+    addCandidate(`${firstToken}.BO`);
   }
 
   for (const sq of searchQueries) {
@@ -726,13 +745,20 @@ export async function fetchLiveStockPrice(
     addCandidate(`${compact}.BO`);
   }
 
+  // Also try stripped AMC token candidates
+  if (strippedAmc && strippedAmc.length <= 14) {
+    const compactAmc = strippedAmc.replace(/[^A-Z0-9]/g, '');
+    if (compactAmc.length >= 3 && compactAmc.length <= 14) {
+      addCandidate(`${compactAmc}.NS`);
+      addCandidate(`${compactAmc}.BO`);
+    }
+  }
+
   // Fallback naive tokens only if no candidates found yet
-  if (candidates.length === 0) {
-    for (const t of tokens) {
-      if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
-        addCandidate(`${t}.NS`);
-        addCandidate(`${t}.BO`);
-      }
+  for (const t of tokens) {
+    if (t.length >= 4 && /^[A-Z0-9]+$/.test(t)) {
+      addCandidate(`${t}.NS`);
+      addCandidate(`${t}.BO`);
     }
   }
 
@@ -769,6 +795,40 @@ export async function fetchLiveStockPrice(
       return result;
     }
   }
+
+  // Dynamic domestic exchange feed fallback (for Indian stocks & unlisted exchange scrips)
+  try {
+    const cleanSearch = clean.replace(/[-_]/g, ' ').trim();
+    const searchUrl = `https://groww.in/v1/api/search/v1/entity?app=false&entity_type=Stocks&page=0&q=${encodeURIComponent(cleanSearch)}&size=3`;
+    const sRes = await fetch(searchUrl, { signal: AbortSignal.timeout(3500) });
+    if (sRes.ok) {
+      const sData: any = await sRes.json();
+      const match = sData?.content?.[0];
+      if (match) {
+        const scrip = match.bse_scrip_code || match.groww_contract_id;
+        const ex = match.bse_scrip_code ? 'BSE' : 'NSE';
+        const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ex}/segment/CASH/${scrip}/latest`;
+        const pRes = await fetch(priceUrl, { signal: AbortSignal.timeout(3500) });
+        if (pRes.ok) {
+          const pData: any = await pRes.json();
+          if (typeof pData?.ltp === 'number' && pData.ltp > 0) {
+            const sym = match.bse_trading_symbol || match.nse_trading_symbol || match.company_short_name || scrip;
+            const result = {
+              price: pData.ltp,
+              prevClose: pData.close || undefined,
+              symbol: sym,
+              isin: match.isin || isinMatch,
+            };
+            clientStockPriceCache.set(cacheKey, { ...result, timestamp: Date.now() });
+            if (cacheKey !== clean) {
+              clientStockPriceCache.set(clean, { ...result, timestamp: Date.now() });
+            }
+            return result;
+          }
+        }
+      }
+    }
+  } catch {}
 
   // Fallback to cached value if network failed
   if (cached && cached.price > 0) {
@@ -1432,8 +1492,8 @@ export function detectDetailedAssetType(
 
   // 8. Stocks & Equities
   const isStock =
-    /\bltd\b|\blimited\b|\bshares\b|\bequity\b|\betf\b|\bnse\b|\bbse\b/.test(lowerName) ||
-    /^[A-Z]{2,10}$/.test(name.trim());
+    /\b(ltd|limited|shares?|equity|etf|exchange|stock|corp|corporation|industries|holdings|enterprises|energy|power|metals|aluminium|steel|finance|bank|motors|pharma)\b/i.test(lowerName) ||
+    /^[A-Z0-9]{2,12}$/.test(name.trim());
 
   if (isStock) {
     return { assetType: 'stocks', subType: 'Stock / Equity', sector: explicitSector };

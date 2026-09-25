@@ -260,6 +260,78 @@ export const getPortfolioSummary = query({
   },
 });
 
+/**
+ * Automatically persists verified live prices into mfNavCache and stockPriceCache
+ * ensuring both manual additions and batch statement imports continually enrich the cache DB.
+ */
+async function syncHoldingPriceToCache(
+  ctx: any,
+  assetType: string,
+  name: string,
+  price?: number,
+  isin?: string,
+  schemeCode?: number,
+  ticker?: string
+) {
+  if (!price || price <= 0 || !name || name.trim().length < 2) return;
+  const now = Date.now();
+
+  try {
+    if (assetType === "mutual_fund" || (assetType === "gold" && /fund/i.test(name))) {
+      const cleanKey = normalizeMfSearchKey(name);
+      const code = schemeCode || 0;
+      const existing = isin
+        ? await ctx.db.query("mfNavCache").withIndex("by_isin", (q: any) => q.eq("isin", isin)).first()
+        : code > 0
+          ? await ctx.db.query("mfNavCache").withIndex("by_scheme_code", (q: any) => q.eq("schemeCode", code)).first()
+          : await ctx.db.query("mfNavCache").withIndex("by_search_key", (q: any) => q.eq("searchKey", cleanKey)).first();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          nav: price,
+          schemeCode: code > 0 ? code : existing.schemeCode,
+          isin: isin || existing.isin,
+          lastFetchedAt: now,
+        });
+      } else {
+        await ctx.db.insert("mfNavCache", {
+          schemeCode: code,
+          schemeName: name.trim(),
+          nav: price,
+          navDate: getLatestExpectedMfNavDate(),
+          searchKey: cleanKey,
+          isin,
+          lastFetchedAt: now,
+        });
+      }
+    } else if (assetType !== "fd_rd" && assetType !== "ppf_epf" && assetType !== "real_estate") {
+      const searchKey = normalizeStockSearchKey(name);
+      const symbol = ticker || name.trim().toUpperCase();
+      const existing = isin
+        ? await ctx.db.query("stockPriceCache").withIndex("by_isin", (q: any) => q.eq("isin", isin)).first()
+        : await ctx.db.query("stockPriceCache").withIndex("by_symbol", (q: any) => q.eq("symbol", symbol)).first();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          price,
+          isin: isin || existing.isin,
+          symbol: ticker || existing.symbol,
+          lastFetchedAt: now,
+        });
+      } else {
+        await ctx.db.insert("stockPriceCache", {
+          isin,
+          symbol,
+          name: name.trim(),
+          price,
+          searchKey,
+          lastFetchedAt: now,
+        });
+      }
+    }
+  } catch {}
+}
+
 export const add = mutation({
   args: {
     name: v.string(),
@@ -343,6 +415,10 @@ export const add = mutation({
         sipDay: args.sipDay ?? matched.sipDay,
         updatedAt: Date.now(),
       });
+
+      if (derivedCurrentPrice && derivedCurrentPrice > 0) {
+        await syncHoldingPriceToCache(ctx, matched.assetType, matched.name, derivedCurrentPrice, autoIsin, autoSchemeCode, args.ticker);
+      }
       return matched._id;
     }
 
@@ -365,6 +441,10 @@ export const add = mutation({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+
+    if (derivedCurrentPrice && derivedCurrentPrice > 0) {
+      await syncHoldingPriceToCache(ctx, args.assetType, args.name, derivedCurrentPrice, autoIsin, autoSchemeCode, args.ticker);
+    }
 
     return id;
   },
@@ -528,6 +608,9 @@ export const batchAdd = mutation({
             updatedAt: now,
           };
 
+          if (derivedCurrentPrice && derivedCurrentPrice > 0) {
+            await syncHoldingPriceToCache(ctx, item.assetType, item.name, derivedCurrentPrice, autoIsin, autoSchemeCode, item.ticker);
+          }
           updatedCount++;
         } else {
           // Identical / old file data: no changes needed, keep existing asset
@@ -558,6 +641,10 @@ export const batchAdd = mutation({
           createdAt: now,
           updatedAt: now,
         });
+
+        if (derivedCurrentPrice && derivedCurrentPrice > 0) {
+          await syncHoldingPriceToCache(ctx, item.assetType, item.name, derivedCurrentPrice, autoIsin, autoSchemeCode, item.ticker);
+        }
 
         insertedIds.push(id);
         insertedCount++;
@@ -971,6 +1058,7 @@ async function fetchStockQuote(
   knownIsin?: string,
   knownTicker?: string
 ): Promise<{ price: number; prevClose?: number; symbol?: string; isin?: string } | null> {
+  const clean = name.trim().toUpperCase();
   const combined = `${name} ${notes || ""}`;
   const isin = knownIsin || extractStockIsin(combined) || extractSecurityIsin(combined);
   const candidates: string[] = [];
@@ -1006,7 +1094,6 @@ async function fetchStockQuote(
     }
   }
 
-  const clean = name.trim().toUpperCase();
   const strippedCorporate = clean
     .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, "")
     .trim();
@@ -1031,10 +1118,29 @@ async function fetchStockQuote(
     searchQueries.push(simplified);
   }
 
+  // Strip AMC prefixes from ETF names (e.g. AXISAMC-GOLDAXIS -> GOLDAXIS, ICICIPRAMC - ICICISILVE -> ICICISILVE)
+  const strippedAmc = clean
+    .replace(/^[A-Z0-9]+AMC[-_\s]*/i, "")
+    .replace(/[-_]/g, " ")
+    .trim();
+  if (strippedAmc && strippedAmc !== clean && strippedAmc.length >= 3) {
+    searchQueries.push(strippedAmc);
+  }
+
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
+  const firstToken = tokens[0];
+  if (firstToken && firstToken.length >= 3 && !searchQueries.includes(firstToken)) {
+    searchQueries.push(firstToken);
+  }
   const lastToken = tokens[tokens.length - 1];
   if (lastToken && lastToken.length >= 4 && !searchQueries.includes(lastToken)) {
     searchQueries.push(lastToken);
+  }
+
+  // Always add first token candidate (core ticker name e.g. SUZLON, JPPOWER, NATIONALUM)
+  if (firstToken && firstToken.length >= 3) {
+    addCandidate(`${firstToken}.NS`);
+    addCandidate(`${firstToken}.BO`);
   }
 
   for (const sq of searchQueries) {
@@ -1153,8 +1259,36 @@ async function fetchStockQuote(
           isin: isin || undefined,
         };
       }
-    } catch { }
+    } catch {}
   }
+
+  // 6. Universal dynamic domestic exchange feed fallback (NSE/BSE real-time, handles unlisted/special scrips)
+  try {
+    const cleanSearch = clean.replace(/[-_]/g, " ").trim();
+    const searchUrl = `https://groww.in/v1/api/search/v1/entity?app=false&entity_type=Stocks&page=0&q=${encodeURIComponent(cleanSearch)}&size=3`;
+    const sRes = await fetch(searchUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) });
+    if (sRes.ok) {
+      const sData: any = await sRes.json();
+      const match = sData?.content?.[0];
+      if (match) {
+        const scrip = match.bse_scrip_code || match.groww_contract_id;
+        const ex = match.bse_scrip_code ? "BSE" : "NSE";
+        const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ex}/segment/CASH/${scrip}/latest`;
+        const pRes = await fetch(priceUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) });
+        if (pRes.ok) {
+          const pData: any = await pRes.json();
+          if (typeof pData?.ltp === "number" && pData.ltp > 0) {
+            return {
+              price: pData.ltp,
+              prevClose: pData.close || undefined,
+              symbol: match.bse_trading_symbol || match.nse_trading_symbol || match.company_short_name || scrip,
+              isin: match.isin || isin || undefined,
+            };
+          }
+        }
+      }
+    }
+  } catch {}
 
   return null;
 }
@@ -2759,7 +2893,7 @@ async function getOrFetchMfNavWithCache(
   ctx: any,
   name: string,
   notes?: string,
-  options?: { force?: boolean; knownSchemeCode?: number; knownIsin?: string }
+  options?: { force?: boolean; knownSchemeCode?: number; knownIsin?: string; knownTicker?: string }
 ): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number; isin?: string } | null> {
   const cleanKey = normalizeMfSearchKey(name);
   const combined = `${name} ${notes || ''}`;
@@ -2827,11 +2961,11 @@ async function getOrFetchMfNavWithCache(
   if (amfi && amfi.nav > 0) {
     const finalIsin = amfi.isin || resolvedIsin;
     const resolvedCode = amfi.schemeCode || knownCode || 0;
-    if (resolvedCode > 0) {
+    if (resolvedCode > 0 || finalIsin || cleanKey) {
       // Immediately correct / update the cache DB with 100% authentic AMFI data
       await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
         isin: finalIsin,
-        schemeCode: resolvedCode,
+        schemeCode: resolvedCode || 0,
         schemeName: amfi.schemeName || cached?.schemeName || name,
         nav: amfi.nav,
         navDate: amfi.date || expectedDate,
@@ -3483,7 +3617,10 @@ export const syncLiveMarketPrices = action({
 
     for (const inv of allInvestments) {
       const at = inv.assetType || "";
-      if (at === "fd_rd" || at === "ppf_epf" || at === "real_estate" || at === "other") {
+      if (at === "fd_rd" || at === "ppf_epf" || at === "real_estate") {
+        continue;
+      }
+      if (at === "other" && !inv.isin && !inv.ticker && !/stock|exchange|share|ltd|limited|corp/i.test(inv.name || "")) {
         continue;
       }
       if (args.assetTypes && args.assetTypes.length > 0 && !args.assetTypes.includes(at)) {
@@ -3655,7 +3792,10 @@ export const syncLiveMarketPrices = action({
 
     for (const inv of allInvestments) {
       const at = inv.assetType || "";
-      if (at === "fd_rd" || at === "ppf_epf" || at === "real_estate" || at === "other") {
+      if (at === "fd_rd" || at === "ppf_epf" || at === "real_estate") {
+        continue;
+      }
+      if (at === "other" && !inv.isin && !inv.ticker && !/stock|exchange|share|ltd|limited|corp/i.test(inv.name || "")) {
         continue;
       }
 
@@ -3848,19 +3988,21 @@ export const fetchLivePrice = action({
     name: v.string(),
     assetType: v.string(),
     notes: v.optional(v.string()),
+    isin: v.optional(v.string()),
+    ticker: v.optional(v.string()),
     force: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { name, assetType, notes, force } = args;
+    const { name, assetType, notes, isin, ticker, force } = args;
     if (!name || name.trim().length < 2) return null;
 
     if (assetType === "mutual_fund") {
-      const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force });
+      const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownIsin: isin, knownTicker: ticker });
       if (mf && mf.nav > 0) {
         return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
       }
       // Universal dynamic fallback for ETFs or funds searched under mutual_fund
-      return await getOrFetchStockPriceWithCache(ctx, name, { force, notes });
+      return await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker });
     }
 
     if (assetType === "crypto") {
@@ -3871,11 +4013,11 @@ export const fetchLivePrice = action({
       const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(name);
       if (!isSgbOrDigital) {
         // 1. Try stock cache first for ETFs (GOLDBEES, SILVERBEES, GOLDAXIS, SILVERIETF, etc.)
-        const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes });
+        const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker });
         if (stk && stk.price > 0) return stk;
 
         // 2. Try AMFI Cache DB for Gold/Silver mutual funds
-        const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force });
+        const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownIsin: isin, knownTicker: ticker });
         if (mf && mf.nav > 0) {
           return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
         }
@@ -3884,15 +4026,136 @@ export const fetchLivePrice = action({
     }
 
     // Stocks, SGBs, Commodities: Uses live cache or static closing price
-    const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes });
+    const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker });
     if (stk && stk.price > 0) return stk;
 
     // Dynamic fallback for Mutual Funds searched under stocks
-    const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force });
+    const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownIsin: isin, knownTicker: ticker });
     if (mf && mf.nav > 0) {
       return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
     }
     return null;
+  },
+});
+
+/**
+ * High-performance batch live price resolver for portfolio statements and bulk assets.
+ * Fetches all securities in parallel using unblocked server-side engine with zero CORS restrictions.
+ */
+export const fetchBatchLivePrices = action({
+  args: {
+    items: v.array(
+      v.object({
+        id: v.string(),
+        name: v.string(),
+        assetType: v.string(),
+        notes: v.optional(v.string()),
+        isin: v.optional(v.string()),
+        ticker: v.optional(v.string()),
+      })
+    ),
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const results: Record<
+      string,
+      {
+        price: number;
+        prevClose?: number;
+        symbol?: string;
+        isin?: string;
+        schemeCode?: number;
+        date?: string;
+      }
+    > = {};
+
+    await Promise.all(
+      args.items.map(async (item) => {
+        try {
+          const { id, name, assetType, notes, isin, ticker } = item;
+          if (!name || name.trim().length < 2) return;
+
+          let res: {
+            price: number;
+            prevClose?: number;
+            symbol?: string;
+            isin?: string;
+            schemeCode?: number;
+            date?: string;
+          } | null = null;
+
+          if (assetType === "mutual_fund") {
+            const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
+              force: args.force,
+              knownIsin: isin,
+              knownTicker: ticker,
+            });
+            if (mf && mf.nav > 0) {
+              res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
+            } else {
+              res = await getOrFetchStockPriceWithCache(ctx, name, {
+                force: args.force,
+                notes,
+                knownIsin: isin,
+                knownTicker: ticker,
+              });
+            }
+          } else if (assetType === "crypto") {
+            res = await fetchCryptoPrice(name);
+          } else if (assetType === "gold") {
+            const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(name);
+            if (!isSgbOrDigital) {
+              const stk = await getOrFetchStockPriceWithCache(ctx, name, {
+                force: args.force,
+                notes,
+                knownIsin: isin,
+                knownTicker: ticker,
+              });
+              if (stk && stk.price > 0) {
+                res = stk;
+              } else {
+                const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
+                  force: args.force,
+                  knownIsin: isin,
+                  knownTicker: ticker,
+                });
+                if (mf && mf.nav > 0) {
+                  res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
+                }
+              }
+            }
+          } else {
+            // Stocks, ETFs, or other:
+            const stk = await getOrFetchStockPriceWithCache(ctx, name, {
+              force: args.force,
+              notes,
+              knownIsin: isin,
+              knownTicker: ticker,
+            });
+            if (stk && stk.price > 0) {
+              res = stk;
+            } else {
+              const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
+                force: args.force,
+                knownIsin: isin,
+                knownTicker: ticker,
+              });
+              if (mf && mf.nav > 0) {
+                res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
+              }
+            }
+          }
+
+          if (res && res.price > 0) {
+            results[id] = res;
+          }
+        } catch {
+          // ignore single item failure
+        }
+      })
+    );
+
+    return results;
   },
 });
 

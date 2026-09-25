@@ -135,6 +135,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const importBatches = useQuery(api.investments.listImportBatches, isOpen ? {} : 'skip') as ImportBatch[] | undefined;
   const undoBatchMutation = useMutation(api.investments.undoImportBatch);
   const fetchLivePriceAction = useAction(api.investments.fetchLivePrice);
+  const fetchBatchLivePricesAction = useAction(api.investments.fetchBatchLivePrices);
 
   // Per-row live price fetching status & debounce timers
   const [rowFetchingPrice, setRowFetchingPrice] = useState<Record<string, boolean>>({});
@@ -166,11 +167,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   };
 
   /**
-   * Dynamically enriches parsed holdings with LIVE market rates:
-   * - Mutual Funds: Live AMFI NAV via api.mfapi.in (ISIN and scheme token lookup)
-   * - Stocks / ETFs: Live NSE/BSE quotes via Yahoo Finance
-   * - Crypto: Live Indian domestic spot prices via CoinDCX orderbook / TradingView
-   * Independent of whatever stale/historical date/NAV was in the statement document.
+   * Dynamically enriches parsed holdings with authentic LIVE market rates:
+   * Uses high-speed server-side batch lookup via Convex (unblocked by CORS)
+   * covering AMFI, NSE, BSE, unlisted platforms, and crypto exchanges.
    */
   const enrichHoldingsWithLivePrices = async (holdingsToEnrich: ParsedHolding[]) => {
     if (!holdingsToEnrich || holdingsToEnrich.length === 0) return;
@@ -180,83 +179,117 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     setEnrichedCount(0);
 
     const updatedHoldings = holdingsToEnrich.map((h) => ({ ...h }));
-    const BATCH_SIZE = 4;
+
+    // Eligible holdings: stocks, mutual funds, gold, crypto, and any equity/unlisted in 'other'
+    const eligibleHoldings = updatedHoldings.filter(
+      (h) => h.assetType !== 'fd_rd' && h.assetType !== 'ppf_epf' && h.assetType !== 'real_estate'
+    );
+
     let count = 0;
 
-    for (let i = 0; i < updatedHoldings.length; i += BATCH_SIZE) {
-      if (enrichmentRunId.current !== runId) return;
+    // 1. Primary: High-speed server-side batch enrichment via Convex (unblocked by browser CORS)
+    try {
+      const serverBatchRes = await fetchBatchLivePricesAction({
+        items: eligibleHoldings.map((h) => ({
+          id: h.id,
+          name: h.name,
+          assetType: h.assetType,
+          notes: h.notes,
+          isin: h.isin,
+        })),
+        force: true,
+      });
 
-      const batch = updatedHoldings.slice(i, i + BATCH_SIZE);
-      await Promise.all(
-        batch.map(async (holding) => {
-          const at = holding.assetType;
-          if (at === 'fd_rd' || at === 'ppf_epf' || at === 'real_estate' || at === 'other') {
-            return;
+      if (serverBatchRes && typeof serverBatchRes === 'object') {
+        for (const [id, rawRes] of Object.entries(serverBatchRes)) {
+          const res = rawRes as { price: number; prevClose?: number; symbol?: string; isin?: string; schemeCode?: number; date?: string } | null;
+          const idx = updatedHoldings.findIndex((h) => h.id === id);
+          if (idx !== -1 && res && res.price > 0) {
+            const h = { ...updatedHoldings[idx] };
+            const oldPrice = h.currentPrice;
+            const cleanPrice = cleanNavPrice(res.price, h.assetType === 'mutual_fund');
+            h.currentPrice = cleanPrice;
+            h.isLiveSynced = true;
+            if (res.date) h.liveNavDate = res.date;
+            if (res.isin && !h.isin) h.isin = res.isin;
+
+            if (h.units && h.units > 0) {
+              h.currentValue = cleanCurrency(h.units * res.price);
+            } else if (h.investedAmount > 0 && h.buyPrice && h.buyPrice > 0) {
+              const derivedUnits = cleanUnits(h.investedAmount / h.buyPrice);
+              h.units = derivedUnits;
+              h.currentValue = cleanCurrency(derivedUnits * res.price);
+            } else if (oldPrice && oldPrice > 0 && h.currentValue > 0) {
+              const derivedUnits = cleanUnits(h.currentValue / oldPrice);
+              h.units = derivedUnits;
+              h.currentValue = cleanCurrency(derivedUnits * res.price);
+            } else if (h.investedAmount > 0 && res.price > 0) {
+              const derivedUnits = cleanUnits(h.investedAmount / res.price);
+              h.units = derivedUnits;
+              h.currentValue = cleanCurrency(derivedUnits * res.price);
+            }
+            h.returns = cleanCurrency(h.currentValue - h.investedAmount);
+            updatedHoldings[idx] = h;
+            count++;
           }
+        }
+      }
+    } catch (batchErr) {
+      console.warn('[Enrichment] Batch server sync error, falling back to per-item sync:', batchErr);
+    }
 
+    if (enrichmentRunId.current !== runId) return;
+
+    // 2. Secondary fallback for any remaining unsynced items
+    const unsynced = updatedHoldings.filter(
+      (h) => !h.isLiveSynced && h.assetType !== 'fd_rd' && h.assetType !== 'ppf_epf' && h.assetType !== 'real_estate'
+    );
+
+    if (unsynced.length > 0) {
+      await Promise.all(
+        unsynced.map(async (holding) => {
           let livePrice: number | null = null;
           let liveDate: string | undefined = undefined;
 
           try {
-            if (at === 'mutual_fund') {
+            // First try single-item Convex server action
+            try {
+              const sRes = await fetchLivePriceAction({
+                name: holding.name,
+                assetType: holding.assetType,
+                notes: holding.notes,
+                isin: holding.isin,
+                force: true,
+              });
+              if (sRes && sRes.price > 0) {
+                livePrice = sRes.price;
+                if ((sRes as any)?.date) liveDate = (sRes as any).date;
+              }
+            } catch {}
+
+            // Then try direct AMFI client query if mutual fund
+            if (!livePrice && holding.assetType === 'mutual_fund') {
               const isinLookup = holding.isin ? `ISIN: ${holding.isin}` : undefined;
               const live = await fetchAmfiNav(holding.name, holding.notes || isinLookup);
               if (live && live.nav > 0) {
                 livePrice = live.nav;
                 liveDate = live.date;
-              } else if (/\b(etf|bees)\b/i.test(holding.name)) {
-                const liveStock = await fetchLiveStockPrice(holding.name, holding.notes, holding.isin);
-                if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
               }
-            } else if (at === 'crypto') {
+            } else if (!livePrice && holding.assetType === 'crypto') {
               const live = await fetchLiveCryptoPrice(holding.name);
               if (live && live.price > 0) livePrice = live.price;
-            } else if (at === 'gold') {
-              const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(holding.name);
-              if (!isSgbOrDigital) {
-                const liveStock = await fetchLiveStockPrice(holding.name, holding.notes, holding.isin);
-                if (liveStock && liveStock.price > 0) {
-                  livePrice = liveStock.price;
-                } else {
-                  const isinLookup = holding.isin ? `ISIN: ${holding.isin}` : undefined;
-                  const live = await fetchAmfiNav(holding.name, holding.notes || isinLookup);
-                  if (live && live.nav > 0) {
-                    livePrice = live.nav;
-                    liveDate = live.date;
-                  }
-                }
-              }
-            } else {
-              // stocks & equities: addressed by unique ISIN
-              const live = await fetchLiveStockPrice(holding.name, holding.notes, holding.isin);
-              if (live && live.price > 0) livePrice = live.price;
+            } else if (!livePrice) {
+              const liveStock = await fetchLiveStockPrice(holding.name, holding.notes, holding.isin);
+              if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
             }
-
-            // Unblocked server action fallback for live prices if direct client query was blocked
-            if (livePrice === null || livePrice <= 0) {
-              try {
-                const serverRes = await (fetchLivePriceAction as any)({
-                  name: holding.name,
-                  assetType: at,
-                  notes: holding.notes,
-                  isin: holding.isin,
-                });
-                if (serverRes && serverRes.price > 0) {
-                  livePrice = serverRes.price;
-                  const resDate = (serverRes as any)?.date;
-                  if (resDate) liveDate = resDate;
-                }
-              } catch {}
-            }
-          } catch (e) {
-            // Ignore individual fetch errors
-          }
+          } catch {}
 
           if (livePrice !== null && livePrice > 0) {
             const idx = updatedHoldings.findIndex((h) => h.id === holding.id);
             if (idx !== -1) {
               const h = { ...updatedHoldings[idx] };
-              const cleanPrice = cleanNavPrice(livePrice, at === 'mutual_fund');
+              const oldPrice = h.currentPrice;
+              const cleanPrice = cleanNavPrice(livePrice, h.assetType === 'mutual_fund');
               h.currentPrice = cleanPrice;
               h.isLiveSynced = true;
               if (liveDate) h.liveNavDate = liveDate;
@@ -267,9 +300,14 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 const derivedUnits = cleanUnits(h.investedAmount / h.buyPrice);
                 h.units = derivedUnits;
                 h.currentValue = cleanCurrency(derivedUnits * livePrice);
-              } else if (h.currentPrice && h.currentPrice > 0 && h.currentValue > 0) {
-                const ratio = livePrice / h.currentPrice;
-                h.currentValue = cleanCurrency(h.currentValue * ratio);
+              } else if (oldPrice && oldPrice > 0 && h.currentValue > 0) {
+                const derivedUnits = cleanUnits(h.currentValue / oldPrice);
+                h.units = derivedUnits;
+                h.currentValue = cleanCurrency(derivedUnits * livePrice);
+              } else if (h.investedAmount > 0 && livePrice > 0) {
+                const derivedUnits = cleanUnits(h.investedAmount / livePrice);
+                h.units = derivedUnits;
+                h.currentValue = cleanCurrency(derivedUnits * livePrice);
               }
               h.returns = cleanCurrency(h.currentValue - h.investedAmount);
               updatedHoldings[idx] = h;
@@ -278,16 +316,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           }
         })
       );
-
-      if (enrichmentRunId.current !== runId) return;
-
-      setEnrichedCount(count);
-      setParsedHoldings([...updatedHoldings]);
     }
 
-    if (enrichmentRunId.current === runId) {
-      setIsEnrichingLivePrices(false);
-    }
+    if (enrichmentRunId.current !== runId) return;
+
+    setEnrichedCount(count);
+    setParsedHoldings([...updatedHoldings]);
+    setIsEnrichingLivePrices(false);
   };
 
   /**
@@ -315,8 +350,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     if (
       targetType === 'fd_rd' ||
       targetType === 'ppf_epf' ||
-      targetType === 'real_estate' ||
-      targetType === 'other'
+      targetType === 'real_estate'
     ) {
       return;
     }
@@ -327,51 +361,37 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     let liveDate: string | undefined = undefined;
 
     try {
-      if (targetType === 'mutual_fund') {
-        const live = await fetchAmfiNav(assetName, notesOrIsin);
-        if (live && live.nav > 0) {
-          livePrice = live.nav;
-          liveDate = live.date;
-        } else if (/\b(etf|bees)\b/i.test(assetName)) {
+      // Primary: Unblocked server action
+      try {
+        const serverRes = await fetchLivePriceAction({
+          name: assetName,
+          assetType: targetType,
+          notes: notesOrIsin,
+          isin: notesOrIsin,
+          force: true,
+        });
+        if (serverRes && serverRes.price > 0) {
+          livePrice = serverRes.price;
+          const resDate = (serverRes as any)?.date;
+          if (resDate) liveDate = resDate;
+        }
+      } catch {}
+
+      // Secondary client-side fallbacks
+      if (livePrice === null || livePrice <= 0) {
+        if (targetType === 'mutual_fund') {
+          const live = await fetchAmfiNav(assetName, notesOrIsin);
+          if (live && live.nav > 0) {
+            livePrice = live.nav;
+            liveDate = live.date;
+          }
+        } else if (targetType === 'crypto') {
+          const live = await fetchLiveCryptoPrice(assetName);
+          if (live && live.price > 0) livePrice = live.price;
+        } else {
           const liveStock = await fetchLiveStockPrice(assetName, notesOrIsin);
           if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
         }
-      } else if (targetType === 'crypto') {
-        const live = await fetchLiveCryptoPrice(assetName);
-        if (live && live.price > 0) livePrice = live.price;
-      } else if (targetType === 'gold') {
-        const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(assetName);
-        if (!isSgbOrDigital) {
-          const liveStock = await fetchLiveStockPrice(assetName, notesOrIsin);
-          if (liveStock && liveStock.price > 0) {
-            livePrice = liveStock.price;
-          } else {
-            const live = await fetchAmfiNav(assetName, notesOrIsin);
-            if (live && live.nav > 0) {
-              livePrice = live.nav;
-              liveDate = live.date;
-            }
-          }
-        }
-      } else {
-        const liveStock = await fetchLiveStockPrice(assetName, notesOrIsin);
-        if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
-      }
-
-      // Backend action fallback
-      if (livePrice === null || livePrice <= 0) {
-        try {
-          const serverRes = await fetchLivePriceAction({
-            name: assetName,
-            assetType: targetType,
-            notes: notesOrIsin,
-          });
-          if (serverRes && serverRes.price > 0) {
-            livePrice = serverRes.price;
-            const resDate = (serverRes as any)?.date;
-            if (resDate) liveDate = resDate;
-          }
-        } catch {}
       }
     } catch {
       // ignore
@@ -1051,13 +1071,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 {isEnrichingLivePrices ? (
                   <div className="flex items-center gap-1.5 text-xs text-amber-800 bg-amber-100/80 border border-amber-300 px-2 py-0.5 font-bold animate-pulse">
                     <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping inline-block shrink-0" />
-                    <span>Syncing live AMFI & Market NAVs ({enrichedCount}/{parsedHoldings.length})...</span>
+                    <span>Syncing real-time market prices & AMFI NAVs ({enrichedCount}/{parsedHoldings.length})...</span>
                   </div>
-                ) : (
+                ) : enrichedCount > 0 ? (
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1.5 text-xs text-[#0B6B38] bg-[#05DF72]/15 border border-[#05DF72]/40 px-2 py-0.5 font-black">
                       <span className="w-2 h-2 rounded-full bg-[#05DF72] inline-block shrink-0" />
-                      <span>Live AMFI & Market NAVs Synced</span>
+                      <span>{enrichedCount} of {parsedHoldings.length} Real-Time Market Prices Synced</span>
                     </div>
                     <button
                       type="button"
@@ -1067,6 +1087,22 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     >
                       <RotateCcw size={11} />
                       Refresh
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 text-xs text-neutral-600 bg-neutral-100 border border-neutral-300 px-2 py-0.5 font-bold">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
+                      <span>Statement Prices</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => enrichHoldingsWithLivePrices(parsedHoldings)}
+                      className="text-[10px] font-black uppercase tracking-wider text-[#0B6B38] hover:underline flex items-center gap-1 cursor-pointer font-bold"
+                      title="Fetch live real-time market prices"
+                    >
+                      <RotateCcw size={11} />
+                      Sync Live Prices
                     </button>
                   </div>
                 )}
@@ -1281,9 +1317,14 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                   ) : h.isLiveSynced ? (
                                     <span
                                       className="w-1.5 h-1.5 rounded-full bg-[#05DF72] inline-block shrink-0"
-                                      title={`Live AMFI / Market NAV${h.liveNavDate ? ` (${h.liveNavDate})` : ''}`}
+                                      title={`Verified Live Market Rate${h.liveNavDate ? ` (${h.liveNavDate})` : ''}`}
                                     />
-                                  ) : null}
+                                  ) : (
+                                    <span
+                                      className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block shrink-0"
+                                      title="Statement Price (Not yet live synced) - Click Refresh at top to fetch live market quotes"
+                                    />
+                                  )}
                                   <input
                                     type="number"
                                     step="any"
@@ -1293,15 +1334,15 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                       const newPrice = e.target.value ? parseFloat(e.target.value) : undefined;
                                       updateItemField(h.id, 'currentPrice', newPrice);
                                     }}
-                                    className={`w-20 p-1 text-right font-mono text-xs border border-transparent hover:border-neutral-300 focus:border-[#121212] bg-transparent hover:bg-neutral-100 focus:bg-white font-bold ${
-                                      h.isLiveSynced ? 'text-[#0B6B38]' : 'text-[#121212]'
+                                    className={`w-20 p-1 text-right font-mono text-xs border border-transparent hover:border-neutral-300 focus:border-[#121212] bg-transparent hover:bg-neutral-100 focus:bg-white font-black ${
+                                      h.isLiveSynced ? 'text-[#0B6B38]' : 'text-neutral-700'
                                     }`}
                                     title={
                                       isRowLoading
                                         ? 'Fetching live market rate...'
                                         : h.isLiveSynced
-                                        ? `Live synced from AMFI/Market${h.liveNavDate ? ` (${h.liveNavDate})` : ''}`
-                                        : 'Document NAV / CP'
+                                        ? `Verified Live rate from exchange/AMFI${h.liveNavDate ? ` (${h.liveNavDate})` : ''}`
+                                        : 'Statement NAV / CP'
                                     }
                                   />
                                 </div>

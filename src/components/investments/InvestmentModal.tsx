@@ -224,7 +224,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       return;
     }
 
-    if (type === 'fd_rd' || type === 'ppf_epf' || type === 'real_estate' || type === 'other') {
+    if (type === 'fd_rd' || type === 'ppf_epf' || type === 'real_estate') {
       setLivePrice(null);
       setLivePriceSymbol('');
       setIsFetchingPrice(false);
@@ -234,19 +234,27 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     setIsFetchingPrice(true);
 
     try {
-      let result: { price: number; prevClose?: number; symbol?: string } | null = null;
+      let result: { price: number; prevClose?: number; symbol?: string; isin?: string; schemeCode?: number } | null = null;
       const lookupNotes = customNotes !== undefined ? customNotes : notes;
+      const currentIsin = resolvedIsin || matchedHolding?.isin;
+      const currentTicker = resolvedTicker || matchedHolding?.ticker;
 
       if (type === 'mutual_fund') {
         try {
-          const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes: lookupNotes });
+          const serverRes = await fetchLivePriceAction({
+            name: assetName,
+            assetType: type,
+            notes: lookupNotes,
+            isin: currentIsin,
+            ticker: currentTicker,
+          });
           if (serverRes && serverRes.price > 0) result = serverRes;
         } catch { }
 
         if (!result || result.price <= 0) {
-          const mf = await fetchAmfiNav(assetName, lookupNotes);
+          const mf = await fetchAmfiNav(assetName, lookupNotes, resolvedSchemeCode || matchedHolding?.schemeCode, currentIsin);
           if (mf && mf.nav > 0) {
-            result = { price: mf.nav, symbol: mf.schemeName };
+            result = { price: mf.nav, symbol: mf.schemeName, isin: currentIsin, schemeCode: mf.schemeCode };
           }
         }
       } else if (type === 'crypto') {
@@ -259,12 +267,18 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         }
       } else {
         try {
-          const serverRes = await fetchLivePriceAction({ name: assetName, assetType: type, notes: lookupNotes });
+          const serverRes = await fetchLivePriceAction({
+            name: assetName,
+            assetType: type,
+            notes: lookupNotes,
+            isin: currentIsin,
+            ticker: currentTicker,
+          });
           if (serverRes && serverRes.price > 0) result = serverRes;
         } catch { }
 
         if (!result || result.price <= 0) {
-          result = await fetchLiveStockPrice(assetName, lookupNotes);
+          result = await fetchLiveStockPrice(assetName, lookupNotes, currentIsin, currentTicker);
         }
       }
 

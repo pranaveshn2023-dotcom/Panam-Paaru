@@ -168,7 +168,8 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       // 2. Call Convex backend action to sync holdings with live market ONLY for invested instruments
       const activeInvestments = investments.filter(
         (inv) => (inv.investedAmount > 0 || (inv.units && inv.units > 0) || inv.currentValue > 0) &&
-          inv.assetType !== 'fd_rd' && inv.assetType !== 'ppf_epf' && inv.assetType !== 'real_estate' && inv.assetType !== 'other'
+          inv.assetType !== 'fd_rd' && inv.assetType !== 'ppf_epf' && inv.assetType !== 'real_estate' &&
+          (inv.assetType !== 'other' || inv.isin || inv.ticker || /stock|exchange|share|ltd|limited|corp/i.test(inv.name))
       );
 
       if (activeInvestments.length === 0) {
