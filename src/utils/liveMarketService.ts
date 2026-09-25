@@ -693,23 +693,36 @@ export async function fetchLiveStockPrice(
               const etfMatch = content.find((c: any) => /ETF|BEES|SILVER|GOLD/i.test(c.title || c.company_name || ''));
               if (etfMatch) match = etfMatch;
             }
-            const rawScrip = match.bse_scrip_code || match.groww_contract_id || match.nse_scrip_code;
-            const scrip = String(rawScrip).replace(/,/g, '').trim();
-            const ex = match.bse_scrip_code ? 'BSE' : 'NSE';
-            const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ex}/segment/CASH/${scrip}/latest`;
-            const pRes = await fetch(priceUrl, { signal: AbortSignal.timeout(2000) });
-            if (pRes.ok) {
-              const pData: any = await pRes.json();
-              if (typeof pData?.ltp === 'number' && pData.ltp > 0) {
-                const res = {
-                  price: pData.ltp,
-                  prevClose: pData.close || undefined,
-                  symbol: match.bse_trading_symbol || match.nse_trading_symbol || match.company_short_name || scrip,
-                  isin: match.isin || isinMatch || undefined,
-                };
-                clientStockPriceCache.set(cacheKey, { ...res, timestamp: now });
-                return res;
-              }
+            // Prioritize NSE over BSE to match primary Indian exchange data exactly
+            const endpointsToTry: Array<{ ex: string; scrip: string }> = [];
+            if (match.nse_scrip_code) {
+              endpointsToTry.push({ ex: 'NSE', scrip: match.nse_scrip_code });
+            }
+            if (match.bse_scrip_code) {
+              endpointsToTry.push({ ex: 'BSE', scrip: String(match.bse_scrip_code).replace(/,/g, '').trim() });
+            }
+            if (match.groww_contract_id) {
+              endpointsToTry.push({ ex: 'BSE', scrip: match.groww_contract_id });
+            }
+
+            for (const ep of endpointsToTry) {
+              try {
+                const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ep.ex}/segment/CASH/${ep.scrip}/latest`;
+                const pRes = await fetch(priceUrl, { signal: AbortSignal.timeout(2000) });
+                if (pRes.ok) {
+                  const pData: any = await pRes.json();
+                  if (typeof pData?.ltp === 'number' && pData.ltp > 0) {
+                    const res = {
+                      price: pData.ltp,
+                      prevClose: pData.close || undefined,
+                      symbol: match.nse_trading_symbol || match.bse_trading_symbol || match.company_short_name || ep.scrip,
+                      isin: match.isin || isinMatch || undefined,
+                    };
+                    clientStockPriceCache.set(cacheKey, { ...res, timestamp: now });
+                    return res;
+                  }
+                }
+              } catch {}
             }
           }
         }

@@ -1141,21 +1141,34 @@ async function fetchStockQuote(
               const etfMatch = content.find((c: any) => /ETF|BEES|SILVER|GOLD/i.test(c.title || c.company_name || ""));
               if (etfMatch) match = etfMatch;
             }
-            const rawScrip = match.bse_scrip_code || match.groww_contract_id || match.nse_scrip_code;
-            const scrip = String(rawScrip).replace(/,/g, "").trim();
-            const ex = match.bse_scrip_code ? "BSE" : "NSE";
-            const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ex}/segment/CASH/${scrip}/latest`;
-            const pRes = await fetch(priceUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) });
-            if (pRes.ok) {
-              const pData: any = await pRes.json();
-              if (typeof pData?.ltp === "number" && pData.ltp > 0) {
-                return {
-                  price: pData.ltp,
-                  prevClose: pData.close || undefined,
-                  symbol: match.bse_trading_symbol || match.nse_trading_symbol || match.company_short_name || scrip,
-                  isin: match.isin || isin || undefined,
-                };
-              }
+            // Prioritize NSE over BSE to match primary Indian exchange data exactly
+            const endpointsToTry: Array<{ ex: string; scrip: string }> = [];
+            if (match.nse_scrip_code) {
+              endpointsToTry.push({ ex: "NSE", scrip: match.nse_scrip_code });
+            }
+            if (match.bse_scrip_code) {
+              endpointsToTry.push({ ex: "BSE", scrip: String(match.bse_scrip_code).replace(/,/g, "").trim() });
+            }
+            if (match.groww_contract_id) {
+              endpointsToTry.push({ ex: "BSE", scrip: match.groww_contract_id });
+            }
+
+            for (const ep of endpointsToTry) {
+              try {
+                const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ep.ex}/segment/CASH/${ep.scrip}/latest`;
+                const pRes = await fetch(priceUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) });
+                if (pRes.ok) {
+                  const pData: any = await pRes.json();
+                  if (typeof pData?.ltp === "number" && pData.ltp > 0) {
+                    return {
+                      price: pData.ltp,
+                      prevClose: pData.close || undefined,
+                      symbol: match.nse_trading_symbol || match.bse_trading_symbol || match.company_short_name || ep.scrip,
+                      isin: match.isin || isin || undefined,
+                    };
+                  }
+                }
+              } catch {}
             }
           }
         }
@@ -3109,7 +3122,11 @@ export const internalListAllInvestedMfSchemes = internalQuery({
   handler: async (ctx) => {
     const investments = await ctx.db.query("investments").collect();
     const mfInvestments = investments.filter(
-      (inv) => inv.assetType === "mutual_fund" || (inv.assetType === "gold" && /fund/i.test(inv.name))
+      (inv) =>
+        inv.assetType === "mutual_fund" ||
+        (inv.assetType === "gold" && /fund/i.test(inv.name)) ||
+        (Boolean(inv.isin) && inv.isin!.toUpperCase().startsWith("INF")) ||
+        (Boolean(inv.schemeCode) && inv.schemeCode! > 0)
     );
 
     const uniqueFunds = new Map<string, {
