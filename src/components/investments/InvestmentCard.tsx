@@ -170,6 +170,21 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
 
         {/* Metrics Row: Units, CP / NAV, SIP */}
         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          {inv.schemeCode ? (
+            <span className="text-[10px] font-mono font-bold bg-[#00F0FF]/15 text-[#006070] px-1.5 py-0.5 border border-[#00F0FF] shadow-neo-sm flex items-center gap-1" title={`AMFI Scheme Code: ${inv.schemeCode}`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00A0B0] inline-block" />
+              AMFI: {inv.schemeCode}
+            </span>
+          ) : inv.ticker ? (
+            <span className="text-[10px] font-mono font-bold bg-[#FFE600]/20 text-[#604B00] px-1.5 py-0.5 border border-[#FFE600] shadow-neo-sm flex items-center gap-1" title={`Ticker: ${inv.ticker}`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-[#E5C100] inline-block" />
+              {inv.ticker}
+            </span>
+          ) : inv.isin ? (
+            <span className="text-[10px] font-mono font-bold bg-neutral-100 text-neutral-600 px-1.5 py-0.5 border border-neutral-300 shadow-neo-sm" title={`ISIN: ${inv.isin}`}>
+              ISIN: {inv.isin}
+            </span>
+          ) : null}
           {inv.units && (
             <span className="text-[10px] font-mono font-bold bg-white text-neutral-800 px-1.5 py-0.5 border border-[#121212] shadow-neo-sm">
               {inv.units} units

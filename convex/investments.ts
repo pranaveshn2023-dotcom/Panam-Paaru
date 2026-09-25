@@ -927,11 +927,21 @@ export async function resolveTickerFromIsin(isin: string): Promise<string | null
   const upper = isin.toUpperCase();
 
   try {
-    const res = await fetch(
-      `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(upper)}&quotesCount=6`,
-      { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
-    );
-    if (res.ok) {
+    let res: Response | null = null;
+    try {
+      res = await fetch(
+        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(upper)}&quotesCount=6`,
+        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
+      );
+    } catch {
+      try {
+        res = await fetch(
+          `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(upper)}&quotesCount=6`,
+          { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
+        );
+      } catch {}
+    }
+    if (res && res.ok) {
       const data: any = await res.json();
       const quotes: any[] = data?.quotes || [];
       // 1. Direct NSE (.NS) match - primary high-volume Indian exchange
@@ -1029,11 +1039,21 @@ async function fetchStockQuote(
 
   for (const sq of searchQueries) {
     try {
-      const searchRes = await fetch(
-        `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
-        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
-      );
-      if (searchRes.ok) {
+      let searchRes: Response | null = null;
+      try {
+        searchRes = await fetch(
+          `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
+          { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
+        );
+      } catch {
+        try {
+          searchRes = await fetch(
+            `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
+            { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
+          );
+        } catch {}
+      }
+      if (searchRes && searchRes.ok) {
         const data: any = await searchRes.json();
         for (const q of data?.quotes || []) {
           if (!q.symbol || q.symbol.includes("=F") || q.symbol.startsWith("^")) continue;
@@ -1628,8 +1648,6 @@ export function canonicalizeMfQuery(q: string): string {
   return q
     .toLowerCase()
     .replace(/\bppfas\b/g, 'parag parikh')
-    .replace(/\bbluechip\b|\bblue\s+chip\b/g, 'large cap')
-    .replace(/\btax\s*saver\b|\btaxsaver\b/g, 'elss')
     .replace(/\breliance\b/g, 'nippon india')
     .replace(/\bidfc\b/g, 'bandhan')
     .replace(/\bl&t\b|\blnt\b/g, 'hsbc')
@@ -1661,7 +1679,12 @@ export function scoreMfCandidate(item: { schemeCode: number; schemeName: string 
 
   let matchedCount = 0;
   for (const qt of qTokens) {
-    if (sTokens.has(qt)) {
+    // Equivalence matching for renamed categories:
+    // bluechip <-> large cap, elss <-> tax saver
+    const isBluechipMatch = (qt === 'bluechip' || qt === 'largecap' || qt === 'large') && (sTokens.has('bluechip') || sTokens.has('large') || sTokens.has('largecap'));
+    const isTaxSaverMatch = (qt === 'taxsaver' || qt === 'tax' || qt === 'elss') && (sTokens.has('elss') || sTokens.has('tax') || sTokens.has('taxsaver'));
+
+    if (sTokens.has(qt) || isBluechipMatch || isTaxSaverMatch) {
       score += 25;
       matchedCount++;
     } else {
@@ -1676,7 +1699,7 @@ export function scoreMfCandidate(item: { schemeCode: number; schemeName: string 
   }
 
   // First token brand alignment (AMC / Fund house matching: Tata, Quant, Navi, HDFC, SBI, Axis, Nippon, Bandhan, Parag, etc.)
-  if (qTokens[0] && sTokens.has(qTokens[0])) {
+  if (qTokens[0] && (sTokens.has(qTokens[0]) || (qTokens[0] === 'ppfas' && sTokens.has('parag')) || (qTokens[0] === 'reliance' && sTokens.has('nippon')))) {
     score += 40;
   }
 
@@ -1761,7 +1784,13 @@ let amfiTableCache: {
   entries: AmfiTableEntry[];
 } | null = null;
 
-const AMFI_CACHE_DURATION_MS = 20 * 60 * 1000; // 20 min in-memory cache
+let amfiFetchPromise: Promise<{
+  isinMap: Map<string, AmfiTableEntry>;
+  codeMap: Map<number, AmfiTableEntry>;
+  entries: AmfiTableEntry[];
+} | null> | null = null;
+
+const AMFI_CACHE_DURATION_MS = 60 * 60 * 1000; // 60 min in-memory cache
 
 export async function getAmfiOfficialNavTable(): Promise<{
   isinMap: Map<string, AmfiTableEntry>;
@@ -1772,41 +1801,60 @@ export async function getAmfiOfficialNavTable(): Promise<{
   if (amfiTableCache && now - amfiTableCache.timestamp < AMFI_CACHE_DURATION_MS) {
     return amfiTableCache;
   }
+  if (amfiFetchPromise) {
+    return amfiFetchPromise;
+  }
 
-  try {
-    const res = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
-      headers: STANDARD_HEADERS,
-      signal: AbortSignal.timeout(6500),
-    });
-    if (!res.ok) return amfiTableCache;
+  amfiFetchPromise = (async () => {
+    try {
+      const res = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
+        headers: STANDARD_HEADERS,
+        signal: AbortSignal.timeout(15000), // 15s timeout for complete AMFI file
+      });
+      if (!res.ok) return amfiTableCache;
 
-    const text = await res.text();
-    const lines = text.split("\n");
-    const isinMap = new Map<string, AmfiTableEntry>();
-    const codeMap = new Map<number, AmfiTableEntry>();
-    const entries: AmfiTableEntry[] = [];
+      const text = await res.text();
+      const lines = text.split("\n");
+      const isinMap = new Map<string, AmfiTableEntry>();
+      const codeMap = new Map<number, AmfiTableEntry>();
+      const entries: AmfiTableEntry[] = [];
 
-    for (const line of lines) {
-      const parts = line.split(";");
-      if (parts.length >= 8) {
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine || !trimmedLine.includes(";")) continue;
+        const parts = trimmedLine.split(";");
+        if (parts.length < 6) continue;
+
         const code = parseInt(parts[0]?.trim(), 10);
         if (isNaN(code) || code <= 0) continue;
 
         const isin1 = parts[1]?.trim() || "";
         const isin2 = parts[2]?.trim() || "";
-        const baseSchemeName = parts[3]?.trim() || "";
-        const plan = parts[4]?.trim() || "";
-        const option = parts[5]?.trim() || "";
-        const navStr = parts[6]?.trim() || "";
-        const dateStr = parts[7]?.trim() || "";
-        const nav = parseFloat(navStr);
+        let baseSchemeName = "";
+        let plan = "";
+        let option = "";
+        let navStr = "";
+        let dateStr = "";
 
+        if (parts.length >= 8) {
+          baseSchemeName = parts[3]?.trim() || "";
+          plan = parts[4]?.trim() || "";
+          option = parts[5]?.trim() || "";
+          navStr = parts[6]?.trim() || "";
+          dateStr = parts[7]?.trim() || "";
+        } else {
+          baseSchemeName = parts[3]?.trim() || "";
+          navStr = parts[4]?.trim() || "";
+          dateStr = parts[5]?.trim() || "";
+        }
+
+        const nav = parseFloat(navStr);
         if (isNaN(nav) || nav <= 0) continue;
 
         const fullName = [baseSchemeName, plan, option].filter(Boolean).join(" - ");
         const primaryIsin = (isin1 && isin1 !== "-") ? isin1 : (isin2 && isin2 !== "-") ? isin2 : "";
-        const isDirect = /direct/i.test(plan) || /direct/i.test(baseSchemeName);
-        const isGrowth = /growth/i.test(option) || /growth/i.test(baseSchemeName);
+        const isDirect = /direct/i.test(fullName);
+        const isGrowth = /growth/i.test(fullName);
 
         const entry: AmfiTableEntry = {
           code,
@@ -1824,14 +1872,20 @@ export async function getAmfiOfficialNavTable(): Promise<{
         if (isin2 && isin2 !== "-") isinMap.set(isin2.toUpperCase(), entry);
         entries.push(entry);
       }
-    }
 
-    amfiTableCache = { timestamp: now, isinMap, codeMap, entries };
-    return amfiTableCache;
-  } catch (err) {
-    console.warn("[AMFI] Error fetching live NAVAll.txt from amfiindia.com:", err);
-    return amfiTableCache;
-  }
+      if (entries.length > 0) {
+        amfiTableCache = { timestamp: now, isinMap, codeMap, entries };
+      }
+      return amfiTableCache;
+    } catch (err) {
+      console.warn("[AMFI] Error fetching live NAVAll.txt from amfiindia.com:", err);
+      return amfiTableCache;
+    } finally {
+      amfiFetchPromise = null;
+    }
+  })();
+
+  return amfiFetchPromise;
 }
 
 export async function fetchMfNav(
@@ -1843,73 +1897,48 @@ export async function fetchMfNav(
   const combined = `${name} ${notes || ""}`;
   const isin = knownIsin || (combined.match(/\b(INF[A-Z0-9]{9})\b/i)?.[1]?.toUpperCase());
 
-  // Extract any explicit scheme code from notes
+  // Extract any explicit scheme code from notes or name (avoiding personal folio numbers)
   const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, "");
   const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
   const codeNum = knownSchemeCode && knownSchemeCode > 0 ? knownSchemeCode : explicitSchemeMatch ? parseInt(explicitSchemeMatch[1] || explicitSchemeMatch[0], 10) : undefined;
 
-  // 1. Primary: Official Live AMFI Portal (Direct from amfiindia.com)
-  const amfiTable = await getAmfiOfficialNavTable();
-  if (amfiTable) {
-    // 1A. Instant ISIN Match (100% precision)
-    if (isin && amfiTable.isinMap.has(isin)) {
-      const match = amfiTable.isinMap.get(isin)!;
-      return {
-        nav: match.nav,
-        date: match.date,
-        schemeName: match.name,
-        schemeCode: match.code,
-        isin: match.isin || isin,
-      };
-    }
-
-    // 1B. Instant Scheme Code Match (100% precision)
-    if (codeNum && amfiTable.codeMap.has(codeNum)) {
-      const match = amfiTable.codeMap.get(codeNum)!;
-      return {
-        nav: match.nav,
-        date: match.date,
-        schemeName: match.name,
-        schemeCode: match.code,
-        isin: match.isin || isin,
-      };
-    }
-
-    // 1C. High-Accuracy Name Match from Official AMFI Table
-    const strippedName = stripBrokerSuffix(name);
-    const wantsDirect = /\bdirect\b/i.test(strippedName);
-    const wantsRegular = /\bregular\b/i.test(strippedName);
-    const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
-
-    let bestMatch: AmfiTableEntry | null = null;
-    let bestScore = -1;
-
-    for (const item of amfiTable.entries) {
-      // Fast plan filter
-      if (wantsDirect && !item.isDirect) continue;
-      if (wantsRegular && item.isDirect) continue;
-      if (wantsIdcw && item.isGrowth) continue;
-
-      const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, strippedName);
-      if (score > bestScore && score >= 50) {
-        bestScore = score;
-        bestMatch = item;
-      }
-    }
-
-    if (bestMatch && bestScore >= 55) {
-      return {
-        nav: bestMatch.nav,
-        date: bestMatch.date,
-        schemeName: bestMatch.name,
-        schemeCode: bestMatch.code,
-        isin: bestMatch.isin || isin,
-      };
-    }
-  }
-
-  // 2. Secondary Fallback: api.mfapi.in direct by code
+  // 1. Instant Fast-Path: If scheme code is known, query high-speed official mirror endpoint (/latest)
   if (codeNum && codeNum > 0) {
+    if (amfiTableCache?.codeMap.has(codeNum)) {
+      const match = amfiTableCache.codeMap.get(codeNum)!;
+      return {
+        nav: match.nav,
+        date: match.date,
+        schemeName: match.name,
+        schemeCode: match.code,
+        isin: match.isin || isin,
+      };
+    }
+
+    try {
+      const latestRes = await fetch(`https://api.mfapi.in/mf/${codeNum}/latest`, {
+        headers: STANDARD_HEADERS,
+        signal: AbortSignal.timeout(3500),
+      });
+      if (latestRes.ok) {
+        const details: any = await latestRes.json();
+        const latest = details?.data?.[0];
+        if (latest && latest.nav) {
+          const navNum = parseFloat(latest.nav);
+          if (!isNaN(navNum) && navNum > 0) {
+            return {
+              nav: navNum,
+              date: latest.date || "",
+              schemeName: details.meta?.scheme_name || name,
+              schemeCode: codeNum,
+              isin: details.meta?.isin_growth || isin,
+            };
+          }
+        }
+      }
+    } catch { }
+
+    // Fallback to full endpoint if /latest failed or to get prevNav
     try {
       const detailRes = await fetch(`https://api.mfapi.in/mf/${codeNum}`, {
         headers: STANDARD_HEADERS,
@@ -1928,7 +1957,7 @@ export async function fetchMfNav(
               schemeName: details.meta?.scheme_name || name,
               prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
               schemeCode: codeNum,
-              isin,
+              isin: details.meta?.isin_growth || isin,
             };
           }
         }
@@ -1936,52 +1965,171 @@ export async function fetchMfNav(
     } catch { }
   }
 
-  // 3. Fallback: mfapi.in search
+  // 2. Official AMFI Portal Table (Instant in-memory or background load)
+  const amfiTable = await getAmfiOfficialNavTable();
+  if (amfiTable) {
+    // 2A. Instant ISIN Match (100% precision)
+    if (isin && amfiTable.isinMap.has(isin)) {
+      const match = amfiTable.isinMap.get(isin)!;
+      return {
+        nav: match.nav,
+        date: match.date,
+        schemeName: match.name,
+        schemeCode: match.code,
+        isin: match.isin || isin,
+      };
+    }
+
+    // 2B. Instant Scheme Code Match (100% precision)
+    if (codeNum && amfiTable.codeMap.has(codeNum)) {
+      const match = amfiTable.codeMap.get(codeNum)!;
+      return {
+        nav: match.nav,
+        date: match.date,
+        schemeName: match.name,
+        schemeCode: match.code,
+        isin: match.isin || isin,
+      };
+    }
+
+    // 2C. High-Accuracy Name Match from Official AMFI Table
+    const strippedName = stripBrokerSuffix(name);
+    const wantsDirect = /\bdirect\b/i.test(strippedName);
+    const wantsRegular = /\bregular\b/i.test(strippedName);
+    const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(strippedName);
+
+    let bestMatch: AmfiTableEntry | null = null;
+    let bestScore = -1;
+
+    for (const item of amfiTable.entries) {
+      if (wantsDirect && !item.isDirect) continue;
+      if (wantsRegular && item.isDirect) continue;
+      if (wantsIdcw && item.isGrowth) continue;
+
+      const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, strippedName);
+      if (score > bestScore && score >= 45) {
+        bestScore = score;
+        bestMatch = item;
+      }
+    }
+
+    if (bestMatch && bestScore >= 45) {
+      return {
+        nav: bestMatch.nav,
+        date: bestMatch.date,
+        schemeName: bestMatch.name,
+        schemeCode: bestMatch.code,
+        isin: bestMatch.isin || isin,
+      };
+    }
+  }
+
+  // 3. Multi-tier High-Performance MFAPI Search
   try {
     const strippedName = stripBrokerSuffix(name);
-    const rawWords = strippedName
+    const clean = strippedName
       .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, "")
+      .replace(/\bmidcap\b/gi, "mid cap")
+      .replace(/\bsmallcap\b/gi, "small cap")
+      .replace(/\blargecap\b/gi, "large cap")
+      .replace(/\bflexicap\b/gi, "flexi cap")
       .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, "")
       .replace(/[\.\(\)₹\$\[\]\/\\-]/g, " ")
       .replace(/\s{2,}/g, " ")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
+      .trim();
 
-    if (rawWords.length > 0) {
-      const query = rawWords.slice(0, 3).join(" ");
-      const searchRes = await fetch(
-        `https://api.mfapi.in/mf/search?q=${encodeURIComponent(query)}`,
-        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
-      );
-      if (searchRes.ok) {
-        const list: any[] = await searchRes.json();
-        if (Array.isArray(list) && list.length > 0) {
-          const sorted = list
-            .map((item) => ({ ...item, score: scoreMfCandidate(item, strippedName) }))
-            .sort((a, b) => b.score - a.score);
-          const top = sorted[0];
-          if (top && top.score >= 50) {
-            const detailRes = await fetch(
-              `https://api.mfapi.in/mf/${top.schemeCode}`,
-              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+    const coreWords = clean.split(/\s+/).filter(Boolean);
+    if (coreWords.length > 0) {
+      const baseQuery = coreWords.join(" ");
+      const compoundJoined = baseQuery
+        .replace(/\bmid\s+cap\b/gi, "Midcap")
+        .replace(/\bsmall\s+cap\b/gi, "Smallcap")
+        .replace(/\blarge\s+cap\b/gi, "Largecap")
+        .replace(/\bflexi\s+cap\b/gi, "Flexicap");
+      const largeCapAlt = baseQuery.replace(/\bblue\s*chip\b/gi, "Large Cap");
+
+      const queries: string[] = [
+        baseQuery,
+        compoundJoined,
+        largeCapAlt !== baseQuery ? largeCapAlt : null,
+        coreWords.slice(0, 4).join(" "),
+        coreWords.slice(0, 3).join(" "),
+        coreWords.slice(0, 2).join(" "),
+      ].filter((q): q is string => Boolean(q) && q.length >= 3);
+
+      const uniqueQueries = [...new Set(queries)];
+      const candidateMap = new Map<number, { schemeCode: number; schemeName: string }>();
+
+      for (const q of uniqueQueries) {
+        try {
+          const searchRes = await fetch(
+            `https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`,
+            { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3000) }
+          );
+          if (searchRes.ok) {
+            const list: any[] = await searchRes.json();
+            if (Array.isArray(list)) {
+              for (const item of list) {
+                if (!candidateMap.has(item.schemeCode)) {
+                  candidateMap.set(item.schemeCode, item);
+                }
+              }
+            }
+          }
+        } catch { }
+        if (candidateMap.size >= 8) break;
+      }
+
+      if (candidateMap.size > 0) {
+        const sorted = Array.from(candidateMap.values())
+          .map((item) => ({ ...item, score: scoreMfCandidate(item, strippedName) }))
+          .sort((a, b) => b.score - a.score);
+
+        const top = sorted[0];
+        if (top && top.score >= 45) {
+          try {
+            const latestRes = await fetch(
+              `https://api.mfapi.in/mf/${top.schemeCode}/latest`,
+              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3000) }
             );
-            if (detailRes.ok) {
-              const details: any = await detailRes.json();
+            if (latestRes.ok) {
+              const details: any = await latestRes.json();
               const latest = details?.data?.[0];
-              const prev = details?.data?.[1];
               if (latest && latest.nav) {
                 const navNum = parseFloat(latest.nav);
                 if (!isNaN(navNum) && navNum > 0) {
                   return {
                     nav: navNum,
-                    date: latest.date,
+                    date: latest.date || "",
                     schemeName: details.meta?.scheme_name || top.schemeName,
-                    prevNav: prev ? parseFloat(prev.nav) : undefined,
                     schemeCode: top.schemeCode,
-                    isin,
+                    isin: details.meta?.isin_growth || isin,
                   };
                 }
+              }
+            }
+          } catch { }
+
+          // Fallback to full endpoint
+          const fullRes = await fetch(
+            `https://api.mfapi.in/mf/${top.schemeCode}`,
+            { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+          );
+          if (fullRes.ok) {
+            const details: any = await fullRes.json();
+            const latest = details?.data?.[0];
+            const prev = details?.data?.[1];
+            if (latest && latest.nav) {
+              const navNum = parseFloat(latest.nav);
+              if (!isNaN(navNum) && navNum > 0) {
+                return {
+                  nav: navNum,
+                  date: latest.date,
+                  schemeName: details.meta?.scheme_name || top.schemeName,
+                  prevNav: prev ? parseFloat(prev.nav) : undefined,
+                  schemeCode: top.schemeCode,
+                  isin: details.meta?.isin_growth || isin,
+                };
               }
             }
           }
@@ -2473,19 +2621,32 @@ export function getLatestExpectedMfNavDate(customNow?: Date): string {
   return "";
 }
 
+const MONTH_MAP: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
 /**
- * Converts "DD-MM-YYYY" or "YYYY-MM-DD" string into UTC timestamp milliseconds for safe comparison.
+ * Converts "DD-MM-YYYY", "DD-MMM-YYYY" (e.g. 24-Sep-2026), or "YYYY-MM-DD" string into UTC timestamp milliseconds for safe comparison.
  */
 export function parseNavDateToMs(dateStr: string): number {
   if (!dateStr) return 0;
-  const parts = dateStr.trim().split(/[-/]/);
+  const parts = dateStr.trim().split(/[-/\s]+/);
   if (parts.length === 3) {
     if (parts[0].length === 4) {
       // YYYY-MM-DD
-      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).getTime();
+      const y = Number(parts[0]);
+      const mStr = parts[1].toLowerCase().slice(0, 3);
+      const m = MONTH_MAP[mStr] !== undefined ? MONTH_MAP[mStr] : Number(parts[1]) - 1;
+      const d = Number(parts[2]);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) return new Date(y, m, d).getTime();
     } else {
-      // DD-MM-YYYY
-      return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0])).getTime();
+      // DD-MM-YYYY or DD-MMM-YYYY (e.g. 24-Sep-2026 or 24-09-2026)
+      const d = Number(parts[0]);
+      const mStr = parts[1].toLowerCase().slice(0, 3);
+      const m = MONTH_MAP[mStr] !== undefined ? MONTH_MAP[mStr] : Number(parts[1]) - 1;
+      const y = Number(parts[2]);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) return new Date(y, m, d).getTime();
     }
   }
   const f = new Date(dateStr);
@@ -2561,8 +2722,8 @@ async function getOrFetchMfNavWithCache(
   // If the cached entry's navDate is earlier than expected latest trade date, it is mathematically stale
   const isDateStale = !cached?.navDate || cachedDateMs < expectedDateMs;
 
-  // 1. If the cached NAV date is already matching or newer than the expected latest trade date:
-  if (cached && cached.nav > 0 && !isDateStale) {
+  // 1. If not forcing refresh, and cached NAV date is already matching or newer than expected trade date:
+  if (!options?.force && cached && cached.nav > 0 && !isDateStale) {
     return {
       nav: cached.nav,
       date: cached.navDate,
@@ -2573,8 +2734,8 @@ async function getOrFetchMfNavWithCache(
     };
   }
 
-  // 2. The record is STALE (cached.navDate < expectedDate) or missing:
-  if (!options?.force && cached && cached.nav > 0 && now - cached.lastFetchedAt < 2 * 60 * 1000) {
+  // 2. If not forcing refresh, and cached record was updated very recently (< 5 minutes ago)
+  if (!options?.force && cached && cached.nav > 0 && now - (cached.lastFetchedAt || 0) < 5 * 60 * 1000) {
     return {
       nav: cached.nav,
       date: cached.navDate,
@@ -3263,15 +3424,7 @@ export const syncLiveMarketPrices = action({
 
       // ── Intelligent Staleness Filter for Unchanged Instruments in Non-Market Hours ──
       if (!args.force) {
-        // A. Mutual Funds: AMCs release NAVs once per day in the evening (9 PM - 12 AM IST)
-        if (at === "mutual_fund" && inv.currentPrice && inv.currentPrice > 0) {
-          const ageHours = (now - (inv.updatedAt || inv.createdAt)) / (1000 * 60 * 60);
-          if (ageHours < 6 && !marketStatus.isNightNavWindow) {
-            continue;
-          }
-        }
-
-        // B. Stocks / SGBs: Outside market hours (after 3:30 PM, weekends, holidays), prices are closed/settled.
+        // Stocks / SGBs: Outside market hours (after 3:30 PM, weekends, holidays), prices are closed/settled.
         if ((at === "stocks" || at === "gold") && !isMktOpen && inv.currentPrice && inv.currentPrice > 0) {
           const ageHours = (now - (inv.updatedAt || inv.createdAt)) / (1000 * 60 * 60);
           if (ageHours < 12) {
@@ -3641,7 +3794,7 @@ export const fetchLivePrice = action({
     if (assetType === "mutual_fund") {
       const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force });
       if (mf && mf.nav > 0) {
-        return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
+        return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
       }
       // Universal dynamic fallback for ETFs or funds searched under mutual_fund
       return await getOrFetchStockPriceWithCache(ctx, name, { force, notes });
@@ -3661,7 +3814,7 @@ export const fetchLivePrice = action({
         // 2. Try AMFI Cache DB for Gold/Silver mutual funds
         const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force });
         if (mf && mf.nav > 0) {
-          return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
+          return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
         }
       }
       return null;
@@ -3674,9 +3827,277 @@ export const fetchLivePrice = action({
     // Dynamic fallback for Mutual Funds searched under stocks
     const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force });
     if (mf && mf.nav > 0) {
-      return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav };
+      return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
     }
     return null;
+  },
+});
+
+/**
+ * Universal Market Search:
+ * Autocompletes ANY mutual fund from AMFI and ANY stock from the Indian market (NSE & BSE).
+ * Returns real-time quotes, latest NAVs, official schemeCodes, and ticker symbols.
+ */
+export const searchMarketAssets = action({
+  args: {
+    query: v.string(),
+    assetType: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const q = args.query.trim();
+    if (!q || q.length < 2) return { mutualFunds: [], stocks: [] };
+
+    const results: {
+      mutualFunds: Array<{
+        schemeCode: number;
+        schemeName: string;
+        nav?: number;
+        date?: string;
+        isin?: string;
+      }>;
+      stocks: Array<{
+        symbol: string;
+        name: string;
+        price?: number;
+        prevClose?: number;
+        exchange?: string;
+        change?: number;
+        changePercent?: number;
+      }>;
+    } = { mutualFunds: [], stocks: [] };
+
+    const shouldSearchMf = !args.assetType || args.assetType === "mutual_fund";
+    const shouldSearchStocks = !args.assetType || args.assetType === "stocks";
+
+    // 1. Mutual Funds Search (AMFI Universe - 40,000+ schemes)
+    if (shouldSearchMf) {
+      try {
+        const clean = q
+          .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, "")
+          .replace(/[\.\(\)₹\$\[\]\/\\-]/g, " ")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+
+        const scoredEntries: Array<{ schemeCode: number; schemeName: string; nav?: number; date?: string; isin?: string; score: number }> = [];
+
+        // 1A. Check in-memory AMFI table if available
+        const amfiTable = await getAmfiOfficialNavTable();
+        if (amfiTable) {
+          const isinUpper = q.toUpperCase();
+          if (amfiTable.isinMap.has(isinUpper)) {
+            const e = amfiTable.isinMap.get(isinUpper)!;
+            scoredEntries.push({
+              schemeCode: e.code,
+              schemeName: e.name,
+              nav: e.nav,
+              date: e.date,
+              isin: e.isin,
+              score: 500,
+            });
+          }
+
+          const codeNum = parseInt(q, 10);
+          if (!isNaN(codeNum) && amfiTable.codeMap.has(codeNum)) {
+            const e = amfiTable.codeMap.get(codeNum)!;
+            scoredEntries.push({
+              schemeCode: e.code,
+              schemeName: e.name,
+              nav: e.nav,
+              date: e.date,
+              isin: e.isin,
+              score: 500,
+            });
+          }
+
+          for (const item of amfiTable.entries) {
+            const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, clean);
+            if (score >= 40) {
+              scoredEntries.push({
+                schemeCode: item.code,
+                schemeName: item.name,
+                nav: item.nav,
+                date: item.date,
+                isin: item.isin,
+                score,
+              });
+              if (scoredEntries.length > 25) break;
+            }
+          }
+        }
+
+        // 1B. Query official MFAPI search endpoint for broad coverage
+        if (scoredEntries.length < 5) {
+          try {
+            const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(clean)}`, {
+              headers: STANDARD_HEADERS,
+              signal: AbortSignal.timeout(3500),
+            });
+            if (res.ok) {
+              const list: any[] = await res.json();
+              if (Array.isArray(list)) {
+                for (const item of list.slice(0, 10)) {
+                  if (!scoredEntries.some((s) => s.schemeCode === item.schemeCode)) {
+                    const score = scoreMfCandidate(item, clean);
+                    scoredEntries.push({
+                      schemeCode: item.schemeCode,
+                      schemeName: item.schemeName,
+                      score,
+                    });
+                  }
+                }
+              }
+            }
+          } catch {}
+        }
+
+        scoredEntries.sort((a, b) => b.score - a.score);
+        const topMf = scoredEntries.slice(0, 6);
+
+        // Fetch /latest NAV for top candidates lacking nav
+        await Promise.all(
+          topMf.map(async (item) => {
+            if (!item.nav) {
+              try {
+                const latestRes = await fetch(`https://api.mfapi.in/mf/${item.schemeCode}/latest`, {
+                  headers: STANDARD_HEADERS,
+                  signal: AbortSignal.timeout(2500),
+                });
+                if (latestRes.ok) {
+                  const details: any = await latestRes.json();
+                  const latest = details?.data?.[0];
+                  if (latest?.nav) {
+                    item.nav = parseFloat(latest.nav);
+                    item.date = latest.date;
+                    item.isin = details.meta?.isin_growth || item.isin;
+                  }
+                }
+              } catch {}
+            }
+          })
+        );
+
+        results.mutualFunds = topMf.map((m) => ({
+          schemeCode: m.schemeCode,
+          schemeName: m.schemeName,
+          nav: m.nav,
+          date: m.date,
+          isin: m.isin,
+        }));
+      } catch (err) {
+        console.warn("[SearchMarketAssets] MF search error:", err);
+      }
+    }
+
+    // 2. Indian Stocks Search (NSE & BSE)
+    if (shouldSearchStocks) {
+      try {
+        const clean = q.trim().toUpperCase();
+        let yRes: Response | null = null;
+        try {
+          yRes = await fetch(
+            `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(clean)}&quotesCount=10`,
+            { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
+          );
+        } catch {
+          try {
+            yRes = await fetch(
+              `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(clean)}&quotesCount=10`,
+              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
+            );
+          } catch {}
+        }
+
+        if (yRes && yRes.ok) {
+          const yData: any = await yRes.json();
+          const quotes: any[] = yData?.quotes || [];
+
+          // Filter for Indian equities or ETFs
+          const indianQuotes = quotes.filter((item) => {
+            if (!item.symbol || item.symbol.startsWith("^") || item.symbol.includes("=F")) return false;
+            const sym = item.symbol.toUpperCase();
+            return (
+              sym.endsWith(".NS") ||
+              sym.endsWith(".BO") ||
+              item.exchange === "NSI" ||
+              item.exchange === "BOM" ||
+              item.quoteType === "EQUITY" ||
+              item.quoteType === "ETF"
+            );
+          });
+
+          // Bare ticker auto-injection (e.g. ZOMATO, TATAMOTORS, INFY, RELIANCE)
+          if (/^[A-Z0-9]{2,14}$/.test(clean)) {
+            if (!indianQuotes.some((item) => item.symbol.toUpperCase().startsWith(clean))) {
+              indianQuotes.unshift({
+                symbol: `${clean}.NS`,
+                shortname: clean,
+                exchange: "NSI",
+              });
+            }
+          }
+
+          const topStocks = indianQuotes.slice(0, 5);
+
+          // Fetch price for top stocks in parallel
+          await Promise.all(
+            topStocks.map(async (stk) => {
+              try {
+                const sym = stk.symbol;
+                let cRes: Response | null = null;
+                try {
+                  cRes = await fetch(
+                    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
+                    { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2500) }
+                  );
+                } catch {
+                  try {
+                    cRes = await fetch(
+                      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
+                      { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2500) }
+                    );
+                  } catch {}
+                }
+                if (cRes && cRes.ok) {
+                  const cData: any = await cRes.json();
+                  const meta = cData?.chart?.result?.[0]?.meta;
+                  if (meta && typeof meta.regularMarketPrice === "number") {
+                    stk.price = meta.regularMarketPrice;
+                    stk.prevClose = meta.previousClose || meta.chartPreviousClose;
+                    const change =
+                      typeof meta.regularMarketChange === "number"
+                        ? meta.regularMarketChange
+                        : meta.regularMarketPrice - (stk.prevClose || meta.regularMarketPrice);
+                    stk.change = change;
+                    stk.changePercent =
+                      stk.prevClose && stk.prevClose > 0
+                        ? Number(((change / stk.prevClose) * 100).toFixed(2))
+                        : 0;
+                  }
+                }
+              } catch {}
+            })
+          );
+
+          results.stocks = topStocks.map((s) => ({
+            symbol: s.symbol.toUpperCase(),
+            name: s.shortname || s.longname || s.symbol,
+            price: s.price,
+            prevClose: s.prevClose,
+            change: s.change,
+            changePercent: s.changePercent,
+            exchange: s.symbol.toUpperCase().endsWith(".NS")
+              ? "NSE"
+              : s.symbol.toUpperCase().endsWith(".BO")
+              ? "BSE"
+              : s.exchange || "NSE",
+          }));
+        }
+      } catch (err) {
+        console.warn("[SearchMarketAssets] Stock search error:", err);
+      }
+    }
+
+    return results;
   },
 });
 

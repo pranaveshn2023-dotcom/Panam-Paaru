@@ -268,75 +268,59 @@ export async function fetchAmfiNav(
   try {
     const combined = `${fundName} ${notes || ''}`;
 
-    // 1. ISIN-based lookup — highest-accuracy and 100% unique per scheme variant.
-    const isinMatch = combined.match(/\b(INF[A-Z0-9]{9})\b/i);
-    if (isinMatch) {
-      try {
-        const isin = isinMatch[1].toUpperCase();
-        const searchRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(isin)}`, {
-          signal: AbortSignal.timeout(3500),
-        });
-        if (searchRes.ok) {
-          const list: { schemeCode: number; schemeName: string }[] = await searchRes.json();
-          const first = Array.isArray(list) ? list[0] : null;
-          if (first && first.schemeCode) {
-            const detailRes = await fetch(`https://api.mfapi.in/mf/${first.schemeCode}/latest`, {
-              signal: AbortSignal.timeout(4000),
-            });
-            if (detailRes.ok) {
-              const details = await detailRes.json();
-              const latest = details?.data?.[0];
-              const prev = details?.data?.[1];
-              if (latest && latest.nav) {
-                const navNum = parseFloat(latest.nav);
-                if (!isNaN(navNum) && navNum > 0) {
-                  const res = {
-                    nav: navNum,
-                    date: latest.date || '',
-                    schemeName: details.meta?.scheme_name || first.schemeName || fundName,
-                    schemeCode: first.schemeCode,
-                    prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-                  };
-                  navCache.set(normKey, res);
-                  savePersistentCache(normKey, res);
-                  return res;
-                }
-              }
-            }
-          }
-        }
-      } catch {}
-    }
-
-    // 2. Direct scheme code check (Explicitly stripping out any Folio numbers!)
+    // 1. Direct scheme code check (Explicitly stripping out any Folio numbers!)
     // ⚠️ Guard: A folio number is an investor's personal account number and is NOT unique to a fund.
     const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, '');
     const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
     if (explicitSchemeMatch) {
       const code = explicitSchemeMatch[1] || explicitSchemeMatch[0];
-      const detailRes = await fetch(`https://api.mfapi.in/mf/${code}`, { signal: AbortSignal.timeout(4500) });
-      if (detailRes.ok) {
-        const details = await detailRes.json();
-        const latest = details?.data?.[0];
-        const prev = details?.data?.[1];
-        if (latest && latest.nav) {
-          const navNum = parseFloat(latest.nav);
-          const resolvedName = String(details.meta?.scheme_name || '');
-          const sim = resolvedName ? schemeNameSimilarity(fundName, resolvedName) : 0;
-          if (!isNaN(navNum) && navNum > 0 && sim >= 0.45) {
-            const res = {
-              nav: navNum,
-              date: latest.date || '',
-              schemeName: details.meta?.scheme_name || fundName,
-              schemeCode: parseInt(code, 10),
-              prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-            };
-            navCache.set(normKey, res);
-            savePersistentCache(normKey, res);
-            return res;
+      try {
+        const latestRes = await fetch(`https://api.mfapi.in/mf/${code}/latest`, { signal: AbortSignal.timeout(3000) });
+        if (latestRes.ok) {
+          const details = await latestRes.json();
+          const latest = details?.data?.[0];
+          if (latest && latest.nav) {
+            const navNum = parseFloat(latest.nav);
+            if (!isNaN(navNum) && navNum > 0) {
+              const res = {
+                nav: navNum,
+                date: latest.date || '',
+                schemeName: details.meta?.scheme_name || fundName,
+                schemeCode: parseInt(code, 10),
+              };
+              navCache.set(normKey, res);
+              savePersistentCache(normKey, res);
+              return res;
+            }
           }
         }
-      }
+      } catch {}
+
+      try {
+        const detailRes = await fetch(`https://api.mfapi.in/mf/${code}`, { signal: AbortSignal.timeout(4500) });
+        if (detailRes.ok) {
+          const details = await detailRes.json();
+          const latest = details?.data?.[0];
+          const prev = details?.data?.[1];
+          if (latest && latest.nav) {
+            const navNum = parseFloat(latest.nav);
+            const resolvedName = String(details.meta?.scheme_name || '');
+            const sim = resolvedName ? schemeNameSimilarity(fundName, resolvedName) : 0;
+            if (!isNaN(navNum) && navNum > 0 && sim >= 0.45) {
+              const res = {
+                nav: navNum,
+                date: latest.date || '',
+                schemeName: details.meta?.scheme_name || fundName,
+                schemeCode: parseInt(code, 10),
+                prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
+              };
+              navCache.set(normKey, res);
+              savePersistentCache(normKey, res);
+              return res;
+            }
+          }
+        }
+      } catch {}
     }
 
     // 4. Multi-tier query builder
@@ -1446,3 +1430,132 @@ export function detectDetailedAssetType(
 
   return { assetType: 'other', subType: 'Other Asset', sector: explicitSector };
 }
+
+/**
+ * Direct client search for any AMFI Mutual Fund scheme
+ */
+export async function searchIndianMutualFunds(
+  query: string
+): Promise<Array<{ schemeCode: number; schemeName: string; nav?: number; date?: string }>> {
+  if (!query || query.trim().length < 2) return [];
+  const clean = cleanSearchQuery(query);
+  try {
+    const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(clean)}`, {
+      signal: AbortSignal.timeout(3500),
+    });
+    if (!res.ok) return [];
+    const list: Array<{ schemeCode: number; schemeName: string }> = await res.json();
+    if (!Array.isArray(list) || list.length === 0) return [];
+
+    const scored = list
+      .map((item) => ({ ...item, score: scoreSchemeCandidate(item, query) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6);
+
+    // Fetch /latest NAV for top 3 in parallel
+    await Promise.all(
+      scored.slice(0, 3).map(async (item: any) => {
+        try {
+          const detailRes = await fetch(`https://api.mfapi.in/mf/${item.schemeCode}/latest`, {
+            signal: AbortSignal.timeout(2500),
+          });
+          if (detailRes.ok) {
+            const data = await detailRes.json();
+            const latest = data?.data?.[0];
+            if (latest?.nav) {
+              item.nav = parseFloat(latest.nav);
+              item.date = latest.date;
+            }
+          }
+        } catch {}
+      })
+    );
+
+    return scored.map((s: any) => ({
+      schemeCode: s.schemeCode,
+      schemeName: s.schemeName,
+      nav: s.nav,
+      date: s.date,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Direct client search for any Indian Stock / ETF (NSE & BSE)
+ */
+export async function searchIndianStocks(
+  query: string
+): Promise<Array<{ symbol: string; name: string; price?: number; exchange?: string }>> {
+  if (!query || query.trim().length < 2) return [];
+  const clean = query.trim().toUpperCase();
+  try {
+    const res = await fetch(
+      `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(clean)}&quotesCount=8`,
+      { signal: AbortSignal.timeout(3500) }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const quotes: any[] = data?.quotes || [];
+
+    const filtered = quotes.filter((q) => {
+      if (!q.symbol || q.symbol.startsWith('^') || q.symbol.includes('=F')) return false;
+      const sym = q.symbol.toUpperCase();
+      return (
+        sym.endsWith('.NS') ||
+        sym.endsWith('.BO') ||
+        q.exchange === 'NSI' ||
+        q.exchange === 'BOM' ||
+        q.quoteType === 'EQUITY' ||
+        q.quoteType === 'ETF'
+      );
+    });
+
+    if (/^[A-Z0-9]{2,14}$/.test(clean)) {
+      if (!filtered.some((q) => q.symbol.toUpperCase().startsWith(clean))) {
+        filtered.unshift({
+          symbol: `${clean}.NS`,
+          shortname: clean,
+          exchange: 'NSI',
+        });
+      }
+    }
+
+    const top = filtered.slice(0, 5);
+
+    // Fetch live price for top 2
+    await Promise.all(
+      top.slice(0, 2).map(async (stk) => {
+        try {
+          const sym = stk.symbol;
+          const cRes = await fetch(
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
+            { signal: AbortSignal.timeout(2500) }
+          );
+          if (cRes.ok) {
+            const cData = await cRes.json();
+            const meta = cData?.chart?.result?.[0]?.meta;
+            if (meta && typeof meta.regularMarketPrice === 'number') {
+              stk.price = meta.regularMarketPrice;
+            }
+          }
+        } catch {}
+      })
+    );
+
+    return top.map((s) => ({
+      symbol: s.symbol.toUpperCase(),
+      name: s.shortname || s.longname || s.symbol,
+      price: s.price,
+      exchange: s.symbol.toUpperCase().endsWith('.NS')
+        ? 'NSE'
+        : s.symbol.toUpperCase().endsWith('.BO')
+        ? 'BSE'
+        : s.exchange || 'NSE',
+    }));
+  } catch {
+    return [];
+  }
+}
+

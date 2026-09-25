@@ -23,6 +23,8 @@ import {
   fetchLiveStockPrice,
   fetchLiveCryptoPrice,
   detectDetailedAssetType,
+  searchIndianMutualFunds,
+  searchIndianStocks,
 } from '../../utils/liveMarketService';
 
 export interface InvestmentModalProps {
@@ -36,6 +38,9 @@ export interface InvestmentModalProps {
     units?: number;
     buyPrice?: number;
     currentPrice?: number;
+    schemeCode?: number;
+    isin?: string;
+    ticker?: string;
     sipAmount?: number;
     sipDay?: number;
     xirr?: string;
@@ -111,10 +116,36 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   const [isFetchingPrice, setIsFetchingPrice] = useState(false);
   const [livePrice, setLivePrice] = useState<number | null>(null);
   const [livePriceSymbol, setLivePriceSymbol] = useState<string>('');
+  const [resolvedSchemeCode, setResolvedSchemeCode] = useState<number | undefined>(initialData?.schemeCode);
+  const [resolvedIsin, setResolvedIsin] = useState<string | undefined>(initialData?.isin);
+  const [resolvedTicker, setResolvedTicker] = useState<string | undefined>(initialData?.ticker);
+
+  // ── Universal Market Autocomplete State (AMFI & Indian Equities) ──
+  const [searchResults, setSearchResults] = useState<{
+    mutualFunds: Array<{ schemeCode: number; schemeName: string; nav?: number; date?: string; isin?: string }>;
+    stocks: Array<{ symbol: string; name: string; price?: number; prevClose?: number; exchange?: string; changePercent?: number }>;
+  } | null>(null);
+  const [isSearchingMarket, setIsSearchingMarket] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchTab, setSearchTab] = useState<'all' | 'mutual_fund' | 'stocks'>('all');
+  const searchTimeoutRef = useRef<any>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const fetchTimeoutRef = useRef<any>(null);
   const fetchIdRef = useRef<number>(0);
 
   const fetchLivePriceAction = useAction(api.investments.fetchLivePrice);
+  const searchMarketAssetsAction = useAction(api.investments.searchMarketAssets);
+
+  // Close suggestions on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (initialData) {
@@ -131,6 +162,9 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setNotes(initialData.notes || '');
       setLivePrice(initialData.currentPrice || null);
       setLivePriceSymbol(initialData.name);
+      setResolvedSchemeCode(initialData.schemeCode);
+      setResolvedIsin(initialData.isin);
+      setResolvedTicker(initialData.ticker);
 
       if (initialTopUpMode) {
         setMatchedHolding(initialData);
@@ -155,6 +189,11 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setNotes('');
       setLivePrice(null);
       setLivePriceSymbol('');
+      setResolvedSchemeCode(undefined);
+      setResolvedIsin(undefined);
+      setResolvedTicker(undefined);
+      setSearchResults(null);
+      setShowSuggestions(false);
       setMatchedHolding(null);
       setDismissedMatchId(null);
       setMode('normal');
@@ -235,6 +274,9 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         setLivePrice(result.price);
         setLivePriceSymbol(result.symbol || '');
         setCurrentPrice(String(result.price));
+        if ((result as any).schemeCode) setResolvedSchemeCode((result as any).schemeCode);
+        if ((result as any).isin) setResolvedIsin((result as any).isin);
+        if ((result as any).symbol && type === 'stocks') setResolvedTicker((result as any).symbol);
 
         const numInv = parseFloat(investedAmountRef.current);
         const numUnits = parseFloat(unitsRef.current);
@@ -463,6 +505,9 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           units: newTotalUnits > 0 ? newTotalUnits : undefined,
           buyPrice: newAvgBuyPrice,
           currentPrice: effNav,
+          schemeCode: matchedHolding.schemeCode,
+          isin: matchedHolding.isin,
+          ticker: matchedHolding.ticker,
           sipAmount: matchedHolding.sipAmount,
           sipDay: matchedHolding.sipDay,
           xirr: matchedHolding.xirr,
@@ -520,6 +565,9 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           units: numUnits,
           buyPrice: numBuyPrice,
           currentPrice: numCurrentPrice,
+          schemeCode: resolvedSchemeCode,
+          isin: resolvedIsin,
+          ticker: resolvedTicker,
           sipAmount: numSip,
           sipDay: numSipDay,
           xirr: xirr.trim() || undefined,
@@ -637,33 +685,278 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         {/* ── NORMAL MODE INPUTS ── */}
         {mode === 'normal' && (
           <>
-            {/* Asset Name */}
-            <div className="flex flex-col gap-1.5">
-              <NeoInput
-                label="Investment / Asset Name"
-                value={name}
-                onChange={(e) => {
-                  const newName = e.target.value;
-                  setName(newName);
-                  if (!initialData && newName.trim().length >= 2) {
-                    const detected = detectDetailedAssetType(newName);
-                    if (detected.assetType && detected.assetType !== 'other') {
-                      setAssetType(detected.assetType);
-                    }
-                    const matched = findMatchingExistingHolding(newName, existingInvestments);
-                    if (matched && matched._id !== dismissedMatchId) {
-                      setMatchedHolding(matched);
-                    } else if (!matched) {
-                      setMatchedHolding(null);
-                    }
-                  }
-                }}
-                placeholder="e.g. Search fund name, stock ticker, crypto, or asset..."
-                required
-              />
+            {/* Asset Name with Universal AMFI & Indian Market Autocomplete */}
+            <div className="flex flex-col gap-1.5 relative">
+              <div className="relative">
+                <NeoInput
+                  label="Investment / Asset Name"
+                  value={name}
+                  onChange={(e) => {
+                    const newName = e.target.value;
+                    setName(newName);
 
-              {/* Quick suggestions from existing invested portfolio (if user searches an instrument they already own) */}
-              {!initialData && name.trim().length >= 2 && !matchedHolding && (
+                    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+
+                    if (!initialData && newName.trim().length >= 2) {
+                      const detected = detectDetailedAssetType(newName);
+                      if (detected.assetType && detected.assetType !== 'other') {
+                        setAssetType(detected.assetType);
+                      }
+                      const matched = findMatchingExistingHolding(newName, existingInvestments);
+                      if (matched && matched._id !== dismissedMatchId) {
+                        setMatchedHolding(matched);
+                      } else if (!matched) {
+                        setMatchedHolding(null);
+                      }
+
+                      // Universal Live Market Search (AMFI Universe & NSE/BSE)
+                      setIsSearchingMarket(true);
+                      searchTimeoutRef.current = setTimeout(async () => {
+                        try {
+                          const res = await searchMarketAssetsAction({ query: newName.trim() });
+                          if (res && (res.mutualFunds.length > 0 || res.stocks.length > 0)) {
+                            setSearchResults(res);
+                            setShowSuggestions(true);
+                          } else {
+                            const [mfs, stks] = await Promise.all([
+                              searchIndianMutualFunds(newName.trim()),
+                              searchIndianStocks(newName.trim()),
+                            ]);
+                            if (mfs.length > 0 || stks.length > 0) {
+                              setSearchResults({ mutualFunds: mfs, stocks: stks });
+                              setShowSuggestions(true);
+                            } else {
+                              setSearchResults(null);
+                              setShowSuggestions(false);
+                            }
+                          }
+                        } catch {
+                          try {
+                            const [mfs, stks] = await Promise.all([
+                              searchIndianMutualFunds(newName.trim()),
+                              searchIndianStocks(newName.trim()),
+                            ]);
+                            if (mfs.length > 0 || stks.length > 0) {
+                              setSearchResults({ mutualFunds: mfs, stocks: stks });
+                              setShowSuggestions(true);
+                            } else {
+                              setSearchResults(null);
+                              setShowSuggestions(false);
+                            }
+                          } catch {
+                            setSearchResults(null);
+                            setShowSuggestions(false);
+                          }
+                        } finally {
+                          setIsSearchingMarket(false);
+                        }
+                      }, 250);
+                    } else {
+                      setSearchResults(null);
+                      setShowSuggestions(false);
+                      setIsSearchingMarket(false);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (searchResults && (searchResults.mutualFunds.length > 0 || searchResults.stocks.length > 0)) {
+                      setShowSuggestions(true);
+                    }
+                  }}
+                  placeholder="e.g. Parag Parikh Flexi Cap, Tata Motors, Quant Small Cap, Zomato..."
+                  required
+                />
+                {isSearchingMarket && (
+                  <div className="absolute right-3 top-[34px] pointer-events-none">
+                    <Loader2 size={16} className="animate-spin text-neutral-400" />
+                  </div>
+                )}
+              </div>
+
+              {/* ── Universal Market Search Autocomplete Dropdown ── */}
+              {showSuggestions && searchResults && (searchResults.mutualFunds.length > 0 || searchResults.stocks.length > 0) && (
+                <div
+                  ref={dropdownRef}
+                  className="absolute left-0 right-0 top-full mt-1 bg-white border-[2.5px] border-[#121212] shadow-neo-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 max-h-[340px] flex flex-col"
+                >
+                  {/* Category Tabs Header */}
+                  <div className="flex items-center justify-between border-b-2 border-[#121212] bg-[#FFFDF5] px-2 py-1.5 text-[10px] font-black uppercase">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setSearchTab('all')}
+                        className={`px-2 py-0.5 border border-[#121212] transition-all cursor-pointer ${searchTab === 'all' ? 'bg-[#FFE600] text-[#121212]' : 'bg-white text-neutral-600'}`}
+                      >
+                        All ({searchResults.mutualFunds.length + searchResults.stocks.length})
+                      </button>
+                      {searchResults.mutualFunds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchTab('mutual_fund')}
+                          className={`px-2 py-0.5 border border-[#121212] transition-all cursor-pointer ${searchTab === 'mutual_fund' ? 'bg-[#00F0FF] text-[#121212]' : 'bg-white text-neutral-600'}`}
+                        >
+                          AMFI Funds ({searchResults.mutualFunds.length})
+                        </button>
+                      )}
+                      {searchResults.stocks.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchTab('stocks')}
+                          className={`px-2 py-0.5 border border-[#121212] transition-all cursor-pointer ${searchTab === 'stocks' ? 'bg-[#FFE600] text-[#121212]' : 'bg-white text-neutral-600'}`}
+                        >
+                          NSE/BSE Stocks ({searchResults.stocks.length})
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowSuggestions(false)}
+                      className="text-neutral-400 hover:text-neutral-800 text-xs px-1 cursor-pointer font-bold"
+                      title="Close suggestions"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Scrollable Results List */}
+                  <div className="overflow-y-auto divide-y divide-neutral-200">
+                    {/* Mutual Funds from AMFI */}
+                    {(searchTab === 'all' || searchTab === 'mutual_fund') && searchResults.mutualFunds.map((mf) => (
+                      <button
+                        key={`mf_${mf.schemeCode}`}
+                        type="button"
+                        onClick={() => {
+                          setName(mf.schemeName);
+                          setAssetType('mutual_fund');
+                          setResolvedSchemeCode(mf.schemeCode);
+                          if (mf.isin) setResolvedIsin(mf.isin);
+                          setShowSuggestions(false);
+                          setNotes((prev) => {
+                            const withoutCode = prev.replace(/\b(?:scheme\s*code|amfi\s*code|amfi)\s*[:#-]?\s*\d{6}\b/gi, '').trim();
+                            return `AMFI Scheme Code: ${mf.schemeCode}${withoutCode ? ` • ${withoutCode}` : ''}`;
+                          });
+
+                          if (mf.nav && mf.nav > 0) {
+                            setLivePrice(mf.nav);
+                            setLivePriceSymbol(mf.schemeName);
+                            setCurrentPrice(String(mf.nav));
+                            const numInv = parseFloat(investedAmountRef.current);
+                            const numUnits = parseFloat(unitsRef.current);
+                            const numBuy = parseFloat(buyPriceRef.current);
+                            if (!isNaN(numUnits) && numUnits > 0) {
+                              setCurrentValue(String(Math.round(numUnits * mf.nav * 100) / 100));
+                              if (!isNaN(numInv) && numInv > 0 && isNaN(numBuy)) {
+                                setBuyPrice(String(Math.round((numInv / numUnits) * 10000) / 10000));
+                              }
+                            } else if (!isNaN(numInv) && numInv > 0) {
+                              const effBuy = !isNaN(numBuy) && numBuy > 0 ? numBuy : mf.nav;
+                              const derivedUnits = Math.round((numInv / effBuy) * 10000) / 10000;
+                              setUnits(String(derivedUnits));
+                              setCurrentValue(String(Math.round(derivedUnits * mf.nav * 100) / 100));
+                              if (isNaN(numBuy) || numBuy <= 0) setBuyPrice(String(mf.nav));
+                            }
+                          }
+                        }}
+                        className="w-full text-left p-2.5 hover:bg-[#E8F8F0] transition-colors flex items-start justify-between gap-2 group cursor-pointer"
+                      >
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[9px] font-black uppercase bg-[#00F0FF] text-[#121212] px-1 py-0.2 border border-[#121212]">
+                              AMFI MF
+                            </span>
+                            <span className="text-xs font-black text-[#121212] truncate group-hover:text-[#0B6B38]">
+                              {mf.schemeName}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-mono text-neutral-500">
+                            Scheme Code: {mf.schemeCode} {mf.isin ? `• ISIN: ${mf.isin}` : ''}
+                          </span>
+                        </div>
+                        {mf.nav && mf.nav > 0 && (
+                          <div className="text-right shrink-0 flex flex-col items-end">
+                            <span className="text-xs font-mono font-black text-[#0B6B38]">
+                              {currencySymbol}{mf.nav.toFixed(4)}
+                            </span>
+                            {mf.date && (
+                              <span className="text-[9px] font-mono text-neutral-400">
+                                {mf.date}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+
+                    {/* Stocks & ETFs from NSE & BSE */}
+                    {(searchTab === 'all' || searchTab === 'stocks') && searchResults.stocks.map((stk) => (
+                      <button
+                        key={`stk_${stk.symbol}`}
+                        type="button"
+                        onClick={() => {
+                          setName(stk.name || stk.symbol);
+                          setAssetType('stocks');
+                          setResolvedTicker(stk.symbol);
+                          setShowSuggestions(false);
+                          setNotes((prev) => {
+                            const withoutTicker = prev.replace(/\bticker\s*[:#-]?\s*[\w\.]+\b/gi, '').trim();
+                            return `Ticker: ${stk.symbol}${withoutTicker ? ` • ${withoutTicker}` : ''}`;
+                          });
+
+                          if (stk.price && stk.price > 0) {
+                            setLivePrice(stk.price);
+                            setLivePriceSymbol(stk.symbol);
+                            setCurrentPrice(String(stk.price));
+                            const numInv = parseFloat(investedAmountRef.current);
+                            const numUnits = parseFloat(unitsRef.current);
+                            const numBuy = parseFloat(buyPriceRef.current);
+                            if (!isNaN(numUnits) && numUnits > 0) {
+                              setCurrentValue(String(Math.round(numUnits * stk.price * 100) / 100));
+                              if (!isNaN(numInv) && numInv > 0 && isNaN(numBuy)) {
+                                setBuyPrice(String(Math.round((numInv / numUnits) * 10000) / 10000));
+                              }
+                            } else if (!isNaN(numInv) && numInv > 0) {
+                              const effBuy = !isNaN(numBuy) && numBuy > 0 ? numBuy : stk.price;
+                              const derivedUnits = Math.round((numInv / effBuy) * 10000) / 10000;
+                              setUnits(String(derivedUnits));
+                              setCurrentValue(String(Math.round(derivedUnits * stk.price * 100) / 100));
+                              if (isNaN(numBuy) || numBuy <= 0) setBuyPrice(String(stk.price));
+                            }
+                          }
+                        }}
+                        className="w-full text-left p-2.5 hover:bg-[#FFF9DB] transition-colors flex items-start justify-between gap-2 group cursor-pointer"
+                      >
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[9px] font-black uppercase bg-[#FFE600] text-[#121212] px-1 py-0.2 border border-[#121212]">
+                              {stk.exchange || 'NSE'}
+                            </span>
+                            <span className="text-xs font-black text-[#121212] truncate group-hover:text-[#705800]">
+                              {stk.name}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-mono font-bold text-neutral-500">
+                            Ticker: {stk.symbol}
+                          </span>
+                        </div>
+                        {stk.price && stk.price > 0 && (
+                          <div className="text-right shrink-0 flex flex-col items-end">
+                            <span className="text-xs font-mono font-black text-[#121212]">
+                              {currencySymbol}{stk.price.toFixed(2)}
+                            </span>
+                            {stk.changePercent !== undefined && (
+                              <span className={`text-[9px] font-mono font-bold ${stk.changePercent >= 0 ? 'text-[#0B6B38]' : 'text-[#DC2626]'}`}>
+                                {stk.changePercent >= 0 ? '+' : ''}{stk.changePercent.toFixed(2)}%
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick suggestions from existing invested portfolio */}
+              {!initialData && name.trim().length >= 2 && !matchedHolding && !showSuggestions && (
                 (() => {
                   const q = name.toLowerCase().trim();
                   const suggestions = existingInvestments.filter(

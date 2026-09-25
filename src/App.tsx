@@ -510,6 +510,7 @@ export function AppContent() {
   const handleSaveInvestment = async (data: {
     name: string; assetType: AssetType; investedAmount: number; currentValue: number;
     units?: number; buyPrice?: number; currentPrice?: number;
+    schemeCode?: number; isin?: string; ticker?: string;
     sipAmount?: number; sipDay?: number; xirr?: string; notes?: string;
     existingIdToMerge?: string;
   }) => {
@@ -524,6 +525,9 @@ export function AppContent() {
         units: data.units,
         buyPrice: data.buyPrice,
         currentPrice: data.currentPrice,
+        schemeCode: data.schemeCode,
+        isin: data.isin,
+        ticker: data.ticker,
         sipAmount: data.sipAmount,
         sipDay: data.sipDay,
         xirr: data.xirr,
