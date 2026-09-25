@@ -1790,7 +1790,7 @@ let amfiFetchPromise: Promise<{
   entries: AmfiTableEntry[];
 } | null> | null = null;
 
-const AMFI_CACHE_DURATION_MS = 60 * 60 * 1000; // 60 min in-memory cache
+const AMFI_CACHE_DURATION_MS = 15 * 60 * 1000; // 15 min cache for fast responsiveness
 
 export async function getAmfiOfficialNavTable(): Promise<{
   isinMap: Map<string, AmfiTableEntry>;
@@ -1807,11 +1807,24 @@ export async function getAmfiOfficialNavTable(): Promise<{
 
   amfiFetchPromise = (async () => {
     try {
-      const res = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
-        headers: STANDARD_HEADERS,
-        signal: AbortSignal.timeout(15000), // 15s timeout for complete AMFI file
-      });
-      if (!res.ok) return amfiTableCache;
+      let res: Response | null = null;
+      // Direct AMFI portal endpoint (bypasses 301/302 redirects and returns in < 300ms)
+      try {
+        res = await fetch("https://portal.amfiindia.com/spages/NAVAll.txt", {
+          headers: STANDARD_HEADERS,
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch (e1) {
+        console.warn("[AMFI] portal.amfiindia.com failed, trying amfiindia.com fallback:", e1);
+      }
+
+      if (!res || !res.ok) {
+        res = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
+          headers: STANDARD_HEADERS,
+          signal: AbortSignal.timeout(15000),
+        });
+      }
+      if (!res || !res.ok) return amfiTableCache;
 
       const text = await res.text();
       const lines = text.split("\n");
@@ -1823,7 +1836,7 @@ export async function getAmfiOfficialNavTable(): Promise<{
         const trimmedLine = line.trim();
         if (!trimmedLine || !trimmedLine.includes(";")) continue;
         const parts = trimmedLine.split(";");
-        if (parts.length < 6) continue;
+        if (parts.length < 5) continue;
 
         const code = parseInt(parts[0]?.trim(), 10);
         if (isNaN(code) || code <= 0) continue;
@@ -1837,15 +1850,26 @@ export async function getAmfiOfficialNavTable(): Promise<{
         let dateStr = "";
 
         if (parts.length >= 8) {
+          // Standard AMFI 8-column layout:
+          // [0] Code, [1] ISIN Payout/Growth, [2] ISIN Reinvest, [3] Name, [4] Plan, [5] Option, [6] NAV, [7] Date
           baseSchemeName = parts[3]?.trim() || "";
           plan = parts[4]?.trim() || "";
           option = parts[5]?.trim() || "";
           navStr = parts[6]?.trim() || "";
           dateStr = parts[7]?.trim() || "";
-        } else {
+        } else if (parts.length === 6 || parts.length === 7) {
+          // Standard AMFI 6-column layout:
+          // [0] Code, [1] ISIN1, [2] ISIN2, [3] Full Scheme Name, [4] NAV, [5] Date
           baseSchemeName = parts[3]?.trim() || "";
           navStr = parts[4]?.trim() || "";
           dateStr = parts[5]?.trim() || "";
+        } else {
+          const nonEmpty = parts.map((p) => p.trim()).filter(Boolean);
+          if (nonEmpty.length >= 4) {
+            dateStr = nonEmpty[nonEmpty.length - 1];
+            navStr = nonEmpty[nonEmpty.length - 2];
+            baseSchemeName = nonEmpty[3] || "";
+          }
         }
 
         const nav = parseFloat(navStr);
@@ -1878,7 +1902,7 @@ export async function getAmfiOfficialNavTable(): Promise<{
       }
       return amfiTableCache;
     } catch (err) {
-      console.warn("[AMFI] Error fetching live NAVAll.txt from amfiindia.com:", err);
+      console.warn("[AMFI] Error fetching live NAVAll.txt from AMFI:", err);
       return amfiTableCache;
     } finally {
       amfiFetchPromise = null;
