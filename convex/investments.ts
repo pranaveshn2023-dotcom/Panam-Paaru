@@ -1809,7 +1809,7 @@ export async function getAmfiOfficialNavTable(): Promise<{
     try {
       const res = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
         headers: STANDARD_HEADERS,
-        signal: AbortSignal.timeout(5000), // 5s timeout for AMFI file
+        signal: AbortSignal.timeout(15000), // 15s timeout for complete AMFI file
       });
       if (!res.ok) return amfiTableCache;
 
@@ -1902,67 +1902,84 @@ export async function fetchMfNav(
   const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
   const codeNum = knownSchemeCode && knownSchemeCode > 0 ? knownSchemeCode : explicitSchemeMatch ? parseInt(explicitSchemeMatch[1] || explicitSchemeMatch[0], 10) : undefined;
 
-  // 1. Instant Fast-Path: If scheme code is known, query high-speed official mirror endpoint (/latest)
+  // 1. Instant Fast-Path: If scheme code or ISIN is known, query both official AMFI master feed and high-speed mirror,
+  // and dynamically select whichever source has the strictly LATEST published date (Zero hardcoding).
   if (codeNum && codeNum > 0) {
-    if (amfiTableCache?.codeMap.has(codeNum)) {
-      const match = amfiTableCache.codeMap.get(codeNum)!;
+    const amfiTablePromise = getAmfiOfficialNavTable();
+    const mfApiPromise = (async () => {
+      try {
+        const latestRes = await fetch(`https://api.mfapi.in/mf/${codeNum}/latest`, {
+          headers: STANDARD_HEADERS,
+          signal: AbortSignal.timeout(3500),
+        });
+        if (latestRes.ok) {
+          const details: any = await latestRes.json();
+          const latest = details?.data?.[0];
+          if (latest && latest.nav) {
+            const navNum = parseFloat(latest.nav);
+            if (!isNaN(navNum) && navNum > 0) {
+              return {
+                nav: navNum,
+                date: latest.date || "",
+                schemeName: details.meta?.scheme_name || name,
+                schemeCode: codeNum,
+                isin: details.meta?.isin_growth || isin,
+              };
+            }
+          }
+        }
+      } catch { }
+      return null;
+    })();
+
+    const [amfiTable, mfApiMatch] = await Promise.all([amfiTablePromise, mfApiPromise]);
+    const amfiMatch = amfiTable?.codeMap.get(codeNum) || (isin ? amfiTable?.isinMap.get(isin.toUpperCase()) : null) || null;
+
+    if (amfiMatch && mfApiMatch) {
+      const amfiDateMs = parseNavDateToMs(amfiMatch.date);
+      const mfApiDateMs = parseNavDateToMs(mfApiMatch.date);
+      // Strictly latest published date wins:
+      if (amfiDateMs >= mfApiDateMs) {
+        return {
+          nav: amfiMatch.nav,
+          date: amfiMatch.date,
+          schemeName: amfiMatch.name,
+          schemeCode: amfiMatch.code,
+          isin: amfiMatch.isin || isin,
+        };
+      } else {
+        return mfApiMatch;
+      }
+    }
+
+    if (amfiMatch) {
       return {
-        nav: match.nav,
-        date: match.date,
-        schemeName: match.name,
-        schemeCode: match.code,
-        isin: match.isin || isin,
+        nav: amfiMatch.nav,
+        date: amfiMatch.date,
+        schemeName: amfiMatch.name,
+        schemeCode: amfiMatch.code,
+        isin: amfiMatch.isin || isin,
       };
     }
 
-    try {
-      const latestRes = await fetch(`https://api.mfapi.in/mf/${codeNum}/latest`, {
-        headers: STANDARD_HEADERS,
-        signal: AbortSignal.timeout(3500),
-      });
-      if (latestRes.ok) {
-        const details: any = await latestRes.json();
-        const latest = details?.data?.[0];
-        if (latest && latest.nav) {
-          const navNum = parseFloat(latest.nav);
-          if (!isNaN(navNum) && navNum > 0) {
-            return {
-              nav: navNum,
-              date: latest.date || "",
-              schemeName: details.meta?.scheme_name || name,
-              schemeCode: codeNum,
-              isin: details.meta?.isin_growth || isin,
-            };
-          }
-        }
-      }
-    } catch { }
+    if (mfApiMatch) {
+      return mfApiMatch;
+    }
+  }
 
-    // Fallback to full endpoint if /latest failed or to get prevNav
-    try {
-      const detailRes = await fetch(`https://api.mfapi.in/mf/${codeNum}`, {
-        headers: STANDARD_HEADERS,
-        signal: AbortSignal.timeout(4500),
-      });
-      if (detailRes.ok) {
-        const details: any = await detailRes.json();
-        const latest = details?.data?.[0];
-        const prev = details?.data?.[1];
-        if (latest && latest.nav) {
-          const navNum = parseFloat(latest.nav);
-          if (!isNaN(navNum) && navNum > 0) {
-            return {
-              nav: navNum,
-              date: latest.date || "",
-              schemeName: details.meta?.scheme_name || name,
-              prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
-              schemeCode: codeNum,
-              isin: details.meta?.isin_growth || isin,
-            };
-          }
-        }
-      }
-    } catch { }
+  // 1.5. ISIN Fast-Path: If ISIN is known (e.g. INF879O01027), lookup directly in AMFI table
+  if (isin) {
+    const amfiTable = await getAmfiOfficialNavTable();
+    const amfiMatch = amfiTable?.isinMap.get(isin.toUpperCase()) || null;
+    if (amfiMatch) {
+      return {
+        nav: amfiMatch.nav,
+        date: amfiMatch.date,
+        schemeName: amfiMatch.name,
+        schemeCode: amfiMatch.code,
+        isin: amfiMatch.isin || isin,
+      };
+    }
   }
 
   // 2. High-Speed Cloudflare CDN Mirror Search (Instant 50ms response for ANY scheme name)
@@ -2028,28 +2045,65 @@ export async function fetchMfNav(
 
         const top = sorted[0];
         if (top && top.score >= 40) {
-          try {
-            const latestRes = await fetch(
-              `https://api.mfapi.in/mf/${top.schemeCode}/latest`,
-              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3000) }
-            );
-            if (latestRes.ok) {
-              const details: any = await latestRes.json();
-              const latest = details?.data?.[0];
-              if (latest && latest.nav) {
-                const navNum = parseFloat(latest.nav);
-                if (!isNaN(navNum) && navNum > 0) {
-                  return {
-                    nav: navNum,
-                    date: latest.date || "",
-                    schemeName: details.meta?.scheme_name || top.schemeName,
-                    schemeCode: top.schemeCode,
-                    isin: details.meta?.isin_growth || isin,
-                  };
+          const amfiTablePromise = getAmfiOfficialNavTable();
+          const mfApiPromise = (async () => {
+            try {
+              const latestRes = await fetch(
+                `https://api.mfapi.in/mf/${top.schemeCode}/latest`,
+                { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3000) }
+              );
+              if (latestRes.ok) {
+                const details: any = await latestRes.json();
+                const latest = details?.data?.[0];
+                if (latest && latest.nav) {
+                  const navNum = parseFloat(latest.nav);
+                  if (!isNaN(navNum) && navNum > 0) {
+                    return {
+                      nav: navNum,
+                      date: latest.date || "",
+                      schemeName: details.meta?.scheme_name || top.schemeName,
+                      schemeCode: top.schemeCode,
+                      isin: details.meta?.isin_growth || isin,
+                    };
+                  }
                 }
               }
+            } catch { }
+            return null;
+          })();
+
+          const [amfiTable, mfApiMatch] = await Promise.all([amfiTablePromise, mfApiPromise]);
+          const amfiMatch = amfiTable?.codeMap.get(top.schemeCode) || null;
+
+          if (amfiMatch && mfApiMatch) {
+            const amfiDateMs = parseNavDateToMs(amfiMatch.date);
+            const mfApiDateMs = parseNavDateToMs(mfApiMatch.date);
+            if (amfiDateMs >= mfApiDateMs) {
+              return {
+                nav: amfiMatch.nav,
+                date: amfiMatch.date,
+                schemeName: amfiMatch.name,
+                schemeCode: amfiMatch.code,
+                isin: amfiMatch.isin || isin,
+              };
+            } else {
+              return mfApiMatch;
             }
-          } catch { }
+          }
+
+          if (amfiMatch) {
+            return {
+              nav: amfiMatch.nav,
+              date: amfiMatch.date,
+              schemeName: amfiMatch.name,
+              schemeCode: amfiMatch.code,
+              isin: amfiMatch.isin || isin,
+            };
+          }
+
+          if (mfApiMatch) {
+            return mfApiMatch;
+          }
 
           // Fallback to full endpoint
           const fullRes = await fetch(
@@ -2731,8 +2785,8 @@ async function getOrFetchMfNavWithCache(
     };
   }
 
-  // 2. If not forcing refresh, and cached record was updated very recently (< 5 minutes ago)
-  if (!options?.force && cached && cached.nav > 0 && now - (cached.lastFetchedAt || 0) < 5 * 60 * 1000) {
+  // 2. If not forcing refresh, and cached record is NOT stale and was updated very recently (< 5 minutes ago)
+  if (!options?.force && cached && cached.nav > 0 && !isDateStale && now - (cached.lastFetchedAt || 0) < 5 * 60 * 1000) {
     return {
       nav: cached.nav,
       date: cached.navDate,
