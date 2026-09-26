@@ -653,8 +653,8 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
         mode === 'topup' && matchedHolding
           ? `TOP UP: ${matchedHolding.name.substring(0, 24)}...`
           : initialData
-          ? 'EDIT INVESTMENT ASSET'
-          : 'ADD INVESTMENT ASSET'
+            ? 'EDIT INVESTMENT ASSET'
+            : 'ADD INVESTMENT ASSET'
       }
       maxWidth="md"
     >
@@ -816,7 +816,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                       setShowSuggestions(true);
                     }
                   }}
-                  placeholder="e.g. Parag Parikh Flexi Cap, Tata Motors, Quant Small Cap, Zomato..."
+                  placeholder="e.g. Large cap fund , Stocks"
                   required
                 />
                 {isSearchingMarket && (
@@ -1340,10 +1340,10 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
             {isSubmitting
               ? 'Saving...'
               : mode === 'topup' && matchedHolding
-              ? `Confirm Top Up (+${currencySymbol}${topUpAmount || '0.00'})`
-              : initialData
-              ? 'Update Asset'
-              : 'Add Investment'}
+                ? `Confirm Top Up (+${currencySymbol}${topUpAmount || '0.00'})`
+                : initialData
+                  ? 'Update Asset'
+                  : 'Add Investment'}
           </NeoButton>
         </div>
       </form>
