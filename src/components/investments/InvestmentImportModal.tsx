@@ -132,8 +132,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
 
   // Convex Queries, Mutations & Actions for Batch History, Live Quotes & 1-Click Rollback
-  const importBatches = useQuery(api.investments.listImportBatches, isOpen ? {} : 'skip') as ImportBatch[] | undefined;
-  const undoBatchMutation = useMutation(api.investments.undoImportBatch);
+  const importBatches = useQuery((api.investments as any).listImportBatches, isOpen ? {} : 'skip') as ImportBatch[] | undefined;
+  const undoBatchMutation = useMutation((api.investments as any).undoImportBatch);
   const fetchLivePriceAction = useAction(api.investments.fetchLivePrice);
   const fetchBatchLivePricesAction = useAction(api.investments.fetchBatchLivePrices);
 
@@ -197,6 +197,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           notes: h.notes,
           isin: h.isin,
           schemeCode: h.schemeCode,
+          ticker: h.ticker,
+          statementPrice: h.statementPrice || (h.currentPrice && h.currentPrice > 0 ? h.currentPrice : undefined),
         })),
         force: true,
       });
@@ -207,12 +209,14 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           const idx = updatedHoldings.findIndex((h) => h.id === id);
           if (idx !== -1 && res && res.price > 0) {
             const h = { ...updatedHoldings[idx] };
-            const oldPrice = h.currentPrice;
+            const oldPrice = h.statementPrice || h.currentPrice || 0;
             const cleanPrice = cleanNavPrice(res.price, h.assetType === 'mutual_fund');
             h.currentPrice = cleanPrice;
             h.isLiveSynced = true;
             if (res.date) h.liveNavDate = res.date;
             if (res.isin && !h.isin) h.isin = res.isin;
+            if (res.schemeCode && !h.schemeCode) h.schemeCode = res.schemeCode;
+            if (res.symbol && !h.ticker) h.ticker = res.symbol;
 
             if (h.units && h.units > 0) {
               h.currentValue = cleanCurrency(h.units * res.price);
@@ -281,6 +285,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 assetType: holding.assetType,
                 notes: holding.notes,
                 isin: holding.isin,
+                statementPrice: holding.statementPrice || holding.currentPrice,
                 force: true,
               });
               if (sRes && sRes.price > 0) {
@@ -301,7 +306,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               const live = await fetchLiveCryptoPrice(holding.name);
               if (live && live.price > 0) livePrice = live.price;
             } else if (!livePrice) {
-              const liveStock = await fetchLiveStockPrice(holding.name, holding.notes, holding.isin);
+              const liveStock = await fetchLiveStockPrice(
+                holding.name,
+                holding.notes,
+                holding.isin,
+                holding.ticker,
+                holding.statementPrice || holding.currentPrice
+              );
               if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
             }
           } catch {}
@@ -310,7 +321,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             const idx = updatedHoldings.findIndex((h) => h.id === holding.id);
             if (idx !== -1) {
               const h = { ...updatedHoldings[idx] };
-              const oldPrice = h.currentPrice;
+              const oldPrice = h.statementPrice || h.currentPrice || 0;
               const cleanPrice = cleanNavPrice(livePrice, h.assetType === 'mutual_fund');
               h.currentPrice = cleanPrice;
               h.isLiveSynced = true;
@@ -797,6 +808,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           units: cleanUnits(h.units),
           buyPrice: h.buyPrice ? cleanCurrency(h.buyPrice) : undefined,
           currentPrice: h.currentPrice ? cleanNavPrice(h.currentPrice, h.assetType === 'mutual_fund') : undefined,
+          schemeCode: h.schemeCode,
+          isin: h.isin,
+          ticker: h.ticker,
           xirr: h.xirr,
           notes: [
             h.notes || '',
@@ -1344,7 +1358,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                 h.currentPrice && h.currentPrice > 0
                                   ? h.currentPrice
                                   : h.units && h.units > 0 && h.currentValue > 0
-                                  ? cleanCurrency(h.currentValue / h.units)
+                                  ? cleanNavPrice(h.currentValue / h.units, h.assetType === 'mutual_fund')
                                   : undefined;
                               return (
                                 <div className="flex items-center justify-end gap-1">

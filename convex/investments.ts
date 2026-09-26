@@ -157,18 +157,23 @@ export const list = query({
           ? Number(((returnsAmount / inv.investedAmount) * 100).toFixed(2))
           : 0;
 
+      const isMf = inv.assetType === "mutual_fund";
       const derivedCurrentPrice =
         inv.currentPrice && inv.currentPrice > 0
           ? inv.currentPrice
           : inv.units && inv.units > 0 && inv.currentValue > 0
-            ? Math.round((inv.currentValue / inv.units) * 100) / 100
+            ? isMf
+              ? Math.round((inv.currentValue / inv.units) * 10000) / 10000
+              : Math.round((inv.currentValue / inv.units) * 100) / 100
             : undefined;
 
       const derivedBuyPrice =
         inv.buyPrice && inv.buyPrice > 0
           ? inv.buyPrice
           : inv.units && inv.units > 0 && inv.investedAmount > 0
-            ? Math.round((inv.investedAmount / inv.units) * 100) / 100
+            ? isMf
+              ? Math.round((inv.investedAmount / inv.units) * 10000) / 10000
+              : Math.round((inv.investedAmount / inv.units) * 100) / 100
             : undefined;
 
       return {
@@ -262,75 +267,8 @@ export const getPortfolioSummary = query({
 
 /**
  * Automatically persists verified live prices into mfNavCache and stockPriceCache
- * ensuring both manual additions and batch statement imports continually enrich the cache DB.
- */
-async function syncHoldingPriceToCache(
-  ctx: any,
-  assetType: string,
-  name: string,
-  price?: number,
-  isin?: string,
-  schemeCode?: number,
-  ticker?: string
-) {
-  if (!price || price <= 0 || !name || name.trim().length < 2) return;
-  const now = Date.now();
-
-  try {
-    if (assetType === "mutual_fund" || (assetType === "gold" && /fund/i.test(name))) {
-      const cleanKey = normalizeMfSearchKey(name);
-      const code = schemeCode || 0;
-      const existing = isin
-        ? await ctx.db.query("mfNavCache").withIndex("by_isin", (q: any) => q.eq("isin", isin)).first()
-        : code > 0
-          ? await ctx.db.query("mfNavCache").withIndex("by_scheme_code", (q: any) => q.eq("schemeCode", code)).first()
-          : await ctx.db.query("mfNavCache").withIndex("by_search_key", (q: any) => q.eq("searchKey", cleanKey)).first();
-
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          nav: price,
-          schemeCode: code > 0 ? code : existing.schemeCode,
-          isin: isin || existing.isin,
-          lastFetchedAt: now,
-        });
-      } else {
-        await ctx.db.insert("mfNavCache", {
-          schemeCode: code,
-          schemeName: name.trim(),
-          nav: price,
-          navDate: getLatestExpectedMfNavDate(),
-          searchKey: cleanKey,
-          isin,
-          lastFetchedAt: now,
-        });
-      }
-    } else if (assetType !== "fd_rd" && assetType !== "ppf_epf" && assetType !== "real_estate") {
-      const searchKey = normalizeStockSearchKey(name);
-      const symbol = ticker || name.trim().toUpperCase();
-      const existing = isin
-        ? await ctx.db.query("stockPriceCache").withIndex("by_isin", (q: any) => q.eq("isin", isin)).first()
-        : await ctx.db.query("stockPriceCache").withIndex("by_symbol", (q: any) => q.eq("symbol", symbol)).first();
-
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          price,
-          isin: isin || existing.isin,
-          symbol: ticker || existing.symbol,
-          lastFetchedAt: now,
-        });
-      } else {
-        await ctx.db.insert("stockPriceCache", {
-          isin,
-          symbol,
-          name: name.trim(),
-          price,
-          searchKey,
-          lastFetchedAt: now,
-        });
-      }
-    }
-  } catch {}
-}
+// Verified live price caches (mfNavCache & stockPriceCache) are strictly updated by
+// authentic live quotes from Yahoo Finance and AMFI, never poisoned by unverified statement prices.
 
 export const add = mutation({
   args: {
@@ -362,18 +300,23 @@ export const add = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Unauthorized");
 
+    const isMf = args.assetType === "mutual_fund";
     const derivedCurrentPrice =
       args.currentPrice && args.currentPrice > 0
         ? args.currentPrice
         : args.units && args.units > 0 && args.currentValue > 0
-          ? Math.round((args.currentValue / args.units) * 100) / 100
+          ? isMf
+            ? Math.round((args.currentValue / args.units) * 10000) / 10000
+            : Math.round((args.currentValue / args.units) * 100) / 100
           : undefined;
 
     const derivedBuyPrice =
       args.buyPrice && args.buyPrice > 0
         ? args.buyPrice
         : args.units && args.units > 0 && args.investedAmount > 0
-          ? Math.round((args.investedAmount / args.units) * 100) / 100
+          ? isMf
+            ? Math.round((args.investedAmount / args.units) * 10000) / 10000
+            : Math.round((args.investedAmount / args.units) * 100) / 100
           : undefined;
 
     const combinedNotes = `${args.name} ${args.notes || ''}`;
@@ -399,7 +342,9 @@ export const add = mutation({
       const combinedValue = matched.currentValue + Math.max(0, args.currentValue);
       const newAvgBuyPrice =
         combinedUnits && combinedUnits > 0
-          ? Math.round((combinedInvested / combinedUnits) * 10000) / 10000
+          ? isMf
+            ? Math.round((combinedInvested / combinedUnits) * 10000) / 10000
+            : Math.round((combinedInvested / combinedUnits) * 100) / 100
           : derivedBuyPrice;
 
       await ctx.db.patch(matched._id, {
@@ -416,9 +361,6 @@ export const add = mutation({
         updatedAt: Date.now(),
       });
 
-      if (derivedCurrentPrice && derivedCurrentPrice > 0) {
-        await syncHoldingPriceToCache(ctx, matched.assetType, matched.name, derivedCurrentPrice, autoIsin, autoSchemeCode, args.ticker);
-      }
       return matched._id;
     }
 
@@ -441,10 +383,6 @@ export const add = mutation({
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
-
-    if (derivedCurrentPrice && derivedCurrentPrice > 0) {
-      await syncHoldingPriceToCache(ctx, args.assetType, args.name, derivedCurrentPrice, autoIsin, autoSchemeCode, args.ticker);
-    }
 
     return id;
   },
@@ -535,18 +473,23 @@ export const batchAdd = mutation({
         areHoldingsEquivalent(ex, { ...item, isin: autoIsin, schemeCode: autoSchemeCode })
       );
 
+      const isMf = item.assetType === "mutual_fund";
       const derivedCurrentPrice =
         item.currentPrice && item.currentPrice > 0
           ? item.currentPrice
           : item.units && item.units > 0 && item.currentValue > 0
-            ? Math.round((item.currentValue / item.units) * 100) / 100
+            ? isMf
+              ? Math.round((item.currentValue / item.units) * 10000) / 10000
+              : Math.round((item.currentValue / item.units) * 100) / 100
             : undefined;
 
       const derivedBuyPrice =
         item.buyPrice && item.buyPrice > 0
           ? item.buyPrice
           : item.units && item.units > 0 && item.investedAmount > 0
-            ? Math.round((item.investedAmount / item.units) * 100) / 100
+            ? isMf
+              ? Math.round((item.investedAmount / item.units) * 10000) / 10000
+              : Math.round((item.investedAmount / item.units) * 100) / 100
             : undefined;
 
       if (matchIndex >= 0) {
@@ -608,9 +551,6 @@ export const batchAdd = mutation({
             updatedAt: now,
           };
 
-          if (derivedCurrentPrice && derivedCurrentPrice > 0) {
-            await syncHoldingPriceToCache(ctx, item.assetType, item.name, derivedCurrentPrice, autoIsin, autoSchemeCode, item.ticker);
-          }
           updatedCount++;
         } else {
           // Identical / old file data: no changes needed, keep existing asset
@@ -641,10 +581,6 @@ export const batchAdd = mutation({
           createdAt: now,
           updatedAt: now,
         });
-
-        if (derivedCurrentPrice && derivedCurrentPrice > 0) {
-          await syncHoldingPriceToCache(ctx, item.assetType, item.name, derivedCurrentPrice, autoIsin, autoSchemeCode, item.ticker);
-        }
 
         insertedIds.push(id);
         insertedCount++;
@@ -867,7 +803,9 @@ export const update = mutation({
     if (args.units && args.units > 0 && resolvedPrice && resolvedPrice > 0) {
       resolvedValue = Math.round(args.units * resolvedPrice * 100) / 100;
     } else if (resolvedValue > 0 && args.units && args.units > 0 && (!resolvedPrice || resolvedPrice <= 0)) {
-      resolvedPrice = Math.round((resolvedValue / args.units) * 100) / 100;
+      resolvedPrice = existing.assetType === "mutual_fund"
+        ? Math.round((resolvedValue / args.units) * 10000) / 10000
+        : Math.round((resolvedValue / args.units) * 100) / 100;
     }
 
     const now = Date.now();
@@ -966,7 +904,9 @@ export const quickUpdateValue = mutation({
     if (args.currentPrice && args.currentPrice > 0 && existing.units && existing.units > 0) {
       resolvedValue = Math.round(existing.units * args.currentPrice * 100) / 100;
     } else if (resolvedValue > 0 && existing.units && existing.units > 0 && (!resolvedPrice || resolvedPrice <= 0)) {
-      resolvedPrice = Math.round((resolvedValue / existing.units) * 100) / 100;
+      resolvedPrice = existing.assetType === "mutual_fund"
+        ? Math.round((resolvedValue / existing.units) * 10000) / 10000
+        : Math.round((resolvedValue / existing.units) * 100) / 100;
     }
 
     const now = Date.now();
@@ -1052,11 +992,85 @@ export async function resolveTickerFromIsin(isin: string): Promise<string | null
   return null;
 }
 
+function scoreStockEtfCandidate(
+  cand: any,
+  queryName: string,
+  targetIsin?: string,
+  targetTicker?: string
+): number {
+  let score = 0;
+  const candIsin = (cand.isin || "").trim().toUpperCase();
+  const candNseScrip = (cand.nse_scrip_code || "").trim().toUpperCase();
+  const candBseScrip = String(cand.bse_scrip_code || "").trim().toUpperCase();
+  const candTradingSym = (cand.nse_trading_symbol || cand.bse_trading_symbol || cand.company_short_name || "").trim().toUpperCase();
+  const candTitle = (cand.title || cand.company_name || "").trim().toUpperCase();
+
+  // 1. ISIN match is absolute 100% truth
+  if (targetIsin && candIsin && targetIsin.trim().toUpperCase() === candIsin) {
+    return 100000;
+  }
+
+  // 2. Known ticker exact match
+  if (targetTicker) {
+    const cleanTicker = targetTicker.trim().toUpperCase().replace(/\.(NS|BO)$/, "");
+    if (candNseScrip === cleanTicker || candBseScrip === cleanTicker || candTradingSym === cleanTicker) {
+      return 50000;
+    }
+  }
+
+  // 3. Word token analysis with broker abbreviation expansion
+  const normalizedQuery = queryName
+    .toUpperCase()
+    .replace(/[-_]/g, " ")
+    .replace(/\bPR\b/g, "PRUDENTIAL")
+    .replace(/\bNIF\b/g, "NIFTY")
+    .replace(/\bLW\b/g, "LOW")
+    .replace(/\bVL\b/g, "VOLATILITY")
+    .replace(/\bVAL\b/g, "VALUE")
+    .replace(/\bMOM\b/g, "MOMENTUM")
+    .replace(/\bQUAL\b/g, "QUALITY")
+    .replace(/\b(LIMITED|LTD|CORPORATION|CORP|VENTURES|VEN|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const queryTokens = normalizedQuery.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2);
+  const candTokens = candTitle.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2);
+
+  let overlapCount = 0;
+  for (const qt of queryTokens) {
+    if (candTokens.includes(qt)) overlapCount++;
+  }
+  score += overlapCount * 25;
+
+  // Differentiators in equity/ETF indexing
+  const differentiatorTokens = new Set([
+    "ALPHA", "MOMENTUM", "QUALITY", "VALUE", "DIVIDEND", "LOW", "VOLATILITY",
+    "MIDCAP", "SMALLCAP", "LARGECAP", "NEXT50", "BANK", "PHARMA", "AUTO",
+    "IT", "FMCG", "INFRA", "CONSUMPTION", "HEALTHCARE", "GOLD", "SILVER"
+  ]);
+
+  // Heavily penalize if candidate contains a differentiator that was NOT requested in query!
+  for (const ct of candTokens) {
+    if (differentiatorTokens.has(ct) && !queryTokens.includes(ct)) {
+      score -= 60;
+    }
+  }
+
+  // Bonus if both are ETF / BEES or both are stocks
+  const isQueryEtf = /ETF|BEES|SILVER|GOLD/i.test(queryName);
+  const isCandEtf = /ETF|BEES|SILVER|GOLD/i.test(candTitle);
+  if (isQueryEtf === isCandEtf) score += 30;
+  else score -= 40;
+
+  return score;
+}
+
 async function fetchStockQuote(
   name: string,
   notes?: string,
   knownIsin?: string,
-  knownTicker?: string
+  knownTicker?: string,
+  statementPrice?: number
 ): Promise<{ price: number; prevClose?: number; symbol?: string; isin?: string } | null> {
   const clean = name.trim().toUpperCase();
   const combined = `${name} ${notes || ""}`;
@@ -1074,109 +1088,7 @@ async function fetchStockQuote(
     if (!candidates.includes(s)) candidates.push(s);
   };
 
-  // 1. High-speed Real-Time Domestic Exchange Feed (Groww Public API)
-  // Resolves all Indian stocks, ETFs, BSE scrips, and unlisted securities in ~100ms
-  try {
-    const searchQueriesToTry: string[] = [];
-
-    // If hyphenated or slashed like 'ICICIPRAMC - ICICISILVE', try the specific instrument token FIRST!
-    if (clean.includes("-") || clean.includes("/")) {
-      const parts = clean.split(/[-/]/).map((p) => p.trim()).filter(Boolean);
-      for (const p of [...parts].reverse()) {
-        if (p.length >= 3 && !searchQueriesToTry.includes(p)) searchQueriesToTry.push(p);
-      }
-    }
-
-    // Expand common broker statement abbreviations
-    const expanded = clean
-      .replace(/[-_]/g, " ")
-      .replace(/\bPR\b/g, "PRUDENTIAL")
-      .replace(/\bNIF\b/g, "NIFTY")
-      .replace(/\bLW\b/g, "LOW")
-      .replace(/\bVL\b/g, "VOLATILITY")
-      .replace(/\bVAL\b/g, "VALUE")
-      .replace(/\bMOM\b/g, "MOMENTUM")
-      .replace(/\bQUAL\b/g, "QUALITY")
-      .replace(/\b(LIMITED|LTD|CORPORATION|CORP|VENTURES|VEN|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, "")
-      .replace(/\bOF\s+[A-Z]{1,2}$/i, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (expanded && !searchQueriesToTry.includes(expanded)) searchQueriesToTry.push(expanded);
-
-    const cleanSearch = clean
-      .replace(/[-_]/g, " ")
-      .replace(/\b(limited|ltd|corporation|corp|ventures|ven|company|co|plc|pvt|private)\b\.?/gi, "")
-      .replace(/\bof\s+[A-Za-z]{1,2}$/i, "") // strips trailing cutoffs like "of Ir", "of In"
-      .replace(/\s+/g, " ")
-      .trim();
-    if (cleanSearch && !searchQueriesToTry.includes(cleanSearch)) searchQueriesToTry.push(cleanSearch);
-
-    const strippedAmc = clean
-      .replace(/^[A-Z0-9]+AMC[-_\s]*/i, "")
-      .replace(/[-_]/g, " ")
-      .trim();
-    if (strippedAmc && !searchQueriesToTry.includes(strippedAmc)) {
-      searchQueriesToTry.push(strippedAmc);
-    }
-
-    const words = cleanSearch.split(/\s+/).filter((w) => w.length >= 2);
-    if (words.length >= 2) {
-      const twoWords = `${words[0]} ${words[1]}`;
-      if (!searchQueriesToTry.includes(twoWords)) searchQueriesToTry.push(twoWords);
-    } else if (words.length === 1 && words[0].length >= 3) {
-      if (!searchQueriesToTry.includes(words[0])) searchQueriesToTry.push(words[0]);
-    }
-
-    for (const q of searchQueriesToTry.slice(0, 4)) {
-      try {
-        // Omitting entity_type searches across both Stocks and ETFs
-        const searchUrl = `https://groww.in/v1/api/search/v1/entity?app=false&page=0&q=${encodeURIComponent(q)}&size=4`;
-        const sRes = await fetch(searchUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) });
-        if (sRes.ok) {
-          const sData: any = await sRes.json();
-          const content = sData?.content || [];
-          if (content.length > 0) {
-            let match = content[0];
-            if (/ETF|BEES|SILVER|GOLD/i.test(name)) {
-              const etfMatch = content.find((c: any) => /ETF|BEES|SILVER|GOLD/i.test(c.title || c.company_name || ""));
-              if (etfMatch) match = etfMatch;
-            }
-            // Prioritize NSE over BSE to match primary Indian exchange data exactly
-            const endpointsToTry: Array<{ ex: string; scrip: string }> = [];
-            if (match.nse_scrip_code) {
-              endpointsToTry.push({ ex: "NSE", scrip: match.nse_scrip_code });
-            }
-            if (match.bse_scrip_code) {
-              endpointsToTry.push({ ex: "BSE", scrip: String(match.bse_scrip_code).replace(/,/g, "").trim() });
-            }
-            if (match.groww_contract_id) {
-              endpointsToTry.push({ ex: "BSE", scrip: match.groww_contract_id });
-            }
-
-            for (const ep of endpointsToTry) {
-              try {
-                const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ep.ex}/segment/CASH/${ep.scrip}/latest`;
-                const pRes = await fetch(priceUrl, { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) });
-                if (pRes.ok) {
-                  const pData: any = await pRes.json();
-                  if (typeof pData?.ltp === "number" && pData.ltp > 0) {
-                    return {
-                      price: pData.ltp,
-                      prevClose: pData.close || undefined,
-                      symbol: match.nse_trading_symbol || match.bse_trading_symbol || match.company_short_name || ep.scrip,
-                      isin: match.isin || isin || undefined,
-                    };
-                  }
-                }
-              } catch {}
-            }
-          }
-        }
-      } catch {}
-    }
-  } catch {}
-
-  // 2. If explicit ticker known from holding or notes, prioritize NSE version
+  // 1. If explicit ticker known from holding or notes, prioritize NSE version
   if (knownTicker) {
     const kt = knownTicker.trim().toUpperCase();
     if (kt.endsWith(".BO")) {
@@ -3534,7 +3446,7 @@ export const internalPurgeStaleStockCache = internalMutation({
 async function getOrFetchStockPriceWithCache(
   ctx: any,
   name: string,
-  options?: { force?: boolean; notes?: string; knownIsin?: string; knownTicker?: string }
+  options?: { force?: boolean; notes?: string; knownIsin?: string; knownTicker?: string; statementPrice?: number }
 ): Promise<{ price: number; prevClose?: number; symbol?: string; isin?: string; isCached?: boolean } | null> {
   const combined = `${name} ${options?.notes || ""}`;
   const resolvedIsin = options?.knownIsin || extractStockIsin(combined) || extractSecurityIsin(combined);
@@ -3571,9 +3483,6 @@ async function getOrFetchStockPriceWithCache(
   // Exchanges are closed; official closing prices are static and immutable.
   // Once recorded after today's 15:30 IST close, the data will NOT change until the next trading day at 09:15 AM IST.
   // On weekends and public holidays, the market is closed/leave; previous session close remains locked.
-  // 2. Closed market logic: weekends, holidays, or outside 09:15 - 15:30 IST.
-  // Exchanges are closed; official closing prices are static and immutable.
-  // Once recorded after today's 15:30 IST close, the data will NOT change until the next trading day at 09:15 AM IST.
   if (!marketStatus.isOpen) {
     if (!options?.force && cached && cached.price > 0 && cached.lastFetchedAt >= latestCloseTime) {
       return {
@@ -3585,7 +3494,7 @@ async function getOrFetchStockPriceWithCache(
       };
     }
     // Closing price not recorded yet after 3:30 PM: fetch once and freeze it
-    const quote = await fetchStockQuote(name, options?.notes, resolvedIsin, options?.knownTicker);
+    const quote = await fetchStockQuote(name, options?.notes, resolvedIsin, options?.knownTicker, options?.statementPrice);
     if (quote && quote.price > 0) {
       const finalIsin = quote.isin || resolvedIsin;
       await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
@@ -3616,7 +3525,7 @@ async function getOrFetchStockPriceWithCache(
   }
 
   // 4. Cache expired (>= 45s), force requested, missing, or pre-close: fetch fresh authentic quote from Yahoo
-  const quote = await fetchStockQuote(name, options?.notes, resolvedIsin, options?.knownTicker);
+  const quote = await fetchStockQuote(name, options?.notes, resolvedIsin, options?.knownTicker, options?.statementPrice);
   if (quote && quote.price > 0) {
     const finalIsin = quote.isin || resolvedIsin;
     await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
@@ -4062,10 +3971,11 @@ export const fetchLivePrice = action({
     isin: v.optional(v.string()),
     schemeCode: v.optional(v.number()),
     ticker: v.optional(v.string()),
+    statementPrice: v.optional(v.number()),
     force: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { name, assetType, notes, isin, schemeCode, ticker, force } = args;
+    const { name, assetType, notes, isin, schemeCode, ticker, statementPrice, force } = args;
     if (!name || name.trim().length < 2) return null;
 
     if (assetType === "mutual_fund") {
@@ -4074,7 +3984,7 @@ export const fetchLivePrice = action({
         return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
       }
       // Universal dynamic fallback for ETFs or funds searched under mutual_fund
-      return await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker });
+      return await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker, statementPrice });
     }
 
     if (assetType === "crypto") {
@@ -4085,7 +3995,7 @@ export const fetchLivePrice = action({
       const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(name);
       if (!isSgbOrDigital) {
         // 1. Try stock cache first for ETFs (GOLDBEES, SILVERBEES, GOLDAXIS, SILVERIETF, etc.)
-        const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker });
+        const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker, statementPrice });
         if (stk && stk.price > 0) return stk;
 
         // 2. Try AMFI Cache DB for Gold/Silver mutual funds
@@ -4098,7 +4008,7 @@ export const fetchLivePrice = action({
     }
 
     // Stocks, SGBs, Commodities: Uses live cache or static closing price
-    const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker });
+    const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker, statementPrice });
     if (stk && stk.price > 0) return stk;
 
     // Dynamic fallback for Mutual Funds searched under stocks
@@ -4125,6 +4035,7 @@ export const fetchBatchLivePrices = action({
         isin: v.optional(v.string()),
         schemeCode: v.optional(v.number()),
         ticker: v.optional(v.string()),
+        statementPrice: v.optional(v.number()),
       })
     ),
     force: v.optional(v.boolean()),
@@ -4145,7 +4056,7 @@ export const fetchBatchLivePrices = action({
     await Promise.all(
       args.items.map(async (item) => {
         try {
-          const { id, name, assetType, notes, isin, schemeCode, ticker } = item;
+          const { id, name, assetType, notes, isin, schemeCode, ticker, statementPrice } = item;
           if (!name || name.trim().length < 2) return;
 
           let res: {
@@ -4172,6 +4083,7 @@ export const fetchBatchLivePrices = action({
                 notes,
                 knownIsin: isin,
                 knownTicker: ticker,
+                statementPrice,
               });
             }
           } else if (assetType === "crypto") {
@@ -4184,6 +4096,7 @@ export const fetchBatchLivePrices = action({
                 notes,
                 knownIsin: isin,
                 knownTicker: ticker,
+                statementPrice,
               });
               if (stk && stk.price > 0) {
                 res = stk;
@@ -4205,6 +4118,7 @@ export const fetchBatchLivePrices = action({
               notes,
               knownIsin: isin,
               knownTicker: ticker,
+              statementPrice,
             });
             if (stk && stk.price > 0) {
               res = stk;

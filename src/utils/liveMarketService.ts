@@ -606,6 +606,79 @@ interface ClientStockCacheEntry {
 
 const clientStockPriceCache = new Map<string, ClientStockCacheEntry>();
 
+export function scoreStockEtfCandidate(
+  cand: any,
+  queryName: string,
+  targetIsin?: string,
+  targetTicker?: string
+): number {
+  let score = 0;
+  const candIsin = (cand.isin || '').trim().toUpperCase();
+  const candNseScrip = (cand.nse_scrip_code || '').trim().toUpperCase();
+  const candBseScrip = String(cand.bse_scrip_code || '').trim().toUpperCase();
+  const candTradingSym = (cand.nse_trading_symbol || cand.bse_trading_symbol || cand.company_short_name || '').trim().toUpperCase();
+  const candTitle = (cand.title || cand.company_name || '').trim().toUpperCase();
+
+  // 1. ISIN match is absolute 100% truth
+  if (targetIsin && candIsin && targetIsin.trim().toUpperCase() === candIsin) {
+    return 100000;
+  }
+
+  // 2. Known ticker exact match
+  if (targetTicker) {
+    const cleanTicker = targetTicker.trim().toUpperCase().replace(/\.(NS|BO)$/, '');
+    if (candNseScrip === cleanTicker || candBseScrip === cleanTicker || candTradingSym === cleanTicker) {
+      return 50000;
+    }
+  }
+
+  // 3. Word token analysis with broker abbreviation expansion
+  const normalizedQuery = queryName
+    .toUpperCase()
+    .replace(/[-_]/g, ' ')
+    .replace(/\bPR\b/g, 'PRUDENTIAL')
+    .replace(/\bNIF\b/g, 'NIFTY')
+    .replace(/\bLW\b/g, 'LOW')
+    .replace(/\bVL\b/g, 'VOLATILITY')
+    .replace(/\bVAL\b/g, 'VALUE')
+    .replace(/\bMOM\b/g, 'MOMENTUM')
+    .replace(/\bQUAL\b/g, 'QUALITY')
+    .replace(/\b(LIMITED|LTD|CORPORATION|CORP|VENTURES|VEN|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const queryTokens = normalizedQuery.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2);
+  const candTokens = candTitle.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2);
+
+  let overlapCount = 0;
+  for (const qt of queryTokens) {
+    if (candTokens.includes(qt)) overlapCount++;
+  }
+  score += overlapCount * 25;
+
+  // Differentiators in equity/ETF indexing
+  const differentiatorTokens = new Set([
+    'ALPHA', 'MOMENTUM', 'QUALITY', 'VALUE', 'DIVIDEND', 'LOW', 'VOLATILITY',
+    'MIDCAP', 'SMALLCAP', 'LARGECAP', 'NEXT50', 'BANK', 'PHARMA', 'AUTO',
+    'IT', 'FMCG', 'INFRA', 'CONSUMPTION', 'HEALTHCARE', 'GOLD', 'SILVER'
+  ]);
+
+  // Heavily penalize if candidate contains a differentiator that was NOT requested in query!
+  for (const ct of candTokens) {
+    if (differentiatorTokens.has(ct) && !queryTokens.includes(ct)) {
+      score -= 60;
+    }
+  }
+
+  // Bonus if both are ETF / BEES or both are stocks
+  const isQueryEtf = /ETF|BEES|SILVER|GOLD/i.test(queryName);
+  const isCandEtf = /ETF|BEES|SILVER|GOLD/i.test(candTitle);
+  if (isQueryEtf === isCandEtf) score += 30;
+  else score -= 40;
+
+  return score;
+}
+
 /**
  * Fetch live stock/ETF/commodity quote dynamically with ZERO hardcoding.
  * Respects Indian market hours (35s TTL during trading; frozen closing price during non-market/weekend/holiday).
@@ -614,7 +687,8 @@ export async function fetchLiveStockPrice(
   nameOrSymbol: string,
   notes?: string,
   knownIsin?: string,
-  knownTicker?: string
+  knownTicker?: string,
+  statementPrice?: number
 ): Promise<{ price: number; prevClose?: number; symbol?: string; isin?: string } | null> {
   const combined = `${nameOrSymbol} ${notes || ''}`;
   const isinMatch = knownIsin || combined.match(/\b(INE[A-Z0-9]{9})\b/i)?.[1]?.toUpperCase() || combined.match(/\b(IN[A-Z0-9]{10})\b/i)?.[1]?.toUpperCase();
@@ -635,107 +709,6 @@ export async function fetchLiveStockPrice(
   if (market.isOpen && cached && cached.price > 0 && now - cached.timestamp < 35000) {
     return { price: cached.price, prevClose: cached.prevClose, symbol: cached.symbol, isin: isinMatch };
   }
-
-  // 3. High-speed Real-Time Domestic Exchange Feed (Groww Public API)
-  // Resolves Indian equities, ETFs, and unlisted securities in ~100ms
-  try {
-    const searchQueriesToTry: string[] = [];
-
-    // If hyphenated like 'ICICIPRAMC - ICICISILVE', try the specific instrument part first!
-    if (clean.includes('-') || clean.includes('/')) {
-      const parts = clean.split(/[-/]/).map((p) => p.trim()).filter(Boolean);
-      for (const p of [...parts].reverse()) {
-        if (p.length >= 3 && !searchQueriesToTry.includes(p)) searchQueriesToTry.push(p);
-      }
-    }
-
-    // Expand standard broker statement abbreviations
-    const expanded = clean
-      .replace(/[-_]/g, ' ')
-      .replace(/\bPR\b/g, 'PRUDENTIAL')
-      .replace(/\bNIF\b/g, 'NIFTY')
-      .replace(/\bLW\b/g, 'LOW')
-      .replace(/\bVL\b/g, 'VOLATILITY')
-      .replace(/\bVAL\b/g, 'VALUE')
-      .replace(/\bMOM\b/g, 'MOMENTUM')
-      .replace(/\bQUAL\b/g, 'QUALITY')
-      .replace(/\b(LIMITED|LTD|CORPORATION|CORP|VENTURES|VEN|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, '')
-      .replace(/\bOF\s+[A-Z]{1,2}$/i, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (expanded && !searchQueriesToTry.includes(expanded)) searchQueriesToTry.push(expanded);
-
-    const cleanSearch = clean
-      .replace(/[-_]/g, ' ')
-      .replace(/\b(limited|ltd|corporation|corp|ventures|ven|company|co|plc|pvt|private)\b\.?/gi, '')
-      .replace(/\bof\s+[A-Za-z]{1,2}$/i, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (cleanSearch && !searchQueriesToTry.includes(cleanSearch)) searchQueriesToTry.push(cleanSearch);
-
-    const strippedAmc = clean
-      .replace(/^[A-Z0-9]+AMC[-_\s]*/i, '')
-      .replace(/[-_]/g, ' ')
-      .trim();
-    if (strippedAmc && !searchQueriesToTry.includes(strippedAmc)) searchQueriesToTry.push(strippedAmc);
-
-    const words = cleanSearch.split(/\s+/).filter((w) => w.length >= 2);
-    if (words.length >= 2) {
-      const twoWords = `${words[0]} ${words[1]}`;
-      if (!searchQueriesToTry.includes(twoWords)) searchQueriesToTry.push(twoWords);
-    } else if (words.length === 1 && words[0].length >= 3) {
-      if (!searchQueriesToTry.includes(words[0])) searchQueriesToTry.push(words[0]);
-    }
-
-    for (const q of searchQueriesToTry.slice(0, 4)) {
-      try {
-        const searchUrl = `https://groww.in/v1/api/search/v1/entity?app=false&page=0&q=${encodeURIComponent(q)}&size=4`;
-        const sRes = await fetch(searchUrl, { signal: AbortSignal.timeout(2000) });
-        if (sRes.ok) {
-          const sData: any = await sRes.json();
-          const content = sData?.content || [];
-          if (content.length > 0) {
-            let match = content[0];
-            if (/ETF|BEES|SILVER|GOLD/i.test(nameOrSymbol)) {
-              const etfMatch = content.find((c: any) => /ETF|BEES|SILVER|GOLD/i.test(c.title || c.company_name || ''));
-              if (etfMatch) match = etfMatch;
-            }
-            // Prioritize NSE over BSE to match primary Indian exchange data exactly
-            const endpointsToTry: Array<{ ex: string; scrip: string }> = [];
-            if (match.nse_scrip_code) {
-              endpointsToTry.push({ ex: 'NSE', scrip: match.nse_scrip_code });
-            }
-            if (match.bse_scrip_code) {
-              endpointsToTry.push({ ex: 'BSE', scrip: String(match.bse_scrip_code).replace(/,/g, '').trim() });
-            }
-            if (match.groww_contract_id) {
-              endpointsToTry.push({ ex: 'BSE', scrip: match.groww_contract_id });
-            }
-
-            for (const ep of endpointsToTry) {
-              try {
-                const priceUrl = `https://groww.in/v1/api/stocks_data/v1/tr_live_prices/exchange/${ep.ex}/segment/CASH/${ep.scrip}/latest`;
-                const pRes = await fetch(priceUrl, { signal: AbortSignal.timeout(2000) });
-                if (pRes.ok) {
-                  const pData: any = await pRes.json();
-                  if (typeof pData?.ltp === 'number' && pData.ltp > 0) {
-                    const res = {
-                      price: pData.ltp,
-                      prevClose: pData.close || undefined,
-                      symbol: match.nse_trading_symbol || match.bse_trading_symbol || match.company_short_name || ep.scrip,
-                      isin: match.isin || isinMatch || undefined,
-                    };
-                    clientStockPriceCache.set(cacheKey, { ...res, timestamp: now });
-                    return res;
-                  }
-                }
-              } catch {}
-            }
-          }
-        }
-      } catch {}
-    }
-  } catch {}
 
   const candidates: string[] = [];
   const highPriorityCandidates: string[] = [];

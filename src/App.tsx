@@ -548,7 +548,7 @@ export function AppContent() {
     items: {
       name: string; assetType: AssetType; subType?: string; sector?: string; broker?: string;
       investedAmount: number; currentValue: number;
-      units?: number; buyPrice?: number; currentPrice?: number; xirr?: string; notes?: string;
+      units?: number; buyPrice?: number; currentPrice?: number; schemeCode?: number; isin?: string; ticker?: string; xirr?: string; notes?: string;
     }[],
     fileName?: string,
     broker?: string
@@ -566,8 +566,8 @@ export function AppContent() {
       } else {
         toast.info('All holdings are up to date.');
       }
-      // Immediately refresh live market prices for the newly imported assets
-      syncLiveMarketPricesAction({ force: true }).catch(() => {});
+      // Immediately refresh and reconcile live market prices for the newly imported assets
+      await syncLiveMarketPricesAction({ force: true }).catch(() => {});
     }
   };
 
