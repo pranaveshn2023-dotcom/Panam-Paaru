@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
@@ -36,6 +36,11 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [hasInitialized, setHasInitialized] = useState<boolean>(false);
 
+  // Refs for timer management (stable across re-renders)
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+
   // Sync with cloud pinStatus as soon as query resolves
   useEffect(() => {
     if (pinStatus === null) {
@@ -57,83 +62,133 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [isPinEnabled]);
 
-  // Handle background inactivity:
-  // If user is inside the app (visible on screen), NEVER lock even if inactive or blurred.
-  // ONLY lock if the tab is genuinely hidden/minimized in the background for more than 40 seconds!
+  // ─── Dynamic Inactivity & Background Lock ───────────────────────────
+  // Dual-timer system driven by the user's autoLockTimeoutMs setting:
+  //   1. IN-APP IDLE TIMER: When the tab is visible, resets on any user
+  //      interaction (mouse, keyboard, scroll, touch). Fires after
+  //      autoLockTimeoutMs of zero interaction.
+  //   2. BACKGROUND TIMER: When the tab is hidden/minimized, fires after
+  //      autoLockTimeoutMs. "Immediate" (0 ms) locks instantly on hide.
   useEffect(() => {
-    if (!isPinEnabled) return;
+    if (!isPinEnabled || isLocked) return;
 
-    const BACKGROUND_TIMEOUT_MS = 40000; // 40 seconds
-    let backgroundTimer: ReturnType<typeof setTimeout> | null = null;
-    let hiddenAt = 0;
+    // The effective timeout from the user's setting (0 = immediate on background)
+    const timeoutMs = autoLockTimeoutMs;
 
-    const clearBgTracking = () => {
-      if (backgroundTimer) {
-        clearTimeout(backgroundTimer);
-        backgroundTimer = null;
+    // ── Helper: clear & restart the in-app idle timer ──
+    const clearIdleTimer = () => {
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = null;
       }
-      hiddenAt = 0;
+    };
+
+    const startIdleTimer = () => {
+      clearIdleTimer();
+      // "Immediate" (0 ms) means only lock on tab switch, not while actively using
+      if (timeoutMs <= 0) return;
+      idleTimerRef.current = setTimeout(() => {
+        setIsLocked(true);
+      }, timeoutMs);
+    };
+
+    // ── Helper: clear background tracking ──
+    const clearBgTracking = () => {
+      if (bgTimerRef.current) {
+        clearTimeout(bgTimerRef.current);
+        bgTimerRef.current = null;
+      }
       try {
         sessionStorage.removeItem('panam_backgrounded_at');
       } catch { }
     };
 
+    // ── User activity handler: resets idle timer ──
+    const onUserActivity = () => {
+      if (document.visibilityState === 'visible') {
+        lastActivityRef.current = Date.now();
+        startIdleTimer();
+      }
+    };
+
+    // ── Visibility change handler: manages background timer ──
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        // App is genuinely hidden in the background (minimized or switched tab)
-        hiddenAt = Date.now();
+        // Tab is now hidden — pause the idle timer, start background timer
+        clearIdleTimer();
+
+        const hiddenAt = Date.now();
         try {
           sessionStorage.setItem('panam_backgrounded_at', String(hiddenAt));
         } catch { }
 
-        if (backgroundTimer) clearTimeout(backgroundTimer);
-        backgroundTimer = setTimeout(() => {
+        clearBgTracking();
+
+        // "Immediate" (0 ms) — lock right away on tab switch
+        if (timeoutMs <= 0) {
+          setIsLocked(true);
+          return;
+        }
+
+        bgTimerRef.current = setTimeout(() => {
           if (document.visibilityState === 'hidden') {
             setIsLocked(true);
           }
-        }, BACKGROUND_TIMEOUT_MS);
+        }, timeoutMs);
       } else if (document.visibilityState === 'visible') {
-        // App became visible again: check if it was hidden for >= 40s
-        if (backgroundTimer) {
-          clearTimeout(backgroundTimer);
-          backgroundTimer = null;
+        // Tab became visible again
+        if (bgTimerRef.current) {
+          clearTimeout(bgTimerRef.current);
+          bgTimerRef.current = null;
         }
 
+        // Check if the tab was hidden longer than the timeout
         try {
           const bgAtStr = sessionStorage.getItem('panam_backgrounded_at');
-          const recordedHiddenAt = bgAtStr ? parseInt(bgAtStr, 10) : hiddenAt;
-          if (recordedHiddenAt > 0) {
-            const elapsed = Date.now() - recordedHiddenAt;
-            if (elapsed >= BACKGROUND_TIMEOUT_MS) {
-              setIsLocked(true);
+          if (bgAtStr) {
+            const hiddenAt = parseInt(bgAtStr, 10);
+            if (hiddenAt > 0 && timeoutMs > 0) {
+              const elapsed = Date.now() - hiddenAt;
+              if (elapsed >= timeoutMs) {
+                setIsLocked(true);
+                clearBgTracking();
+                return;
+              }
             }
           }
         } catch { }
 
         clearBgTracking();
+
+        // Resume idle tracking now that the user is back
+        lastActivityRef.current = Date.now();
+        startIdleTimer();
       }
     };
 
-    // User interaction inside the app confirms the user is live: cancel any background tracking immediately
-    const onUserActivity = () => {
-      if (document.visibilityState === 'visible') {
-        clearBgTracking();
-      }
-    };
-
+    // ── Attach all listeners ──
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pointerdown', onUserActivity, { passive: true });
     window.addEventListener('keydown', onUserActivity, { passive: true });
     window.addEventListener('scroll', onUserActivity, { passive: true });
+    window.addEventListener('mousemove', onUserActivity, { passive: true });
+    window.addEventListener('touchstart', onUserActivity, { passive: true });
+
+    // Start the idle timer immediately (user just unlocked or PIN was just enabled)
+    lastActivityRef.current = Date.now();
+    startIdleTimer();
 
     return () => {
-      if (backgroundTimer) clearTimeout(backgroundTimer);
+      clearIdleTimer();
+      clearBgTracking();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pointerdown', onUserActivity);
       window.removeEventListener('keydown', onUserActivity);
       window.removeEventListener('scroll', onUserActivity);
+      window.removeEventListener('mousemove', onUserActivity);
+      window.removeEventListener('touchstart', onUserActivity);
     };
-  }, [isPinEnabled]);
+  }, [isPinEnabled, isLocked, autoLockTimeoutMs]);
 
   const unlockWithPin = async (pin: string): Promise<{ success: boolean; message?: string }> => {
     try {
