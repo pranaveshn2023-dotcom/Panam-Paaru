@@ -1,0 +1,752 @@
+[
+  {
+    "id": "TC001",
+    "title": "Sign in and reach the protected dashboard",
+    "description": "An unauthenticated visitor can sign in with Google and reach the authenticated dashboard shell.",
+    "category": "Google Authentication",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the secure landing screen is displayed"
+      },
+      {
+        "type": "action",
+        "description": "Click the sign in with Google control"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the authenticated dashboard is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC002",
+    "title": "Block access to the dashboard for signed-out users",
+    "description": "A signed-out visitor cannot view protected finance content directly and is kept on the secure landing experience.",
+    "category": "Google Authentication",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the secure landing screen is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify protected dashboard content is not displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC003",
+    "title": "Add a new income transaction",
+    "description": "An authenticated user can create an income transaction and see it appear in the transaction list.",
+    "category": "Expense and Transaction Tracking",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the transaction flow"
+      },
+      {
+        "type": "action",
+        "description": "Choose income as the transaction type"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a valid amount into the amount field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a unique title into the title field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a valid date into the date field"
+      },
+      {
+        "type": "action",
+        "description": "Select a category for the transaction"
+      },
+      {
+        "type": "action",
+        "description": "Save the transaction"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new transaction appears in the transaction list"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC004",
+    "title": "View analytics dashboard after signing in",
+    "description": "An authenticated user can open the analytics area and see the spending, category, and net worth summaries populate successfully.",
+    "category": "Analytics and Visualizations",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login user field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Analytics tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify spending and net worth analytics are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify category distribution metrics are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC005",
+    "title": "Add a new expense transaction",
+    "description": "An authenticated user can create an expense transaction and see it appear in the transaction list.",
+    "category": "Expense and Transaction Tracking",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the transaction flow"
+      },
+      {
+        "type": "action",
+        "description": "Choose expense as the transaction type"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a valid amount into the amount field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a unique title into the title field"
+      },
+      {
+        "type": "action",
+        "description": "Fill in a valid date into the date field"
+      },
+      {
+        "type": "action",
+        "description": "Select a category for the transaction"
+      },
+      {
+        "type": "action",
+        "description": "Save the transaction"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new transaction appears in the transaction list"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "View portfolio summary and holdings",
+    "description": "An authenticated investor can open the investments dashboard and review portfolio totals, allocation, and holdings.",
+    "category": "Investment Portfolio and Net Worth Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Investments tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify portfolio summary totals are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify individual holdings are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Review analytics with filters and key financial metrics",
+    "description": "An authenticated user can open analytics, apply filters, and review spending trends, category breakdowns, and net worth metrics.",
+    "category": "Analytics",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Analytics tab"
+      },
+      {
+        "type": "action",
+        "description": "Apply a date range filter"
+      },
+      {
+        "type": "action",
+        "description": "Apply a category filter"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify spending trends are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify category distribution and net worth trends are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify savings rate and monthly burn rate metrics are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC008",
+    "title": "Add a manual investment holding",
+    "description": "An authenticated user can create a manual holding in the investments dashboard and see it added to the portfolio.",
+    "category": "Investment Portfolio and Net Worth Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Investments tab"
+      },
+      {
+        "type": "action",
+        "description": "Start adding a new investment"
+      },
+      {
+        "type": "action",
+        "description": "Search for a stock ticker or mutual fund scheme"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the holding details"
+      },
+      {
+        "type": "action",
+        "description": "Save the investment"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new holding appears in the portfolio"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify portfolio totals are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC009",
+    "title": "Sync live prices and review updated portfolio values",
+    "description": "An authenticated user can refresh market prices and see portfolio totals and returns update in the investments dashboard.",
+    "category": "Investment Portfolio and Net Worth Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Investments tab"
+      },
+      {
+        "type": "action",
+        "description": "Start a live price sync"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify updated portfolio values are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify total returns are displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC010",
+    "title": "Edit an existing transaction",
+    "description": "An authenticated user can update a transaction and see the edited details reflected in the list.",
+    "category": "Expense and Transaction Tracking",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the transaction list"
+      },
+      {
+        "type": "action",
+        "description": "Open an existing transaction for editing"
+      },
+      {
+        "type": "action",
+        "description": "Update the transaction details"
+      },
+      {
+        "type": "action",
+        "description": "Save the changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated transaction is displayed in the transaction list"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC011",
+    "title": "Filter analytics by date range and category",
+    "description": "An authenticated user can narrow analytics results with date and category filters and see the displayed metrics update accordingly.",
+    "category": "Analytics and Visualizations",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login user field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Analytics tab"
+      },
+      {
+        "type": "action",
+        "description": "Select a valid date range filter"
+      },
+      {
+        "type": "action",
+        "description": "Select a category filter"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the analytics charts update to reflect the selected filters"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the corresponding summary metrics update"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC012",
+    "title": "Delete a transaction from history",
+    "description": "An authenticated user can remove a transaction and it no longer appears in the transaction list.",
+    "category": "Expense and Transaction Tracking",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the transaction list"
+      },
+      {
+        "type": "action",
+        "description": "Open an existing transaction for removal"
+      },
+      {
+        "type": "action",
+        "description": "Delete the transaction"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the transaction is no longer displayed in the transaction list"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC013",
+    "title": "Search and filter transaction history",
+    "description": "An authenticated user can narrow transaction history by search term and category and see only matching results.",
+    "category": "Expense and Transaction Tracking",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the transaction list"
+      },
+      {
+        "type": "action",
+        "description": "Filter transactions by category"
+      },
+      {
+        "type": "action",
+        "description": "Search for a transaction using a matching term"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify matching transactions are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify non-matching transactions are not displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC014",
+    "title": "Import a portfolio statement and confirm holdings populate",
+    "description": "An authenticated user can import a portfolio file and see the imported holdings populate in the investments dashboard.",
+    "category": "Investment Portfolio and Net Worth Dashboard",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login credentials with {{LOGIN_USER}} and {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Investments tab"
+      },
+      {
+        "type": "action",
+        "description": "Start the import flow"
+      },
+      {
+        "type": "action",
+        "description": "Upload a valid portfolio file"
+      },
+      {
+        "type": "action",
+        "description": "Confirm the import review"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify imported holdings are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the portfolio is populated with assets"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC015",
+    "title": "Review savings rate and monthly burn rate",
+    "description": "An authenticated user can open analytics and see savings rate and monthly burn rate metrics for the selected period.",
+    "category": "Analytics and Visualizations",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login user field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Analytics tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify savings rate metrics are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify monthly burn rate metrics are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC016",
+    "title": "Inspect chart details on analytics graphs",
+    "description": "An authenticated user can hover over analytics charts and inspect the underlying monthly spending, category distribution, and net worth details.",
+    "category": "Analytics and Visualizations",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login user field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Analytics tab"
+      },
+      {
+        "type": "action",
+        "description": "Hover over a spending chart data point"
+      },
+      {
+        "type": "action",
+        "description": "Hover over a category distribution chart segment"
+      },
+      {
+        "type": "action",
+        "description": "Hover over a net worth trend chart point"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify detailed chart information is displayed for the hovered data points"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC017",
+    "title": "Switch between dashboard sections",
+    "description": "An authenticated user can move between the main dashboard sections and return to analytics without losing access.",
+    "category": "Analytics and Visualizations",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login user field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Analytics tab"
+      },
+      {
+        "type": "action",
+        "description": "Open the Transactions tab"
+      },
+      {
+        "type": "action",
+        "description": "Open the Analytics tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the analytics view is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the dashboard remains accessible after switching tabs"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC018",
+    "title": "Use analytics with no data available",
+    "description": "An authenticated user with no analytics data can open the analytics tab and see an empty state instead of charts and metrics.",
+    "category": "Analytics and Visualizations",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /login"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login user field with {{LOGIN_USER}}"
+      },
+      {
+        "type": "action",
+        "description": "Fill in the login password field with {{LOGIN_PASSWORD}}"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Open the Analytics tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an empty state message is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify charts are not displayed"
+      }
+    ],
+    "priority": "Low"
+  }
+]
