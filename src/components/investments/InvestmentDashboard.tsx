@@ -9,7 +9,6 @@ import { PortfolioTrendChart } from './InvestmentChart';
 import { InvestmentCard } from './InvestmentCard';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import { fetchAmfiNav, fetchLiveStockPrice, fetchLiveCryptoPrice, fetchLiveMarketIndices } from '../../utils/liveMarketService';
 import {
   TrendingUp,
   TrendingDown,
@@ -81,7 +80,6 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     { name: string; symbol: string; price: number; change: number; changePercent: number; isPositive: boolean }[]
   >([]);
 
-  const batchUpdateLivePricesMutation = useMutation(api.investments.batchUpdateLivePrices);
   const autoClassifyCommoditiesMutation = useMutation(api.investments.autoClassifyCommodities);
   const autoDeduplicateHoldingsMutation = useMutation(api.investments.autoDeduplicateExistingHoldings);
   const syncLiveMarketPricesAction = useAction(api.investments.syncLiveMarketPrices);
@@ -154,15 +152,9 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
         const indices = await getMarketIndicesAction({ force: !silent });
         if (indices && indices.length > 0) {
           setMarketIndices(indices);
-        } else {
-          const direct = await fetchLiveMarketIndices();
-          if (direct && direct.length > 0) setMarketIndices(direct);
         }
-      } catch {
-        try {
-          const direct = await fetchLiveMarketIndices();
-          if (direct && direct.length > 0) setMarketIndices(direct);
-        } catch { }
+      } catch (err) {
+        console.warn('[Dashboard] Index benchmark fetch failed:', err);
       }
 
       // 2. Call Convex backend action to sync holdings with live market ONLY for invested instruments
@@ -188,107 +180,7 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
         });
         updatedCount = res.count || 0;
       } catch (actionErr) {
-        console.warn('Backend sync action failed, falling back to client-side sync:', actionErr);
-        // Client-side fallback sync (strictly for active invested instruments)
-        const updates: {
-          id: any;
-          currentValue: number;
-          currentPrice?: number;
-          schemeCode?: number;
-          isin?: string;
-          ticker?: string;
-        }[] = [];
-        for (const inv of activeInvestments) {
-          const at = inv.assetType;
-
-          let livePrice: number | null = null;
-          let resolvedSchemeCode = inv.schemeCode;
-          let resolvedIsin = inv.isin;
-          let resolvedTicker = inv.ticker;
-
-          if (at === 'mutual_fund') {
-            const live = await fetchAmfiNav(inv.name, inv.notes, inv.schemeCode, inv.isin);
-            if (live && live.nav > 0) {
-              livePrice = live.nav;
-              if (live.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = live.schemeCode;
-            } else if (/\b(etf|bees)\b/i.test(inv.name)) {
-              const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin, inv.ticker);
-              if (liveStock && liveStock.price > 0) {
-                livePrice = liveStock.price;
-                if (liveStock.symbol && !resolvedTicker) resolvedTicker = liveStock.symbol;
-                if (liveStock.isin && !resolvedIsin) resolvedIsin = liveStock.isin;
-              }
-            }
-          } else if (at === 'crypto') {
-            const live = await fetchLiveCryptoPrice(inv.name);
-            if (live && live.price > 0) livePrice = live.price;
-          } else if (at === 'gold') {
-            const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(inv.name);
-            if (!isSgbOrDigital) {
-              // 1. Try stock quote first for traded ETFs / tickers
-              const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin, inv.ticker);
-              if (liveStock && liveStock.price > 0) {
-                livePrice = liveStock.price;
-                if (liveStock.symbol && !resolvedTicker) resolvedTicker = liveStock.symbol;
-                if (liveStock.isin && !resolvedIsin) resolvedIsin = liveStock.isin;
-              } else {
-                // 2. Try AMFI NAV for Gold/Silver mutual funds
-                const live = await fetchAmfiNav(inv.name, inv.notes, inv.schemeCode, inv.isin);
-                if (live && live.nav > 0) {
-                  livePrice = live.nav;
-                  if (live.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = live.schemeCode;
-                }
-              }
-            }
-          } else {
-            const liveStock = await fetchLiveStockPrice(inv.name, inv.notes, inv.isin, inv.ticker);
-            if (liveStock && liveStock.price > 0) {
-              livePrice = liveStock.price;
-              if (liveStock.symbol && !resolvedTicker) resolvedTicker = liveStock.symbol;
-              if (liveStock.isin && !resolvedIsin) resolvedIsin = liveStock.isin;
-            }
-          }
-
-          if (livePrice !== null && livePrice > 0) {
-            const hasQty = inv.units && inv.units > 0;
-            const hasBuyBasis = inv.investedAmount > 0 && inv.buyPrice && inv.buyPrice > 0;
-            const hasPriceRatio = inv.currentPrice && inv.currentPrice > 0 && inv.currentValue > 0;
-
-            let updatedVal = inv.currentValue;
-            if (hasQty) {
-              updatedVal = Math.round(inv.units * livePrice * 100) / 100;
-            } else if (hasBuyBasis) {
-              const derived = inv.investedAmount / inv.buyPrice;
-              updatedVal = Math.round(derived * livePrice * 100) / 100;
-            } else if (hasPriceRatio) {
-              const ratio = livePrice / inv.currentPrice;
-              updatedVal = Math.round(inv.currentValue * ratio * 100) / 100;
-            } else {
-              updatedVal = inv.currentValue > 0 ? inv.currentValue : inv.investedAmount;
-            }
-            const valDiff = Math.abs(updatedVal - inv.currentValue);
-            const priceDiff = Math.abs(livePrice - (inv.currentPrice || 0));
-            const identifierChanged =
-              (resolvedSchemeCode !== undefined && resolvedSchemeCode !== inv.schemeCode) ||
-              (resolvedIsin !== undefined && resolvedIsin !== inv.isin) ||
-              (resolvedTicker !== undefined && resolvedTicker !== inv.ticker);
-
-            if (valDiff > 0.01 || priceDiff > 0.0001 || identifierChanged) {
-              updates.push({
-                id: inv._id as any,
-                currentValue: updatedVal,
-                currentPrice: livePrice,
-                schemeCode: resolvedSchemeCode,
-                isin: resolvedIsin,
-                ticker: resolvedTicker,
-              });
-            }
-          }
-        }
-        if (updates.length > 0) {
-          await batchUpdateLivePricesMutation({ updates });
-          updatedCount = updates.length;
-        }
+        console.warn('[Dashboard] Backend sync action error:', actionErr);
       }
 
       setLastSyncedAt(new Date());
@@ -307,27 +199,15 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
     }
   };
 
-  // Auto-sync real-time market movement on mount and every 45 seconds
+  // Auto-sync real-time market movement on mount and periodically
   useEffect(() => {
     getMarketIndicesAction({})
       .then((res) => {
         if (res && res.length > 0) {
           setMarketIndices(res);
-        } else {
-          fetchLiveMarketIndices()
-            .then((direct) => {
-              if (direct && direct.length > 0) setMarketIndices(direct);
-            })
-            .catch(() => { });
         }
       })
-      .catch(() => {
-        fetchLiveMarketIndices()
-          .then((direct) => {
-            if (direct && direct.length > 0) setMarketIndices(direct);
-          })
-          .catch(() => { });
-      });
+      .catch(() => {});
 
     // Automatically ensure commodity assets in database are properly categorized
     autoClassifyCommoditiesMutation().catch(() => { });

@@ -20,10 +20,8 @@ import { useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import {
   fetchAmfiNav,
-  fetchLiveStockPrice,
   fetchLiveCryptoPrice,
   searchIndianMutualFunds,
-  searchIndianStocks,
   detectAmcFromText,
 } from '../../utils/liveMarketService';
 
@@ -320,10 +318,6 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           });
           if (serverRes && serverRes.price > 0) result = serverRes;
         } catch { }
-
-        if (!result || result.price <= 0) {
-          result = await fetchLiveStockPrice(assetName, lookupNotes, currentIsin, currentTicker);
-        }
       }
 
       if (id !== fetchIdRef.current) return;
@@ -763,7 +757,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                         setMatchedHolding(null);
                       }
 
-                      // Universal Live Market Search (AMFI Universe & NSE/BSE)
+                      // Universal Live Market Search (AMFI Universe & NSE/BSE via Convex Server Action)
                       setIsSearchingMarket(true);
                       searchTimeoutRef.current = setTimeout(async () => {
                         try {
@@ -772,12 +766,10 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                             setSearchResults(res);
                             setShowSuggestions(true);
                           } else {
-                            const [mfs, stks] = await Promise.all([
-                              searchIndianMutualFunds(newName.trim()),
-                              searchIndianStocks(newName.trim()),
-                            ]);
-                            if (mfs.length > 0 || stks.length > 0) {
-                              setSearchResults({ mutualFunds: mfs, stocks: stks });
+                            // Secondary fallback for mutual funds via public CORS-enabled API
+                            const mfs = await searchIndianMutualFunds(newName.trim()).catch(() => []);
+                            if (mfs.length > 0) {
+                              setSearchResults({ mutualFunds: mfs, stocks: [] });
                               setShowSuggestions(true);
                             } else {
                               setSearchResults(null);
@@ -786,12 +778,9 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                           }
                         } catch {
                           try {
-                            const [mfs, stks] = await Promise.all([
-                              searchIndianMutualFunds(newName.trim()),
-                              searchIndianStocks(newName.trim()),
-                            ]);
-                            if (mfs.length > 0 || stks.length > 0) {
-                              setSearchResults({ mutualFunds: mfs, stocks: stks });
+                            const mfs = await searchIndianMutualFunds(newName.trim()).catch(() => []);
+                            if (mfs.length > 0) {
+                              setSearchResults({ mutualFunds: mfs, stocks: [] });
                               setShowSuggestions(true);
                             } else {
                               setSearchResults(null);

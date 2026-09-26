@@ -4,6 +4,52 @@ import { internal } from "./_generated/api";
 const crons = cronJobs();
 
 /**
+ * 6x Daily Indian Mutual Fund Sync (mfapi.in Schedule)
+ * Triggered exactly 5 minutes after mfapi's 6 daily publishing updates:
+ * 1. 10:05 AM IST + 5m = 10:10 AM IST (04:40 UTC) -> "40 4 * * *"
+ * 2. 02:05 PM IST + 5m = 02:10 PM IST (08:40 UTC) -> "40 8 * * *"
+ * 3. 06:05 PM IST + 5m = 06:10 PM IST (12:40 UTC) -> "40 12 * * *"
+ * 4. 09:05 PM IST + 5m = 09:10 PM IST (15:40 UTC) -> "40 15 * * *"
+ * 5. 03:09 AM IST + 5m = 03:14 AM IST (21:44 UTC) -> "44 21 * * *"
+ * 6. 05:05 AM IST + 5m = 05:10 AM IST (23:40 UTC) -> "40 23 * * *"
+ */
+crons.cron(
+  "mfapi-sync-1010-ist",
+  "40 4 * * *",
+  internal.investments.internalSyncMfApi6xDailyJob
+);
+
+crons.cron(
+  "mfapi-sync-1410-ist",
+  "40 8 * * *",
+  internal.investments.internalSyncMfApi6xDailyJob
+);
+
+crons.cron(
+  "mfapi-sync-1810-ist",
+  "40 12 * * *",
+  internal.investments.internalSyncMfApi6xDailyJob
+);
+
+crons.cron(
+  "mfapi-sync-2110-ist",
+  "40 15 * * *",
+  internal.investments.internalSyncMfApi6xDailyJob
+);
+
+crons.cron(
+  "mfapi-sync-0314-ist",
+  "44 21 * * *",
+  internal.investments.internalSyncMfApi6xDailyJob
+);
+
+crons.cron(
+  "mfapi-sync-0510-ist",
+  "40 23 * * *",
+  internal.investments.internalSyncMfApi6xDailyJob
+);
+
+/**
  * AMC Nightly Mutual Fund NAV Release Window (9:00 PM to 12:00 AM IST)
  * Runs at 1-hour intervals on regular trading weekdays (Monday through Friday, 1-5).
  * AMCs calculate and publish daily NAVs to AMFI in batches between 21:00 and 00:00 IST.

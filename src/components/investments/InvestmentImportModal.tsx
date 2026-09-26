@@ -16,7 +16,6 @@ import {
 import {
   detectDetailedAssetType,
   fetchAmfiNav,
-  fetchLiveStockPrice,
   fetchLiveCryptoPrice,
 } from '../../utils/liveMarketService';
 import { AssetType, ImportBatch } from '../../types';
@@ -132,8 +131,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
 
   // Convex Queries, Mutations & Actions for Batch History, Live Quotes & 1-Click Rollback
-  const importBatches = useQuery((api.investments as any).listImportBatches, isOpen ? {} : 'skip') as ImportBatch[] | undefined;
-  const undoBatchMutation = useMutation((api.investments as any).undoImportBatch);
+  const importBatches = useQuery(api.investments.listImportBatches, isOpen ? {} : 'skip') as ImportBatch[] | undefined;
+  const undoBatchMutation = useMutation(api.investments.undoImportBatch);
   const fetchLivePriceAction = useAction(api.investments.fetchLivePrice);
   const fetchBatchLivePricesAction = useAction(api.investments.fetchBatchLivePrices);
 
@@ -305,15 +304,6 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             } else if (!livePrice && holding.assetType === 'crypto') {
               const live = await fetchLiveCryptoPrice(holding.name);
               if (live && live.price > 0) livePrice = live.price;
-            } else if (!livePrice) {
-              const liveStock = await fetchLiveStockPrice(
-                holding.name,
-                holding.notes,
-                holding.isin,
-                holding.ticker,
-                holding.statementPrice || holding.currentPrice
-              );
-              if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
             }
           } catch {}
 
@@ -436,9 +426,6 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         } else if (targetType === 'crypto') {
           const live = await fetchLiveCryptoPrice(assetName);
           if (live && live.price > 0) livePrice = live.price;
-        } else {
-          const liveStock = await fetchLiveStockPrice(assetName, notesOrIsin);
-          if (liveStock && liveStock.price > 0) livePrice = liveStock.price;
         }
       }
     } catch {

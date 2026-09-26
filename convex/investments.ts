@@ -3,14 +3,143 @@ import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
+const selfApi: any = api;
+
 export const DESKTOP_USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 export const STANDARD_HEADERS: Record<string, string> = {
   "User-Agent": DESKTOP_USER_AGENT,
   "Accept": "application/json, text/plain, */*",
   "Accept-Language": "en-US,en;q=0.9",
+  "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+  "Sec-Ch-Ua-Mobile": "?0",
+  "Sec-Ch-Ua-Platform": '"Windows"',
+  "Sec-Fetch-Dest": "empty",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Site": "same-site",
+  "Referer": "https://finance.yahoo.com/",
+  "Origin": "https://finance.yahoo.com",
 };
+
+/**
+ * Sleep with randomized jitter (default 250ms - 500ms) to avoid back-to-back rapid bursts
+ * and simulate natural browser interactions to prevent rate limiting / IP bans.
+ */
+export async function sleepWithJitter(minMs: number = 250, maxMs: number = 500): Promise<void> {
+  const duration = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+  return new Promise((resolve) => setTimeout(resolve, duration));
+}
+
+interface YahooSession {
+  cookie: string;
+  crumb: string;
+  expiresAt: number;
+}
+let cachedYahooSession: YahooSession | null = null;
+
+export async function getYahooSession(): Promise<{ cookie: string; crumb: string } | null> {
+  const now = Date.now();
+  if (cachedYahooSession && cachedYahooSession.expiresAt > now) {
+    return { cookie: cachedYahooSession.cookie, crumb: cachedYahooSession.crumb };
+  }
+
+  try {
+    const cookieRes = await fetch("https://fc.yahoo.com", {
+      headers: STANDARD_HEADERS,
+      signal: AbortSignal.timeout(4000),
+    });
+    const setCookie = cookieRes.headers.get("set-cookie");
+    if (!setCookie) return null;
+
+    const crumbRes = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
+      headers: { ...STANDARD_HEADERS, cookie: setCookie },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!crumbRes.ok) return null;
+    const crumb = (await crumbRes.text()).trim();
+    if (!crumb) return null;
+
+    cachedYahooSession = {
+      cookie: setCookie,
+      crumb,
+      expiresAt: now + 30 * 60 * 1000,
+    };
+    return { cookie: setCookie, crumb };
+  } catch (e) {
+    console.warn("[YahooSession] Failed to establish browser session:", e);
+    return null;
+  }
+}
+
+export interface YahooBatchQuote {
+  symbol: string;
+  price: number;
+  prevClose?: number;
+  change?: number;
+  changePercent?: number;
+  currency?: string;
+  shortName?: string;
+}
+
+/**
+ * Batch Tickers: Calls multiple tickers all at once in comma-separated queries
+ * inside a single connection instead of looping individual hits.
+ */
+export async function fetchBatchYahooQuotes(symbols: string[]): Promise<Map<string, YahooBatchQuote>> {
+  const resultMap = new Map<string, YahooBatchQuote>();
+  if (!symbols || symbols.length === 0) return resultMap;
+
+  const uniqueSymbols = Array.from(new Set(symbols.map((s) => s.trim().toUpperCase()))).filter(Boolean);
+  if (uniqueSymbols.length === 0) return resultMap;
+
+  const CHUNK_SIZE = 25;
+  const chunks: string[][] = [];
+  for (let i = 0; i < uniqueSymbols.length; i += CHUNK_SIZE) {
+    chunks.push(uniqueSymbols.slice(i, i + CHUNK_SIZE));
+  }
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    if (i > 0) {
+      await sleepWithJitter(250, 500);
+    }
+
+    try {
+      const session = await getYahooSession();
+      if (session) {
+        const symbolsParam = encodeURIComponent(chunk.join(","));
+        const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbolsParam}&crumb=${encodeURIComponent(session.crumb)}`;
+        const res = await fetch(url, {
+          headers: { ...STANDARD_HEADERS, cookie: session.cookie },
+          signal: AbortSignal.timeout(6000),
+        });
+
+        if (res.ok) {
+          const data: any = await res.json();
+          const list = data?.quoteResponse?.result || [];
+          for (const item of list) {
+            if (item.symbol && typeof item.regularMarketPrice === "number" && item.regularMarketPrice > 0) {
+              resultMap.set(item.symbol.toUpperCase(), {
+                symbol: item.symbol.toUpperCase(),
+                price: item.regularMarketPrice,
+                prevClose: item.regularMarketPreviousClose,
+                change: item.regularMarketChange,
+                changePercent: item.regularMarketChangePercent,
+                currency: item.currency,
+                shortName: item.shortName,
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[YahooBatchQuote] Batch fetch chunk failed:", err);
+    }
+  }
+
+  return resultMap;
+}
 
 // Universal dynamic commodity and precious metal matcher from name or ticker symbols (Gold, Silver, DigiGold, SGB, Bullion)
 const COMMODITY_TICKER_NAME_REGEX =
@@ -265,8 +394,7 @@ export const getPortfolioSummary = query({
   },
 });
 
-/**
- * Automatically persists verified live prices into mfNavCache and stockPriceCache
+// Automatically persists verified live prices into mfNavCache and stockPriceCache
 // Verified live price caches (mfNavCache & stockPriceCache) are strictly updated by
 // authentic live quotes from Yahoo Finance and AMFI, never poisoned by unverified statement prices.
 
@@ -1034,7 +1162,7 @@ function scoreStockEtfCandidate(
     .trim();
 
   const queryTokens = normalizedQuery.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2);
-  const candTokens = candTitle.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2);
+  const candTokens = candTitle.split(/[^A-Z0-9]+/).filter((t: string) => t.length >= 2);
 
   let overlapCount = 0;
   for (const qt of queryTokens) {
@@ -1219,8 +1347,43 @@ async function fetchStockQuote(
     return 0;
   });
 
-  // Make live price API call to existing Yahoo Finance chart endpoint using resolved ticker
-  for (const sym of candidates) {
+  // 1. Batch candidates into a single browser session query (single connection instead of multiple hits)
+  if (candidates.length > 0) {
+    try {
+      const batchMap = await fetchBatchYahooQuotes(candidates);
+      for (const sym of candidates) {
+        const q = batchMap.get(sym);
+        if (q && typeof q.price === "number" && q.price > 0) {
+          let price = q.price;
+          let change = q.change;
+          if (q.currency === "USD") {
+            const usdInr = await fetchLiveUsdInrRate();
+            price = Math.round(price * usdInr * 100) / 100;
+            if (change !== undefined) {
+              change = Math.round(change * usdInr * 100) / 100;
+            }
+          }
+          const prevClose =
+            change !== undefined
+              ? price - change
+              : q.prevClose;
+          return {
+            price,
+            prevClose,
+            symbol: sym,
+            isin: isin || undefined,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Fallback to individual Yahoo Finance chart endpoint with jitter if batch had no match
+  for (let idx = 0; idx < candidates.length; idx++) {
+    const sym = candidates[idx];
+    if (idx > 0) {
+      await sleepWithJitter(150, 300);
+    }
     try {
       let chartRes = await fetch(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
@@ -2069,44 +2232,37 @@ export async function fetchMfNav(
   const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
   const codeNum = knownSchemeCode && knownSchemeCode > 0 ? knownSchemeCode : explicitSchemeMatch ? parseInt(explicitSchemeMatch[1] || explicitSchemeMatch[0], 10) : undefined;
 
-  // 1. Instant Fast-Path: If scheme code or ISIN is known, query both official AMFI master feed and high-speed mirror,
-  // and dynamically select whichever source has the strictly LATEST published date (Zero hardcoding).
+  // 1. Instant Fast-Path: If scheme code is known, query high-speed mirror first (<200ms).
+  // Fall back to official AMFI master feed if mirror fails or is unavailable.
   if (codeNum && codeNum > 0) {
-    const amfiTablePromise = getAmfiOfficialNavTable();
-    const mfApiPromise = (async () => {
-      try {
-        const latestRes = await fetch(`https://api.mfapi.in/mf/${codeNum}/latest`, {
-          headers: STANDARD_HEADERS,
-          signal: AbortSignal.timeout(3500),
-        });
-        if (latestRes.ok) {
-          const details: any = await latestRes.json();
-          const latest = details?.data?.[0];
-          if (latest && latest.nav) {
-            const navNum = parseFloat(latest.nav);
-            if (!isNaN(navNum) && navNum > 0) {
-              return {
-                nav: navNum,
-                date: latest.date || "",
-                schemeName: details.meta?.scheme_name || name,
-                schemeCode: codeNum,
-                isin: details.meta?.isin_growth || isin,
-              };
-            }
+    try {
+      const latestRes = await fetch(`https://api.mfapi.in/mf/${codeNum}/latest`, {
+        headers: STANDARD_HEADERS,
+        signal: AbortSignal.timeout(3500),
+      });
+      if (latestRes.ok) {
+        const details: any = await latestRes.json();
+        const latest = details?.data?.[0];
+        if (latest && latest.nav) {
+          const navNum = parseFloat(latest.nav);
+          if (!isNaN(navNum) && navNum > 0) {
+            return {
+              nav: navNum,
+              date: latest.date || "",
+              schemeName: details.meta?.scheme_name || name,
+              schemeCode: codeNum,
+              isin: details.meta?.isin_growth || isin,
+            };
           }
         }
-      } catch { }
-      return null;
-    })();
+      }
+    } catch {}
 
-    const [amfiTable, mfApiMatch] = await Promise.all([amfiTablePromise, mfApiPromise]);
-    const amfiMatch = amfiTable?.codeMap.get(codeNum) || (isin ? amfiTable?.isinMap.get(isin.toUpperCase()) : null) || null;
-
-    if (amfiMatch && mfApiMatch) {
-      const amfiDateMs = parseNavDateToMs(amfiMatch.date);
-      const mfApiDateMs = parseNavDateToMs(mfApiMatch.date);
-      // Strictly latest published date wins:
-      if (amfiDateMs >= mfApiDateMs) {
+    // Fallback to official AMFI master feed if direct mirror failed
+    try {
+      const amfiTable = await getAmfiOfficialNavTable();
+      const amfiMatch = amfiTable?.codeMap.get(codeNum) || (isin ? amfiTable?.isinMap.get(isin.toUpperCase()) : null) || null;
+      if (amfiMatch) {
         return {
           nav: amfiMatch.nav,
           date: amfiMatch.date,
@@ -2114,24 +2270,8 @@ export async function fetchMfNav(
           schemeCode: amfiMatch.code,
           isin: amfiMatch.isin || isin,
         };
-      } else {
-        return mfApiMatch;
       }
-    }
-
-    if (amfiMatch) {
-      return {
-        nav: amfiMatch.nav,
-        date: amfiMatch.date,
-        schemeName: amfiMatch.name,
-        schemeCode: amfiMatch.code,
-        isin: amfiMatch.isin || isin,
-      };
-    }
-
-    if (mfApiMatch) {
-      return mfApiMatch;
-    }
+    } catch {}
   }
 
   // 1.5. ISIN Fast-Path: If ISIN is known (e.g. INF879O01027), lookup directly in AMFI table
@@ -2185,7 +2325,7 @@ export async function fetchMfNav(
         coreWords.slice(0, 4).join(" "),
         coreWords.slice(0, 3).join(" "),
         coreWords.slice(0, 2).join(" "),
-      ].filter((q): q is string => Boolean(q) && q.length >= 3);
+      ].filter((q): q is string => Boolean(q) && q!.length >= 3);
 
       const uniqueQueries = [...new Set(queries)];
       const candidateMap = new Map<number, { schemeCode: number; schemeName: string }>();
@@ -3144,9 +3284,94 @@ export const internalVerifyAndCleanMfCacheJob = internalAction({
 
     // 3. Fully sync and reconcile all active portfolio holdings with official live market prices
     try {
-      await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+      await ctx.runAction(selfApi.investments.syncLiveMarketPrices, { force: true });
     } catch (err) {
       console.warn("[CronVerify] Error in syncLiveMarketPrices:", err);
+    }
+
+    return { verified: investedSchemes.length, updated: updatedCount };
+  },
+});
+
+/**
+ * Automated 6x Daily Mutual Fund Sync Job (mfapi.in Schedule):
+ * Triggers exactly 5 minutes after mfapi's 6 daily publishing batches:
+ * - 10:10 AM IST (10:05 + 5m) -> 04:40 UTC ("40 4 * * *")
+ * - 02:10 PM IST (02:05 + 5m) -> 08:40 UTC ("40 8 * * *")
+ * - 06:10 PM IST (06:05 + 5m) -> 12:40 UTC ("40 12 * * *")
+ * - 09:10 PM IST (09:05 + 5m) -> 15:40 UTC ("40 15 * * *")
+ * - 03:14 AM IST (03:09 + 5m) -> 21:44 UTC ("44 21 * * *")
+ * - 05:10 AM IST (05:05 + 5m) -> 23:40 UTC ("40 23 * * *")
+ *
+ * Fetches the newly released NAVs from mfapi.in, updates mfNavCache, and reconciles all user holdings.
+ */
+export const internalSyncMfApi6xDailyJob = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    console.log("[MfApi6xDaily] Starting 6x daily scheduled mutual fund sync...");
+
+    // 1. Fetch all distinct mutual fund schemes invested across ALL users
+    const investedSchemes: any[] = await ctx.runQuery(
+      internal.investments.internalListAllInvestedMfSchemes,
+      {}
+    );
+    if (!investedSchemes || investedSchemes.length === 0) {
+      console.log("[MfApi6xDaily] No active mutual fund holdings found across users.");
+      return { verified: 0, updated: 0 };
+    }
+
+    let updatedCount = 0;
+
+    for (let sIdx = 0; sIdx < investedSchemes.length; sIdx++) {
+      const scheme = investedSchemes[sIdx];
+      if (sIdx > 0) {
+        // Implement Delay and Jitter: 250ms - 450ms between scheme calls
+        await sleepWithJitter(250, 450);
+      }
+      try {
+        const cached: any = await ctx.runQuery(
+          internal.investments.internalGetCachedMfNav,
+          {
+            isin: scheme.isin,
+            schemeCode: scheme.schemeCode,
+            searchKey: scheme.searchKey,
+          }
+        );
+
+        // Fetch latest published NAV from mfapi.in / AMFI
+        const amfi = await fetchMfNav(scheme.name, scheme.notes, scheme.schemeCode, scheme.isin);
+        if (amfi && amfi.nav > 0) {
+          const navChanged = !cached || cached.nav !== amfi.nav || (amfi.date && cached.navDate !== amfi.date);
+          if (navChanged) {
+            await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
+              isin: amfi.isin || scheme.isin,
+              schemeCode: amfi.schemeCode || scheme.schemeCode || 0,
+              schemeName: amfi.schemeName || scheme.name,
+              nav: amfi.nav,
+              navDate: amfi.date || "",
+              prevNav: amfi.prevNav ?? cached?.nav,
+              searchKey: scheme.searchKey,
+            });
+            updatedCount++;
+          }
+        }
+      } catch (err) {
+        console.warn(`[MfApi6xDaily] Error syncing scheme ${scheme.name}:`, err);
+      }
+    }
+
+    console.log(`[MfApi6xDaily] Verified ${investedSchemes.length} schemes. Updated: ${updatedCount}`);
+
+    if (updatedCount > 0) {
+      // 2. Propagate newly verified NAVs to matching holdings across all users
+      await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
+
+      // 3. Fully sync and reconcile active holdings with live values
+      try {
+        await ctx.runAction(selfApi.investments.syncLiveMarketPrices, { force: false });
+      } catch (err) {
+        console.warn("[MfApi6xDaily] Error in syncLiveMarketPrices:", err);
+      }
     }
 
     return { verified: investedSchemes.length, updated: updatedCount };
@@ -3645,7 +3870,39 @@ export const syncLiveMarketPrices = action({
       }
     }
 
-    // 2. Fetch prices in parallel for deduplicated assets
+    // 2. Pre-batch explicit and known stock tickers all at once (single connection)
+    const stockTickersToBatch: string[] = [];
+    for (const task of taskMap.values()) {
+      if (task.assetType !== "mutual_fund" && task.assetType !== "crypto") {
+        if (task.ticker) {
+          stockTickersToBatch.push(task.ticker);
+        } else if (task.name && (task.name.toUpperCase().endsWith(".NS") || task.name.toUpperCase().endsWith(".BO"))) {
+          stockTickersToBatch.push(task.name);
+        }
+      }
+    }
+    if (stockTickersToBatch.length > 0) {
+      try {
+        const batchQuotes = await fetchBatchYahooQuotes(stockTickersToBatch);
+        for (const [sym, q] of batchQuotes.entries()) {
+          if (q.price > 0) {
+            await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+              symbol: sym,
+              name: q.shortName || sym,
+              price: q.price,
+              prevClose: q.prevClose,
+              change: q.change,
+              changePercent: q.changePercent,
+              searchKey: normalizeStockSearchKey(sym),
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("[SyncLiveMarket] Batch ticker pre-fetch failed:", err);
+      }
+    }
+
+    // 3. Process remaining tasks in chunks with randomized jitter to simulate natural browser behaviour
     const taskResults = new Map<string, {
       livePrice: number | null;
       resolvedSchemeCode?: number;
@@ -3654,47 +3911,80 @@ export const syncLiveMarketPrices = action({
     }>();
 
     const taskList = Array.from(taskMap.values());
-    await Promise.all(
-      taskList.map(async (task) => {
-        try {
-          let livePrice: number | null = null;
-          let resolvedSchemeCode = task.schemeCode;
-          let resolvedIsin = task.isin;
-          let resolvedTicker = task.ticker;
+    const CHUNK_SIZE = 5;
 
-          if (task.assetType === "mutual_fund") {
-            const mf = await getOrFetchMfNavWithCache(ctx, task.name, task.notes, {
-              force: args.force,
-              knownSchemeCode: resolvedSchemeCode,
-              knownIsin: resolvedIsin,
-            });
-            if (mf && mf.nav > 0) {
-              livePrice = mf.nav;
-              if (mf.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = mf.schemeCode;
-              if (mf.isin && !resolvedIsin) resolvedIsin = mf.isin;
-            } else {
-              // Universal dynamic fallback: if not in AMFI (e.g. an ETF entered under mutual_fund),
-              // resolve via Yahoo Finance!
-              const stk = await getOrFetchStockPriceWithCache(ctx, task.name, {
+    for (let cIdx = 0; cIdx < taskList.length; cIdx += CHUNK_SIZE) {
+      if (cIdx > 0) {
+        // Implement Delay and Jitter: 250ms - 450ms between chunks
+        await sleepWithJitter(250, 450);
+      }
+      const taskChunk = taskList.slice(cIdx, cIdx + CHUNK_SIZE);
+
+      await Promise.all(
+        taskChunk.map(async (task) => {
+          try {
+            let livePrice: number | null = null;
+            let resolvedSchemeCode = task.schemeCode;
+            let resolvedIsin = task.isin;
+            let resolvedTicker = task.ticker;
+
+            if (task.assetType === "mutual_fund") {
+              const mf = await getOrFetchMfNavWithCache(ctx, task.name, task.notes, {
                 force: args.force,
-                notes: task.notes,
+                knownSchemeCode: resolvedSchemeCode,
                 knownIsin: resolvedIsin,
-                knownTicker: resolvedTicker,
               });
-              if (stk && stk.price > 0) {
-                livePrice = stk.price;
-                if (stk.symbol) resolvedTicker = stk.symbol;
-                if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
+              if (mf && mf.nav > 0) {
+                livePrice = mf.nav;
+                if (mf.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = mf.schemeCode;
+                if (mf.isin && !resolvedIsin) resolvedIsin = mf.isin;
+              } else {
+                // Universal dynamic fallback: if not in AMFI (e.g. an ETF entered under mutual_fund),
+                // resolve via Yahoo Finance!
+                const stk = await getOrFetchStockPriceWithCache(ctx, task.name, {
+                  force: args.force,
+                  notes: task.notes,
+                  knownIsin: resolvedIsin,
+                  knownTicker: resolvedTicker,
+                });
+                if (stk && stk.price > 0) {
+                  livePrice = stk.price;
+                  if (stk.symbol) resolvedTicker = stk.symbol;
+                  if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
+                }
               }
-            }
-          } else if (task.assetType === "crypto") {
-            const cry = await fetchCryptoPrice(task.name);
-            if (cry && cry.price > 0) {
-              livePrice = cry.price;
-            }
-          } else if (task.assetType === "gold") {
-            const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(task.name);
-            if (!isSgbOrDigital) {
+            } else if (task.assetType === "crypto") {
+              const cry = await fetchCryptoPrice(task.name);
+              if (cry && cry.price > 0) {
+                livePrice = cry.price;
+              }
+            } else if (task.assetType === "gold") {
+              const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(task.name);
+              if (!isSgbOrDigital) {
+                const stk = await getOrFetchStockPriceWithCache(ctx, task.name, {
+                  force: args.force,
+                  notes: task.notes,
+                  knownIsin: resolvedIsin,
+                  knownTicker: resolvedTicker,
+                });
+                if (stk && stk.price > 0) {
+                  livePrice = stk.price;
+                  if (stk.symbol) resolvedTicker = stk.symbol;
+                  if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
+                } else {
+                  const mf = await getOrFetchMfNavWithCache(ctx, task.name, task.notes, {
+                    force: args.force,
+                    knownSchemeCode: resolvedSchemeCode,
+                    knownIsin: resolvedIsin,
+                  });
+                  if (mf && mf.nav > 0) {
+                    livePrice = mf.nav;
+                    if (mf.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = mf.schemeCode;
+                    if (mf.isin && !resolvedIsin) resolvedIsin = mf.isin;
+                  }
+                }
+              }
+            } else {
               const stk = await getOrFetchStockPriceWithCache(ctx, task.name, {
                 force: args.force,
                 notes: task.notes,
@@ -3706,6 +3996,8 @@ export const syncLiveMarketPrices = action({
                 if (stk.symbol) resolvedTicker = stk.symbol;
                 if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
               } else {
+                // Universal dynamic fallback: if not on Yahoo (e.g. mutual fund categorized under stocks),
+                // resolve via AMFI!
                 const mf = await getOrFetchMfNavWithCache(ctx, task.name, task.notes, {
                   force: args.force,
                   knownSchemeCode: resolvedSchemeCode,
@@ -3718,44 +4010,19 @@ export const syncLiveMarketPrices = action({
                 }
               }
             }
-          } else {
-            const stk = await getOrFetchStockPriceWithCache(ctx, task.name, {
-              force: args.force,
-              notes: task.notes,
-              knownIsin: resolvedIsin,
-              knownTicker: resolvedTicker,
-            });
-            if (stk && stk.price > 0) {
-              livePrice = stk.price;
-              if (stk.symbol) resolvedTicker = stk.symbol;
-              if (stk.isin && !resolvedIsin) resolvedIsin = stk.isin;
-            } else {
-              // Universal dynamic fallback: if not on Yahoo (e.g. mutual fund categorized under stocks),
-              // resolve via AMFI!
-              const mf = await getOrFetchMfNavWithCache(ctx, task.name, task.notes, {
-                force: args.force,
-                knownSchemeCode: resolvedSchemeCode,
-                knownIsin: resolvedIsin,
-              });
-              if (mf && mf.nav > 0) {
-                livePrice = mf.nav;
-                if (mf.schemeCode && !resolvedSchemeCode) resolvedSchemeCode = mf.schemeCode;
-                if (mf.isin && !resolvedIsin) resolvedIsin = mf.isin;
-              }
-            }
-          }
 
-          taskResults.set(task.key, {
-            livePrice,
-            resolvedSchemeCode,
-            resolvedIsin,
-            resolvedTicker,
-          });
-        } catch (err) {
-          console.warn(`[SyncLiveMarket] Error fetching price for ${task.name}:`, err);
-        }
-      })
-    );
+            taskResults.set(task.key, {
+              livePrice,
+              resolvedSchemeCode,
+              resolvedIsin,
+              resolvedTicker,
+            });
+          } catch (err) {
+            console.warn(`[SyncLiveMarket] Error fetching price for ${task.name}:`, err);
+          }
+        })
+      );
+    }
 
     // 3. Map results back to all investments and prepare batch updates
     const updates: {
@@ -3943,7 +4210,7 @@ export const migrateAndRefreshCacheDb = action({
   },
   handler: async (ctx, args) => {
     // 1. Sync live market prices for all investments across all users
-    const syncRes = await ctx.runAction(api.investments.syncLiveMarketPrices, {
+    const syncRes = await ctx.runAction(selfApi.investments.syncLiveMarketPrices, {
       force: args.force ?? true,
     });
 
@@ -4053,44 +4320,106 @@ export const fetchBatchLivePrices = action({
       }
     > = {};
 
-    await Promise.all(
-      args.items.map(async (item) => {
-        try {
-          const { id, name, assetType, notes, isin, schemeCode, ticker, statementPrice } = item;
-          if (!name || name.trim().length < 2) return;
-
-          let res: {
-            price: number;
-            prevClose?: number;
-            symbol?: string;
-            isin?: string;
-            schemeCode?: number;
-            date?: string;
-          } | null = null;
-
-          if (assetType === "mutual_fund") {
-            const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
-              force: args.force,
-              knownSchemeCode: schemeCode,
-              knownIsin: isin,
-              knownTicker: ticker,
+    // 1. Pre-batch explicit and known stock tickers all at once (single connection)
+    const tickersToBatch: string[] = [];
+    for (const item of args.items) {
+      if (item.assetType !== "mutual_fund" && item.assetType !== "crypto") {
+        if (item.ticker) {
+          tickersToBatch.push(item.ticker);
+        } else if (item.name && (item.name.toUpperCase().endsWith(".NS") || item.name.toUpperCase().endsWith(".BO"))) {
+          tickersToBatch.push(item.name);
+        }
+      }
+    }
+    if (tickersToBatch.length > 0) {
+      try {
+        const batchQuotes = await fetchBatchYahooQuotes(tickersToBatch);
+        for (const [sym, q] of batchQuotes.entries()) {
+          if (q.price > 0) {
+            await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+              symbol: sym,
+              name: q.shortName || sym,
+              price: q.price,
+              prevClose: q.prevClose,
+              change: q.change,
+              changePercent: q.changePercent,
+              searchKey: normalizeStockSearchKey(sym),
             });
-            if (mf && mf.nav > 0) {
-              res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
-            } else {
-              res = await getOrFetchStockPriceWithCache(ctx, name, {
+          }
+        }
+      } catch (err) {
+        console.warn("[FetchBatchLivePrices] Batch ticker pre-fetch failed:", err);
+      }
+    }
+
+    // 2. Process items in chunks of 5 with randomized jitter to simulate natural browser behaviour
+    const CHUNK_SIZE = 5;
+    for (let i = 0; i < args.items.length; i += CHUNK_SIZE) {
+      if (i > 0) {
+        await sleepWithJitter(250, 450);
+      }
+      const itemChunk = args.items.slice(i, i + CHUNK_SIZE);
+
+      await Promise.all(
+        itemChunk.map(async (item) => {
+          try {
+            const { id, name, assetType, notes, isin, schemeCode, ticker, statementPrice } = item;
+            if (!name || name.trim().length < 2) return;
+
+            let res: {
+              price: number;
+              prevClose?: number;
+              symbol?: string;
+              isin?: string;
+              schemeCode?: number;
+              date?: string;
+            } | null = null;
+
+            if (assetType === "mutual_fund") {
+              const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
                 force: args.force,
-                notes,
+                knownSchemeCode: schemeCode,
                 knownIsin: isin,
                 knownTicker: ticker,
-                statementPrice,
               });
-            }
-          } else if (assetType === "crypto") {
-            res = await fetchCryptoPrice(name);
-          } else if (assetType === "gold") {
-            const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(name);
-            if (!isSgbOrDigital) {
+              if (mf && mf.nav > 0) {
+                res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
+              } else {
+                res = await getOrFetchStockPriceWithCache(ctx, name, {
+                  force: args.force,
+                  notes,
+                  knownIsin: isin,
+                  knownTicker: ticker,
+                  statementPrice,
+                });
+              }
+            } else if (assetType === "crypto") {
+              res = await fetchCryptoPrice(name);
+            } else if (assetType === "gold") {
+              const isSgbOrDigital = /\b(sgb|sovereign|bond|digi|digital)\b/i.test(name);
+              if (!isSgbOrDigital) {
+                const stk = await getOrFetchStockPriceWithCache(ctx, name, {
+                  force: args.force,
+                  notes,
+                  knownIsin: isin,
+                  knownTicker: ticker,
+                  statementPrice,
+                });
+                if (stk && stk.price > 0) {
+                  res = stk;
+                } else {
+                  const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
+                    force: args.force,
+                    knownIsin: isin,
+                    knownTicker: ticker,
+                  });
+                  if (mf && mf.nav > 0) {
+                    res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
+                  }
+                }
+              }
+            } else {
+              // Stocks, ETFs, or other:
               const stk = await getOrFetchStockPriceWithCache(ctx, name, {
                 force: args.force,
                 notes,
@@ -4111,37 +4440,16 @@ export const fetchBatchLivePrices = action({
                 }
               }
             }
-          } else {
-            // Stocks, ETFs, or other:
-            const stk = await getOrFetchStockPriceWithCache(ctx, name, {
-              force: args.force,
-              notes,
-              knownIsin: isin,
-              knownTicker: ticker,
-              statementPrice,
-            });
-            if (stk && stk.price > 0) {
-              res = stk;
-            } else {
-              const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
-                force: args.force,
-                knownIsin: isin,
-                knownTicker: ticker,
-              });
-              if (mf && mf.nav > 0) {
-                res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
-              }
-            }
-          }
 
-          if (res && res.price > 0) {
-            results[id] = res;
+            if (res && res.price > 0) {
+              results[id] = res;
+            }
+          } catch {
+            // ignore single item failure
           }
-        } catch {
-          // ignore single item failure
-        }
-      })
-    );
+        })
+      );
+    }
 
     return results;
   },
@@ -4378,45 +4686,62 @@ export const searchMarketAssets = action({
 
           const topStocks = indianQuotes.slice(0, 5);
 
-          // Fetch price for top stocks in parallel
-          await Promise.all(
-            topStocks.map(async (stk) => {
+          // Fetch price for top stocks in a single batched connection
+          try {
+            const batchMap = await fetchBatchYahooQuotes(topStocks.map((s) => s.symbol));
+            for (const stk of topStocks) {
+              const q = batchMap.get(stk.symbol.toUpperCase());
+              if (q && q.price > 0) {
+                stk.price = q.price;
+                stk.prevClose = q.prevClose;
+                stk.change = q.change;
+                stk.changePercent = q.changePercent;
+              }
+            }
+          } catch {}
+
+          // Fallback to chart endpoint with jitter only for items missing from batch
+          const missingStocks = topStocks.filter((s) => !s.price);
+          for (let mIdx = 0; mIdx < missingStocks.length; mIdx++) {
+            const stk = missingStocks[mIdx];
+            if (mIdx > 0) {
+              await sleepWithJitter(150, 300);
+            }
+            try {
+              const sym = stk.symbol;
+              let cRes: Response | null = null;
               try {
-                const sym = stk.symbol;
-                let cRes: Response | null = null;
+                cRes = await fetch(
+                  `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
+                  { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2500) }
+                );
+              } catch {
                 try {
                   cRes = await fetch(
-                    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
+                    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
                     { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2500) }
                   );
-                } catch {
-                  try {
-                    cRes = await fetch(
-                      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
-                      { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2500) }
-                    );
-                  } catch {}
+                } catch {}
+              }
+              if (cRes && cRes.ok) {
+                const cData: any = await cRes.json();
+                const meta = cData?.chart?.result?.[0]?.meta;
+                if (meta && typeof meta.regularMarketPrice === "number") {
+                  stk.price = meta.regularMarketPrice;
+                  stk.prevClose = meta.previousClose || meta.chartPreviousClose;
+                  const change =
+                    typeof meta.regularMarketChange === "number"
+                      ? meta.regularMarketChange
+                      : meta.regularMarketPrice - (stk.prevClose || meta.regularMarketPrice);
+                  stk.change = change;
+                  stk.changePercent =
+                    stk.prevClose && stk.prevClose > 0
+                      ? Number(((change / stk.prevClose) * 100).toFixed(2))
+                      : 0;
                 }
-                if (cRes && cRes.ok) {
-                  const cData: any = await cRes.json();
-                  const meta = cData?.chart?.result?.[0]?.meta;
-                  if (meta && typeof meta.regularMarketPrice === "number") {
-                    stk.price = meta.regularMarketPrice;
-                    stk.prevClose = meta.previousClose || meta.chartPreviousClose;
-                    const change =
-                      typeof meta.regularMarketChange === "number"
-                        ? meta.regularMarketChange
-                        : meta.regularMarketPrice - (stk.prevClose || meta.regularMarketPrice);
-                    stk.change = change;
-                    stk.changePercent =
-                      stk.prevClose && stk.prevClose > 0
-                        ? Number(((change / stk.prevClose) * 100).toFixed(2))
-                        : 0;
-                  }
-                }
-              } catch {}
-            })
-          );
+              }
+            } catch {}
+          }
 
           results.stocks = topStocks.map((s) => ({
             symbol: s.symbol.toUpperCase(),
@@ -4512,7 +4837,56 @@ export const getMarketIndices = action({
       }
     }
 
-    // 2. Multi-tier Google Finance + Yahoo Finance index resolver
+    // 2. High-performance single connection batch fetch for all indices via browser session
+    const batchMap = await fetchBatchYahooQuotes(indices.map((i) => i.symbol));
+    const batchResolved: Array<{
+      name: string;
+      symbol: string;
+      price: number;
+      change: number;
+      changePercent: number;
+      isPositive: boolean;
+    }> = [];
+
+    const unresolvedIndices: typeof indices = [];
+
+    for (const idx of indices) {
+      const q = batchMap.get(idx.symbol.toUpperCase());
+      if (q && q.price > 0) {
+        const roundedPrice = Math.round(q.price * 100) / 100;
+        const roundedChange = typeof q.change === "number" ? Math.round(q.change * 100) / 100 : 0;
+        const roundedPct = typeof q.changePercent === "number" ? Number(q.changePercent.toFixed(2)) : 0;
+        const derivedPrevClose = Math.round((roundedPrice - roundedChange) * 100) / 100;
+        const searchKey = `__benchmark_index_${idx.key}__`;
+
+        await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
+          symbol: idx.symbol,
+          name: idx.name,
+          price: roundedPrice,
+          prevClose: derivedPrevClose,
+          change: roundedChange,
+          changePercent: roundedPct,
+          searchKey,
+        });
+
+        batchResolved.push({
+          name: idx.name,
+          symbol: idx.symbol,
+          price: roundedPrice,
+          change: roundedChange,
+          changePercent: roundedPct,
+          isPositive: roundedChange >= 0,
+        });
+      } else {
+        unresolvedIndices.push(idx);
+      }
+    }
+
+    if (unresolvedIndices.length === 0) {
+      return batchResolved;
+    }
+
+    // 3. Fallback resolver for any unresolved indices
     const fetchSingleIndex = async (idx: (typeof indices)[0]) => {
       try {
         const searchKey = `__benchmark_index_${idx.key}__`;
@@ -4585,7 +4959,7 @@ export const getMarketIndices = action({
                 liveChange = meta.fulldayChange;
               } else {
                 const prev = meta.previousClose || meta.chartPreviousClose || livePrice;
-                liveChange = livePrice - prev;
+                liveChange = livePrice! - prev;
               }
 
               if (typeof meta.regularMarketChangePercent === "number" && !isNaN(meta.regularMarketChangePercent)) {
@@ -4593,7 +4967,7 @@ export const getMarketIndices = action({
               } else if (typeof meta.fulldayChangePercent === "number" && !isNaN(meta.fulldayChangePercent)) {
                 liveChangePct = Number(meta.fulldayChangePercent.toFixed(2));
               } else {
-                const prev = livePrice - liveChange;
+                const prev = livePrice! - liveChange;
                 liveChangePct = prev > 0 ? Number(((liveChange / prev) * 100).toFixed(2)) : 0;
               }
             }
@@ -4641,8 +5015,8 @@ export const getMarketIndices = action({
       return null;
     };
 
-    const results = await Promise.all(indices.map(fetchSingleIndex));
-    return results.filter(Boolean);
+    const fallbackResults = await Promise.all(unresolvedIndices.map(fetchSingleIndex));
+    return [...batchResolved, ...fallbackResults.filter(Boolean)];
   },
 });
 
@@ -4855,10 +5229,10 @@ export const internalSyncMarketClose315Job = internalAction({
     console.log("[MarketClose 3:15 PM] Stage 1: Updating cache DB with latest live market prices...");
 
     // 1. Sync benchmark indices into cache DB
-    await ctx.runAction(api.investments.getMarketIndices, { force: true });
+    await ctx.runAction(selfApi.investments.getMarketIndices, { force: true });
 
     // 2. Sync all users' active holdings into cache DB
-    const res = await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+    const res = await ctx.runAction(selfApi.investments.syncLiveMarketPrices, { force: true });
 
     // 3. Store pending status for today so 3:25 PM can verify
     await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
@@ -4894,7 +5268,7 @@ export const internalSyncMarketClose325Job = internalAction({
 
     // 1. Compare fresh live benchmark indices with cache DB
     try {
-      const freshIndices: any = await ctx.runAction(api.investments.getMarketIndices, { force: true });
+      const freshIndices: any = await ctx.runAction(selfApi.investments.getMarketIndices, { force: true });
       for (const fresh of freshIndices || []) {
         const key = fresh.symbol === "^BSESN" ? "sensex" : "nifty50";
         const cached: any = await ctx.runQuery(internal.investments.internalGetCachedStockPrice, {
@@ -4960,8 +5334,8 @@ export const internalSyncMarketClose325Job = internalAction({
 
     // Prices shifted during closing auction: update cache DB now and let 3:30 PM finalize
     console.log("[MarketClose 3:25 PM] Price movement detected between 3:15 and 3:25 PM. Updating cache DB; 3:30 PM will finalize.");
-    await ctx.runAction(api.investments.getMarketIndices, { force: true });
-    const res = await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+    await ctx.runAction(selfApi.investments.getMarketIndices, { force: true });
+    const res = await ctx.runAction(selfApi.investments.syncLiveMarketPrices, { force: true });
 
     await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
       symbol: "__MARKET_CLOSE_STATUS__",
@@ -5001,8 +5375,8 @@ export const internalSyncMarketClose330Job = internalAction({
     }
 
     console.log("[MarketClose 3:30 PM] Prices differed at 3:25 PM. Running final 3:30 PM closing sync...");
-    await ctx.runAction(api.investments.getMarketIndices, { force: true });
-    const res = await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+    await ctx.runAction(selfApi.investments.getMarketIndices, { force: true });
+    const res = await ctx.runAction(selfApi.investments.syncLiveMarketPrices, { force: true });
 
     await ctx.runMutation(internal.investments.internalUpsertStockPriceCache, {
       symbol: "__MARKET_CLOSE_STATUS__",
@@ -5109,7 +5483,7 @@ export const internalSyncMfMidday1200Job = internalAction({
       await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
 
       try {
-        await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+        await ctx.runAction(selfApi.investments.syncLiveMarketPrices, { force: true });
       } catch (err) {
         console.warn("[Midday MF 12:00 PM] Error in syncLiveMarketPrices:", err);
       }
@@ -5234,7 +5608,7 @@ export const internalSyncMfMidday1215Job = internalAction({
       await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
 
       try {
-        await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+        await ctx.runAction(selfApi.investments.syncLiveMarketPrices, { force: true });
       } catch (err) {
         console.warn("[Midday MF 12:15 PM] Error in syncLiveMarketPrices:", err);
       }
@@ -5320,7 +5694,7 @@ export const internalSyncMfMidday1230Job = internalAction({
       await ctx.runMutation(internal.investments.internalSyncHoldingsFromMfCache, {});
 
       try {
-        await ctx.runAction(api.investments.syncLiveMarketPrices, { force: true });
+        await ctx.runAction(selfApi.investments.syncLiveMarketPrices, { force: true });
       } catch (err) {
         console.warn("[Midday MF 12:30 PM] Error in syncLiveMarketPrices:", err);
       }

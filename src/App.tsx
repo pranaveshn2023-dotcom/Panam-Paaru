@@ -534,13 +534,13 @@ export function AppContent() {
         notes: data.notes,
       });
       toast.success(`Successfully topped up ${data.name}!`);
-      syncLiveMarketPricesAction({ investmentIds: [data.existingIdToMerge as any], force: true }).catch(() => {});
+      syncLiveMarketPricesAction({ investmentIds: [data.existingIdToMerge as any], force: false }).catch(() => {});
     } else if (editingInvestment) {
       await updateInvestmentMutation({ id: editingInvestment._id as any, ...data });
-      syncLiveMarketPricesAction({ investmentIds: [editingInvestment._id as any], force: true }).catch(() => {});
+      syncLiveMarketPricesAction({ investmentIds: [editingInvestment._id as any], force: false }).catch(() => {});
     } else {
       await addInvestmentMutation(data);
-      syncLiveMarketPricesAction({ force: true }).catch(() => {});
+      syncLiveMarketPricesAction({ force: false }).catch(() => {});
     }
   };
 
@@ -566,17 +566,16 @@ export function AppContent() {
       } else {
         toast.info('All holdings are up to date.');
       }
-      // Immediately refresh and reconcile live market prices for the newly imported assets
-      await syncLiveMarketPricesAction({ force: true }).catch(() => {});
+      // Reconcile live market prices for the newly imported assets without force-overwriting verified values
+      await syncLiveMarketPricesAction({ force: false }).catch(() => {});
     }
   };
 
   const handleQuickUpdateInvestmentValue = async (id: string, currentValue: number, currentPrice?: number) => {
     if (navigator.vibrate) navigator.vibrate(15);
     await quickUpdateInvestmentMutation({ id: id as any, currentValue, currentPrice });
-    // Immediately verify and reconcile against live official AMFI / Yahoo feed
-    // If correct, binds official metadata; if wrong, immediately corrects to true live rate
-    syncLiveMarketPricesAction({ investmentIds: [id as any], force: true }).catch(() => {});
+    // Verify and reconcile with live official AMFI / Yahoo feed without force-overriding the user's input
+    syncLiveMarketPricesAction({ investmentIds: [id as any], force: false }).catch(() => {});
   };
 
   const handleDeleteInvestment = async (id: string) => {
