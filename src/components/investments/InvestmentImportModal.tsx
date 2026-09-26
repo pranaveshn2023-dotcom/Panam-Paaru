@@ -229,6 +229,21 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               h.units = derivedUnits;
               h.currentValue = cleanCurrency(derivedUnits * res.price);
             }
+
+            if (h.assetType === 'other') {
+              const detected = detectDetailedAssetType(h.name);
+              if (detected.assetType !== 'other') {
+                h.assetType = detected.assetType;
+                h.subType = detected.subType;
+              } else if (res.schemeCode || h.isin?.startsWith('INF')) {
+                h.assetType = 'mutual_fund';
+                h.subType = 'Equity Mutual Fund';
+              } else {
+                h.assetType = 'stocks';
+                h.subType = 'Stock / Equity';
+              }
+            }
+
             h.returns = cleanCurrency(h.currentValue - h.investedAmount);
             updatedHoldings[idx] = h;
             count++;
@@ -316,6 +331,21 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 h.units = derivedUnits;
                 h.currentValue = cleanCurrency(derivedUnits * livePrice);
               }
+
+              if (h.assetType === 'other') {
+                const detected = detectDetailedAssetType(h.name);
+                if (detected.assetType !== 'other') {
+                  h.assetType = detected.assetType;
+                  h.subType = detected.subType;
+                } else if (h.isin?.startsWith('INF')) {
+                  h.assetType = 'mutual_fund';
+                  h.subType = 'Equity Mutual Fund';
+                } else {
+                  h.assetType = 'stocks';
+                  h.subType = 'Stock / Equity';
+                }
+              }
+
               h.returns = cleanCurrency(h.currentValue - h.investedAmount);
               updatedHoldings[idx] = h;
               count++;
@@ -351,7 +381,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       return;
     }
 
-    const detected = detectDetailedAssetType(assetName);
+    const detected = detectDetailedAssetType(assetName, undefined, undefined, notesOrIsin);
     const targetType = explicitType || detected.assetType;
 
     if (
@@ -643,7 +673,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           updated.name = newName;
           if (newName.trim().length >= 2) {
             if (!updated.assetType || updated.assetType === 'other') {
-              const detected = detectDetailedAssetType(newName);
+              const detected = detectDetailedAssetType(newName, undefined, undefined, updated.isin || updated.notes);
               updated.assetType = detected.assetType;
               updated.subType = detected.subType;
               if (detected.sector && !updated.sector) {

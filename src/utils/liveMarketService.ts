@@ -130,222 +130,118 @@ export interface AmcDefinition {
   aliases: string[];
 }
 
-export const INDIAN_AMCS: AmcDefinition[] = [
-  { id: 'sbi', name: 'SBI Mutual Fund', aliases: ['sbi', 'state bank of india'] },
-  { id: 'icici', name: 'ICICI Prudential Mutual Fund', aliases: ['icici prudential', 'icicipru', 'icici', 'pru'] },
-  { id: 'hdfc', name: 'HDFC Mutual Fund', aliases: ['hdfc'] },
-  { id: 'nippon', name: 'Nippon India Mutual Fund', aliases: ['nippon india', 'nippon', 'reliance'] },
-  { id: 'kotak', name: 'Kotak Mahindra Mutual Fund', aliases: ['kotak mahindra', 'kotak'] },
-  { id: 'aditya_birla', name: 'Aditya Birla Sun Life Mutual Fund', aliases: ['aditya birla sun life', 'aditya birla', 'birla sun life', 'absl', 'birla'] },
-  { id: 'uti', name: 'UTI Mutual Fund', aliases: ['uti'] },
-  { id: 'axis', name: 'Axis Mutual Fund', aliases: ['axis'] },
-  { id: 'dsp', name: 'DSP Mutual Fund', aliases: ['dsp blackrock', 'dspbr', 'dsp'] },
-  { id: 'mirae', name: 'Mirae Asset Mutual Fund', aliases: ['mirae asset', 'mirae'] },
-  { id: 'tata', name: 'Tata Mutual Fund', aliases: ['tata'] },
-  { id: 'bandhan', name: 'Bandhan Mutual Fund', aliases: ['bandhan', 'idfc'] },
-  { id: 'edelweiss', name: 'Edelweiss Mutual Fund', aliases: ['edelweiss'] },
-  { id: 'ppfas', name: 'PPFAS Mutual Fund', aliases: ['parag parikh', 'ppfas', 'parag'] },
-  { id: 'motilal', name: 'Motilal Oswal Mutual Fund', aliases: ['motilal oswal', 'motilal', 'moco'] },
-  { id: 'invesco', name: 'Invesco Mutual Fund', aliases: ['invesco'] },
-  { id: 'hsbc', name: 'HSBC Mutual Fund', aliases: ['hsbc', 'l&t', 'lnt'] },
-  { id: 'franklin', name: 'Franklin Templeton Mutual Fund', aliases: ['franklin templeton', 'franklin', 'ft'] },
-  { id: 'canara', name: 'Canara Robeco Mutual Fund', aliases: ['canara robeco', 'canara'] },
-  { id: 'quantum', name: 'Quantum Mutual Fund', aliases: ['quantum'] },
-  { id: 'quant', name: 'Quant Mutual Fund', aliases: ['quant'] },
-  { id: 'sundaram', name: 'Sundaram Mutual Fund', aliases: ['sundaram'] },
-  { id: 'baroda', name: 'Baroda BNP Paribas Mutual Fund', aliases: ['baroda bnp paribas', 'baroda bnp', 'baroda', 'bnp paribas'] },
-  { id: 'lic', name: 'LIC Mutual Fund', aliases: ['lic'] },
-  { id: 'whiteoak', name: 'WhiteOak Capital Mutual Fund', aliases: ['whiteoak capital', 'whiteoak', 'white oak'] },
-  { id: 'mahindra', name: 'Mahindra Manulife Mutual Fund', aliases: ['mahindra manulife', 'mahindra'] },
-  { id: 'bajaj', name: 'Bajaj Finserv Mutual Fund', aliases: ['bajaj finserv', 'bajaj'] },
-  { id: 'union', name: 'Union Mutual Fund', aliases: ['union'] },
-  { id: 'pgim', name: 'PGIM India Mutual Fund', aliases: ['pgim india', 'pgim'] },
-  { id: 'jio_blackrock', name: 'Jio BlackRock Mutual Fund', aliases: ['jio blackrock', 'jio', 'blackrock'] },
-  { id: 'zerodha', name: 'Zerodha Mutual Fund', aliases: ['zerodha'] },
-  { id: 'bank_of_india', name: 'Bank of India Mutual Fund', aliases: ['bank of india', 'boi'] },
-  { id: 'jm_financial', name: 'JM Financial Mutual Fund', aliases: ['jm financial', 'jm'] },
-  { id: '360_one', name: '360 ONE Mutual Fund', aliases: ['360 one', '360one', 'iifl'] },
-  { id: 'iti', name: 'ITI Mutual Fund', aliases: ['iti'] },
-  { id: 'helios', name: 'Helios Mutual Fund', aliases: ['helios'] },
-  { id: 'navi', name: 'Navi Mutual Fund', aliases: ['navi'] },
-  { id: 'nj', name: 'NJ Mutual Fund', aliases: ['nj'] },
-  { id: 'groww', name: 'Groww Mutual Fund', aliases: ['groww'] },
-  { id: 'abakkus', name: 'Abakkus Mutual Fund', aliases: ['abakkus'] },
-  { id: 'trust', name: 'Trust Mutual Fund', aliases: ['trust'] },
-  { id: 'old_bridge', name: 'Old Bridge Mutual Fund', aliases: ['old bridge'] },
-  { id: 'samco', name: 'Samco Mutual Fund', aliases: ['samco'] },
-  { id: 'unifi', name: 'Unifi Mutual Fund', aliases: ['unifi'] },
-  { id: 'the_wealth_company', name: 'The Wealth Company Mutual Fund', aliases: ['the wealth company', 'wealth company'] },
-  { id: 'shriram', name: 'Shriram Mutual Fund', aliases: ['shriram'] },
-  { id: 'taurus', name: 'Taurus Mutual Fund', aliases: ['taurus'] },
-  { id: 'ilfs', name: 'IL&FS Mutual Fund', aliases: ['il&fs', 'ilfs'] },
-  { id: 'angel_one', name: 'Angel One Mutual Fund', aliases: ['angel one', 'angel'] },
-  { id: 'capitalmind', name: 'Capitalmind Mutual Fund', aliases: ['capitalmind'] },
-  { id: 'choice', name: 'Choice Mutual Fund', aliases: ['choice'] },
-  { id: 'alphagrep', name: 'AlphaGrep Mutual Fund', aliases: ['alphagrep'] },
-  { id: 'ask', name: 'ASK Mutual Fund', aliases: ['ask'] },
-  { id: 'lakshya', name: 'Lakshya Mutual Fund', aliases: ['lakshya'] },
-  { id: 'monarch', name: 'Monarch Mutual Fund', aliases: ['monarch'] },
-  { id: 'carnelian', name: 'Carnelian Mutual Fund', aliases: ['carnelian'] },
-];
+// Deprecated static list retained empty for type-safety; all matching is now dynamic
+export const INDIAN_AMCS: AmcDefinition[] = [];
+
+/**
+ * Dynamically extract fund house / brand tokens from any scheme or query text.
+ * No hardcoded AMC lists or keyword assumptions needed.
+ */
+export function extractBrandTokens(text: string): string[] {
+  if (!text) return [];
+  const clean = text
+    .toLowerCase()
+    .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .trim();
+  const tokens = clean.split(/\s+/).filter(Boolean);
+  const brandTokens: string[] = [];
+  const boundaryWords = new Set([
+    'fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular', 'idcw', 'dividend',
+    'cap', 'flexicap', 'smallcap', 'midcap', 'largecap', 'multicap', 'elss', 'index',
+    'equity', 'debt', 'hybrid', 'liquid', 'arbitrage', 'overnight', 'gilt', 'bond',
+    'bluechip', 'opportunities', 'tax', 'saver', 'advantage', 'focused', 'dynamic', 'etf',
+    'active', 'passive', 'yield', 'asset', 'allocation', 'balanced', 'value', 'contra'
+  ]);
+  for (const t of tokens) {
+    if (boundaryWords.has(t)) break;
+    brandTokens.push(t);
+  }
+  return brandTokens.slice(0, 3);
+}
 
 export function detectAmcFromText(text: string): AmcDefinition | null {
-  if (!text) return null;
-  const clean = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
-  if (clean.includes(' quantum ')) {
-    return INDIAN_AMCS.find((a) => a.id === 'quantum') || null;
-  }
-  for (const amc of INDIAN_AMCS) {
-    for (const alias of amc.aliases) {
-      if (clean.includes(` ${alias} `)) {
-        return amc;
-      }
-    }
+  const brand = extractBrandTokens(text);
+  if (brand.length > 0) {
+    const id = brand.join('_');
+    const name = brand.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    return { id, name, aliases: brand };
   }
   return null;
 }
 
 export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
   const stripped = stripBrokerSuffix(rawQuery);
-  const qLower = stripped
-    .toLowerCase()
-    .replace(/\bmid\s+cap\b/g, 'midcap')
-    .replace(/\bsmall\s+cap\b/g, 'smallcap')
-    .replace(/\blarge\s+cap\b/g, 'largecap')
-    .replace(/\bflexi\s+cap\b/g, 'flexicap')
-    .replace(/\bmulti\s+cap\b/g, 'multicap')
-    .replace(/\bblue\s*chip\b/g, 'largecap');
-
+  const qClean = stripped.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const sName = item.schemeName || '';
-  const sLower = sName
-    .toLowerCase()
-    .replace(/\bmid\s+cap\b/g, 'midcap')
-    .replace(/\bsmall\s+cap\b/g, 'smallcap')
-    .replace(/\blarge\s+cap\b/g, 'largecap')
-    .replace(/\bflexi\s+cap\b/g, 'flexicap')
-    .replace(/\bmulti\s+cap\b/g, 'multicap')
-    .replace(/\bblue\s*chip\b/g, 'largecap');
+  const sClean = sName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-  const wantsDirect = /\b(direct|dir)\b/i.test(stripped);
-  const wantsRegular = /\b(regular|reg)\b/i.test(stripped);
-  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(stripped);
+  if (!qClean || !sClean) return 0;
+  if (sClean === qClean) return 300;
 
-  let score = 0;
-
-  // Exact / substring match bonus
-  if (sLower === qLower) score += 200;
-  else if (sLower.includes(qLower)) score += 70;
-  else if (qLower.includes(sLower) && sLower.length >= 8) score += 50;
-
-  // Strict AMC Brand Protection
-  const qAmc = detectAmcFromText(rawQuery) || detectAmcFromText(stripped);
-  const sAmc = detectAmcFromText(sName);
-  if (qAmc) {
-    if (sAmc && sAmc.id === qAmc.id) {
-      score += 100;
-    } else {
-      score -= 350; // severe penalty for wrong AMC brand
-    }
-  }
-
-  // Heavy penalty for debt / children / bond if equity was requested
-  if (!qLower.includes('debt') && !qLower.includes('bond') && !qLower.includes('children')) {
-    if (/debt|bond|children|liquid|gilt/i.test(sName)) {
-      score -= 150;
-    }
-  }
-
-  // Heavy penalty for ETF / FoF if not requested
-  if (!qLower.includes('etf') && !qLower.includes('fof') && !qLower.includes('fund of fund')) {
-    if (/etf|fund\s+of\s+fund|\bfof\b/i.test(sName)) {
-      score -= 80;
-    }
-  }
-
-  // Token matching
   const stopWords = new Set(['fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular', 'idcw', 'dividend', 'amc', 'mutual', 'the', 'of', 'and', '&', '-']);
-  const qTokens = qLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2 && !stopWords.has(t));
-  const sTokens = new Set(sLower.split(/[^a-z0-9]+/).filter((t) => t.length >= 2));
+  const qTokens = qClean.split(/\s+/).filter((t) => t.length >= 2 && !stopWords.has(t));
+  const sTokens = new Set(sClean.split(/\s+/).filter((t) => t.length >= 2 && !stopWords.has(t)));
 
+  let matchedTokens = 0;
   for (const qt of qTokens) {
     if (sTokens.has(qt)) {
-      score += 20;
+      matchedTokens++;
     } else {
       for (const st of sTokens) {
         if (st.includes(qt) || qt.includes(st)) {
-          score += 10;
+          matchedTokens += 0.6;
           break;
         }
       }
     }
   }
 
-  // Penalize distinct category keywords absent from the query
-  const categoryKeywords = [
-    'next', 'smallcap', 'midcap', 'largecap', 'flexicap', 'multicap', 'focused', 'elss',
-    'hybrid', 'arbitrage', 'liquid', 'overnight', 'gilt', 'debt', 'index',
-    'us', 'global', 'overseas', 'international', 'gold', 'silver', 'esg',
-    'contra', 'pharma', 'tech', 'digital', 'infrastructure', 'banking',
-    'etf', 'nifty', 'sensex',
-  ];
-  for (const cat of categoryKeywords) {
-    if (sTokens.has(cat) && !qTokens.some((qt) => qt.includes(cat) || cat.includes(qt))) {
-      score -= 40;
-    }
+  // Pure mathematical Dice similarity scaled to 120
+  const totalTokens = qTokens.length + sTokens.size;
+  const diceSimilarity = totalTokens > 0 ? (2 * matchedTokens) / totalTokens : 0;
+  let score = Math.round(diceSimilarity * 120);
+
+  // Exact substring match bonus
+  if (sClean.includes(qClean)) score += 50;
+
+  // Leading brand match
+  const qBrands = extractBrandTokens(rawQuery);
+  const sBrands = extractBrandTokens(sName);
+  if (qBrands.length > 0 && sBrands.length > 0) {
+    const brandMatch = qBrands.some((qb) => sBrands.some((sb) => qb === sb || qb.includes(sb) || sb.includes(qb)));
+    if (brandMatch) score += 40;
+    else score -= 80;
   }
 
-  // Heavy diverging category penalties (e.g. FoF / Asset Allocation / Conservative when user asked for Midcap)
-  if (!qTokens.some((t) => /asset|allocation|conservative|fof|fund of fund/i.test(t))) {
-    if (/asset\s*allocation|conservative|fund\s*of\s*fund|\bfof\b/i.test(sName)) {
-      score -= 80;
-    }
-  }
+  // Direct vs Regular intent
+  const wantsDirect = /\b(direct|dir)\b/i.test(stripped);
+  const wantsRegular = /\b(regular|reg)\b/i.test(stripped);
+  const isDirect = /\b(direct|dir)\b/i.test(sClean);
+  const isRegular = /\b(regular|reg)\b/i.test(sClean);
 
-  // Penalize every unexplained extra word in the candidate name so exact-name schemes win ties
-  const matched = new Set<string>();
-  for (const qt of qTokens) {
-    for (const st of sTokens) {
-      if (st.includes(qt) || qt.includes(st)) matched.add(st);
-    }
-  }
-  for (const st of sTokens) {
-    if (!matched.has(st)) score -= 15;
-  }
-
-  // Penalize every query token that could not be matched at all
-  for (const qt of qTokens) {
-    let found = false;
-    for (const st of sTokens) {
-      if (st.includes(qt) || qt.includes(st)) { found = true; break; }
-    }
-    if (!found) score -= 12;
-  }
-
-  // Direct vs Regular preference
-  const isDirect = sName.toLowerCase().includes('direct');
-  const isRegular = sName.toLowerCase().includes('regular');
   if (wantsDirect) {
-    if (isDirect) score += 30;
-    if (isRegular) score -= 30;
+    if (isDirect) score += 25;
+    if (isRegular) score -= 25;
   } else if (wantsRegular) {
-    if (isRegular) score += 30;
-    if (isDirect) score -= 30;
+    if (isRegular) score += 25;
+    if (isDirect) score -= 25;
   } else {
-    if (isDirect) score += 15;
+    if (isDirect) score += 10;
   }
 
-  // Growth vs IDCW preference (Default is ALWAYS Growth!)
-  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sName);
-  const isGrowth = /\bgrowth\b/i.test(sName);
+  // Growth vs IDCW intent (Default to Growth)
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(stripped);
+  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sClean);
+  const isGrowth = /\bgrowth\b/i.test(sClean);
+
   if (wantsIdcw) {
-    if (isIdcw) score += 40;
-    if (isGrowth) score -= 20;
+    if (isIdcw) score += 25;
+    if (isGrowth) score -= 15;
   } else {
-    if (isGrowth) score += 40;
-    if (isIdcw) score -= 60;
+    if (isGrowth) score += 25;
+    if (isIdcw) score -= 40;
   }
-
-  if (/institutional|unclaimed|segregated|bonus/i.test(sName)) score -= 50;
 
   return score;
 }
@@ -1550,7 +1446,8 @@ export function detectStockSector(_nameOrSymbol: string, explicitSector?: string
 export function detectDetailedAssetType(
   name: string,
   explicitType?: string,
-  explicitSector?: string
+  explicitSector?: string,
+  isinOrNotes?: string
 ): {
   assetType: AssetType;
   subType: string;
@@ -1560,6 +1457,7 @@ export function detectDetailedAssetType(
   const lowerType = normType.toLowerCase();
   const cleanName = (name || '').trim();
   const lowerName = cleanName.toLowerCase();
+  const isin = (isinOrNotes || '').match(/\b(IN[A-Z0-9]{9,11})\b/i)?.[1]?.toUpperCase();
 
   // ── PRIORITY 1: Intelligent mapping of User / File explicit input ──
   if (normType) {
@@ -1627,66 +1525,149 @@ export function detectDetailedAssetType(
       return { assetType: 'real_estate', subType: normType, sector: explicitSector };
     }
 
-    // 8. Other Assets (Preserve user's exact file category label!)
-    return { assetType: 'other', subType: normType, sector: explicitSector };
+    // 8. Other Assets (Preserve user's exact custom file category label if not a generic placeholder)
+    if (!/^(other|other\s*asset|asset|holding|investments?)$/i.test(lowerType)) {
+      return { assetType: 'other', subType: normType, sector: explicitSector };
+    }
   }
 
-  // ── PRIORITY 2: Intelligent context-aware fallback only when NO category was provided ──
-  // Check for distinct Mutual Fund indicators (direct/regular plan, growth/idcw option, AMFI fund naming)
-  const isDirectOrRegular = /\b(direct\s*plan|regular\s*plan|\bdir\b|\breg\b)\b/i.test(lowerName);
-  const isGrowthOrIdcw = /\b(growth\s*option|growth\s*plan|idcw|dividend\s*payout|dividend\s*reinvestment)\b/i.test(lowerName);
-  const hasAmcBrand = detectAmcFromText(lowerName) !== null;
-  const hasFundSuffix = /\b(fund|mutual\s*fund|scheme)\b/i.test(lowerName) && !/\b(ltd|limited|inc|corp|enterprises|holdings|bank)\b/i.test(lowerName);
+  // ── PRIORITY 2: ISIN-Based 100% Authoritative National Identifier Scan ──
+  if (isin) {
+    // INF = Indian Mutual Fund Schemes & AMFI Assets
+    if (isin.startsWith('INF')) {
+      const isGoldOrSilver = /\b(gold|silver|platinum)\b|\w*(gold|silver|silve)\w*/i.test(lowerName);
+      if (isGoldOrSilver) {
+        const sub = /silver|silve/i.test(lowerName) ? 'Silver ETF' : 'Gold ETF';
+        return { assetType: 'gold', subType: sub, sector: explicitSector || 'Commodities' };
+      }
+      if (/\b(etf|\w*bees|bees)\b/i.test(lowerName)) {
+        return { assetType: 'stocks', subType: 'Stock / Equity', sector: explicitSector || 'Equities' };
+      }
+      if (/liquid|overnight|debt|money\s*market|gilt|bond/i.test(lowerName)) {
+        return { assetType: 'mutual_fund', subType: 'Debt Mutual Fund', sector: explicitSector };
+      }
+      if (/hybrid|balanced|arbitrage|multi\s*asset/i.test(lowerName)) {
+        return { assetType: 'mutual_fund', subType: 'Hybrid Mutual Fund', sector: explicitSector };
+      }
+      return { assetType: 'mutual_fund', subType: 'Equity Mutual Fund', sector: explicitSector };
+    }
 
-  if ((isDirectOrRegular && isGrowthOrIdcw) || (hasAmcBrand && hasFundSuffix) || (isDirectOrRegular && hasFundSuffix)) {
-    if (/\bliquid\b|\bovernight\b|\bdebt\b|\bmoney\s*market\b|\bcorporate\s*bond\b|\bgilt\b|\btreasury\b/i.test(lowerName)) {
-      return { assetType: 'mutual_fund', subType: 'Debt Mutual Fund', sector: explicitSector };
+    // INE / IN9 = Indian Equities, Corporate Stocks & Bonds
+    if (isin.startsWith('INE') || isin.startsWith('IN9')) {
+      const isGoldOrSilver = /\b(gold|silver|platinum)\b|\w*(gold|silver|silve)\w*/i.test(lowerName) && !/\b(ltd|limited|industries)\b/i.test(lowerName);
+      if (isGoldOrSilver) {
+        const sub = /silver|silve/i.test(lowerName) ? 'Silver ETF' : 'Gold ETF';
+        return { assetType: 'gold', subType: sub, sector: explicitSector || 'Commodities' };
+      }
+      return {
+        assetType: 'stocks',
+        subType: 'Stock / Equity',
+        sector: explicitSector || detectStockSector(cleanName) || undefined,
+      };
     }
-    if (/\bhybrid\b|\bbalanced\s*advantage\b|\bbalanced\b|\bmulti\s*asset\b|\barbitrage\b|\baggressive\s*hybrid\b/i.test(lowerName)) {
-      return { assetType: 'mutual_fund', subType: 'Hybrid Mutual Fund', sector: explicitSector };
+
+    // IN0 = Government Securities & Sovereign Gold Bonds
+    if (isin.startsWith('IN0')) {
+      if (/sgb|sovereign|gold/i.test(lowerName)) {
+        return { assetType: 'gold', subType: 'Sovereign Gold Bond (SGB)', sector: explicitSector || 'Commodities' };
+      }
+      return { assetType: 'fd_rd', subType: 'Fixed Deposit / Bonds', sector: explicitSector };
     }
-    return { assetType: 'mutual_fund', subType: 'Equity Mutual Fund', sector: explicitSector };
   }
 
-  // Gold / SGB / Bullion
-  if (/\b(sgb|sovereign\s*gold|digital\s*gold|digi\s*gold|gold\s*etf|silver\s*etf)\b/i.test(lowerName)) {
+  // ── PRIORITY 3: Intelligent Universal Context-Aware Classification ──
+
+  // 1. Gold / Silver / SGB / Bullion (Universal — handles ANY broker or AMC symbol)
+  const isSgb = /\b(sgb|sovereign)\b/i.test(lowerName);
+  const isSilver = /\b(silver|platinum)\b|\w*(silver|silve)\w*/i.test(lowerName);
+  const isGold = /\b(gold|bullion|digi\s*gold|digital\s*gold)\b|\w*gold\w*/i.test(lowerName);
+  const isCorporateName = /\b(ltd|limited|industries|technologies|solutions|enterprises)\b/i.test(lowerName) && !/\b(etf|\w*bees|bees|fund|sgb)\b/i.test(lowerName);
+
+  if ((isSgb || isSilver || isGold) && !isCorporateName) {
     let sub = 'Gold ETF';
-    if (/sgb|sovereign/i.test(lowerName)) sub = 'Sovereign Gold Bond (SGB)';
-    else if (/silver/i.test(lowerName)) sub = 'Silver ETF';
+    if (isSgb) sub = 'Sovereign Gold Bond (SGB)';
+    else if (isSilver) sub = 'Silver ETF';
     else if (/digi/i.test(lowerName)) sub = 'Digital Gold';
+    else if (/mutual\s*fund|\bmf\b/i.test(lowerName)) sub = 'Gold Mutual Fund';
     return { assetType: 'gold', subType: sub, sector: explicitSector || 'Commodities' };
   }
 
-  // Fixed Income / Deposits
-  if (/\b(fixed\s*deposit|\bfd\b|\brd\b|recurring\s*deposit|corporate\s*fd|ncd|debenture)\b/i.test(lowerName)) {
+  // 2. Fixed Income / Deposits / Bonds
+  if (
+    /\b(fixed\s*deposit|\bfd\b|\brd\b|recurring\s*deposit|corporate\s*fd|ncd|debentures?|term\s*deposit|treasury\s*bill|\btbill\b)\b/i.test(
+      lowerName
+    )
+  ) {
     return { assetType: 'fd_rd', subType: 'Fixed Deposit / Bonds', sector: explicitSector };
   }
 
-  // Crypto
-  if (/\b(bitcoin|\bbtc\b|ethereum|\beth\b|\bsol\b|solana|\busdt\b|\busdc\b|crypto|cryptocurrency)\b/i.test(lowerName)) {
+  // 3. Crypto & Web3
+  if (
+    /\b(bitcoin|\bbtc\b|ethereum|\beth\b|\bsol\b|solana|\busdt\b|\busdc\b|\bdoge\b|\bxrp\b|crypto|cryptocurrency|binance|polygon|\bmatic\b)\b/i.test(
+      lowerName
+    )
+  ) {
     return { assetType: 'crypto', subType: 'Cryptocurrency', sector: explicitSector };
   }
 
-  // Retirement / Provident
-  if (/\b(ppf|epf|vpf|nps|public\s*provident|employees\s*provident|national\s*pension)\b/i.test(lowerName)) {
+  // 4. Retirement & Provident
+  if (
+    /\b(ppf|epf|vpf|nps|public\s*provident|employees\s*provident|national\s*pension|provident\s*fund|pension\s*fund)\b/i.test(
+      lowerName
+    )
+  ) {
     return { assetType: 'ppf_epf', subType: 'Retirement & Provident', sector: explicitSector };
   }
 
-  // Real Estate
-  if (/\b(reit|invit|real\s*estate|property|residential\s*plot|commercial\s*plot)\b/i.test(lowerName)) {
+  // 5. Real Estate & REITs
+  if (
+    /\b(reit|invit|real\s*estate|property|residential\s*plot|commercial\s*plot|embassy\s*office|mindspace|brookfield\s*india)\b/i.test(
+      lowerName
+    )
+  ) {
     return { assetType: 'real_estate', subType: 'Real Estate & REITs', sector: explicitSector };
   }
 
-  // Equities (Listed companies, ltd, limited, ticker symbols)
-  const isStock =
-    /\b(ltd|limited|shares?|industries|motors|enterprises|energy|power|metals|aluminium|steel|finance|pharma)\b/i.test(lowerName) ||
-    /^[A-Z0-9]{2,14}(\.(NS|BO))?$/.test(cleanName);
+  // 6. Mutual Funds (AMFI Universe)
+  const isDirectOrRegular = /\b(direct\s*plan|regular\s*plan|\bdir\b|\breg\b|direct|regular)\b/i.test(lowerName);
+  const isGrowthOrIdcw = /\b(growth\s*option|growth\s*plan|\bgrowth\b|\bgr\b|idcw|dividend|payout|reinvestment)\b/i.test(lowerName);
+  const isEtf = /\b(\w*etf|\w*bees|etf|bees)\b/i.test(lowerName);
+  const isFundOrScheme = /\b(fund|mutual\s*fund|scheme)\b/i.test(lowerName);
 
-  if (isStock) {
-    return { assetType: 'stocks', subType: 'Stock / Equity', sector: explicitSector || detectStockSector(cleanName) || undefined };
+  const isMf =
+    !isEtf &&
+    (
+      (isDirectOrRegular && isGrowthOrIdcw) ||
+      (isFundOrScheme && !/\b(ltd|limited|inc|corp|holdings|exchange)\b/i.test(lowerName)) ||
+      (isDirectOrRegular && isFundOrScheme)
+    );
+
+  if (isMf) {
+    let sub = 'Equity Mutual Fund';
+    if (/\b(liquid|overnight|debt|money\s*market|gilt|bond)\b/i.test(lowerName)) {
+      sub = 'Debt Mutual Fund';
+    } else if (/\b(hybrid|balanced|arbitrage|multi\s*asset)\b/i.test(lowerName)) {
+      sub = 'Hybrid Mutual Fund';
+    }
+    return { assetType: 'mutual_fund', subType: normType || sub, sector: explicitSector };
   }
 
-  return { assetType: 'other', subType: 'Other Asset', sector: explicitSector };
+  // 7. Stocks, Equities & ETFs (Universal — any listed/unlisted company, ticker, or exchange security)
+  const isStock =
+    isEtf ||
+    /\b(ltd|limited|pvt|inc|corp|corporation|co|holdings|exchange|equity|equities|stock|shares?)\b/i.test(lowerName) ||
+    /^[A-Z0-9_\-&]{2,20}(\.(NS|BO|NSE|BSE))?$/i.test(cleanName) ||
+    /\s*[-–—:]\s*(eq|cnc|be|sm|st|t2t|bz)$/i.test(cleanName);
+
+  if (isStock) {
+    return {
+      assetType: 'stocks',
+      subType: 'Stock / Equity',
+      sector: explicitSector || detectStockSector(cleanName) || undefined,
+    };
+  }
+
+  return { assetType: 'other', subType: normType || 'Other Asset', sector: explicitSector };
 }
 
 /**

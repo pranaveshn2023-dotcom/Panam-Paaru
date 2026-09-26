@@ -968,7 +968,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         if (invested > 500000000 || current > 500000000) continue;
 
         if (invested > 0 || current > 0) {
-          const detailed = detectDetailedAssetType(fullName, rawType || rawSubCat, rawSector);
+          const detailed = detectDetailedAssetType(fullName, rawType || rawSubCat, rawSector, rawIsin);
           const notesParts = [
             rawFolio ? `Folio: ${rawFolio}` : '',
             rawIsin ? `ISIN: ${rawIsin}` : '',
