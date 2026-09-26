@@ -22,9 +22,9 @@ import {
   fetchAmfiNav,
   fetchLiveStockPrice,
   fetchLiveCryptoPrice,
-  detectDetailedAssetType,
   searchIndianMutualFunds,
   searchIndianStocks,
+  detectAmcFromText,
 } from '../../utils/liveMarketService';
 
 export interface InvestmentModalProps {
@@ -66,17 +66,61 @@ const ASSET_TYPES: { label: string; value: AssetType; colorVar: string; desc: st
 
 function findMatchingExistingHolding(query: string, holdings: Investment[]): Investment | null {
   if (!query || query.trim().length < 3 || !holdings || holdings.length === 0) return null;
-  const cleanQ = query.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const qWords = query.toLowerCase().split(/[\s-_/]+/).filter((w) => w.length > 2);
+  const qTrim = query.trim().toLowerCase();
+  const qAmc = detectAmcFromText(query);
+
+  const GENERIC_MF_TOKENS = new Set([
+    'fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular',
+    'idcw', 'dividend', 'amc', 'mutual', 'the', 'of', 'and', 'in', 'cap',
+    'equity', 'debt', 'index', 'etf', 'dir', 'reg', 'gr'
+  ]);
+
+  const qTokens = qTrim
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !GENERIC_MF_TOKENS.has(w));
 
   for (const h of holdings) {
-    const cleanH = h.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (cleanH === cleanQ || cleanH.includes(cleanQ) || cleanQ.includes(cleanH)) return h;
+    const hName = h.name.trim().toLowerCase();
+    const hAmc = detectAmcFromText(h.name);
 
-    const hWords = h.name.toLowerCase().split(/[\s-_/]+/).filter((w) => w.length > 2);
-    const matchedCount = qWords.filter((w) => hWords.includes(w)).length;
-    if (matchedCount >= 2 && matchedCount >= Math.min(qWords.length, 3)) {
-      return h;
+    // If AMCs are detected for both and they differ, they CANNOT be the same holding!
+    if (qAmc && hAmc && qAmc.id !== hAmc.id) {
+      continue;
+    }
+    // If query specifies an AMC but holding doesn't match that AMC, skip
+    if (qAmc && !hAmc) {
+      if (!hName.includes(qAmc.id) && !qAmc.aliases.some((a) => hName.includes(a))) {
+        continue;
+      }
+    }
+
+    const cleanQ = qTrim.replace(/[^a-z0-9]/g, '');
+    const cleanH = hName.replace(/[^a-z0-9]/g, '');
+    if (cleanH === cleanQ) return h;
+
+    const hTokens = new Set(
+      hName
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length >= 2 && !GENERIC_MF_TOKENS.has(w))
+    );
+
+    // Require high overlap of non-generic distinctive tokens
+    if (qTokens.length > 0 && hTokens.size > 0) {
+      let matchedDistinctive = 0;
+      for (const qt of qTokens) {
+        if (hTokens.has(qt)) {
+          matchedDistinctive++;
+        }
+      }
+
+      // If at least 2 distinctive tokens match (or 1 if query only has 1 distinctive word)
+      // and it represents at least 70% of query's distinctive tokens
+      const minRequired = Math.min(qTokens.length, 2);
+      if (matchedDistinctive >= minRequired && matchedDistinctive / qTokens.length >= 0.7) {
+        return h;
+      }
     }
   }
   return null;
@@ -712,10 +756,6 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
 
                     if (!initialData && newName.trim().length >= 2) {
-                      const detected = detectDetailedAssetType(newName);
-                      if (detected.assetType && detected.assetType !== 'other') {
-                        setAssetType(detected.assetType);
-                      }
                       const matched = findMatchingExistingHolding(newName, existingInvestments);
                       if (matched && matched._id !== dismissedMatchId) {
                         setMatchedHolding(matched);

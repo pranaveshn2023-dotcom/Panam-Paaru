@@ -642,11 +642,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           const newName = String(val);
           updated.name = newName;
           if (newName.trim().length >= 2) {
-            const detected = detectDetailedAssetType(newName);
-            updated.assetType = detected.assetType;
-            updated.subType = detected.subType;
-            if (detected.sector && !updated.sector) {
-              updated.sector = detected.sector;
+            if (!updated.assetType || updated.assetType === 'other') {
+              const detected = detectDetailedAssetType(newName);
+              updated.assetType = detected.assetType;
+              updated.subType = detected.subType;
+              if (detected.sector && !updated.sector) {
+                updated.sector = detected.sector;
+              }
             }
           }
 

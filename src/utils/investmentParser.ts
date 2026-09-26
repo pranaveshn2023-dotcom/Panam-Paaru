@@ -492,7 +492,7 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
     }
 
     if (costValue > 0 || marketValue > 0) {
-      const detailed = detectDetailedAssetType(schemeName);
+      const detailed = detectDetailedAssetType(schemeName, 'Mutual Fund');
       const notesParts = [
         folioNo ? `Folio: ${folioNo}` : '',
         isin ? `ISIN: ${isin}` : '',
