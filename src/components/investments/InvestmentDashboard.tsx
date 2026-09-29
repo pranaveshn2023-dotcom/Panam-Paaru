@@ -461,7 +461,12 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       {/* Charts Row */}
       {portfolioSummary && portfolioSummary.assetBreakdown && portfolioSummary.assetBreakdown.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <AllocationChart assetBreakdown={portfolioSummary.assetBreakdown} />
+          <AllocationChart
+            assetBreakdown={portfolioSummary.assetBreakdown}
+            currencySymbol={currencySymbol}
+            totalHoldingsCount={totalHoldings}
+            totalCurrentValue={totalCurrentValue}
+          />
           {investments.length > 0 && (
             <PortfolioTrendChart
               investments={investments}

@@ -32,79 +32,273 @@ const ASSET_COLORS: Record<string, string> = {
 
 interface AllocationChartProps {
   assetBreakdown: PortfolioSummary['assetBreakdown'];
+  currencySymbol?: string;
+  totalHoldingsCount?: number;
+  totalCurrentValue?: number;
 }
 
-export const AllocationChart: React.FC<AllocationChartProps> = ({ assetBreakdown }) => {
+export const AllocationChart: React.FC<AllocationChartProps> = ({
+  assetBreakdown,
+  currencySymbol = '₹',
+  totalHoldingsCount,
+  totalCurrentValue,
+}) => {
   const { isPrivacyMode } = usePrivacy();
-  if (!assetBreakdown || assetBreakdown.length === 0) return null;
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
-  const data = assetBreakdown.map((item) => ({
+  // Filter out any 0% asset classes so the donut dynamically shows only real holdings
+  const activeBreakdown = (assetBreakdown || []).filter(
+    (item) => item.allocationPercent > 0 || (item.currentValue && item.currentValue > 0)
+  );
+  if (activeBreakdown.length === 0) return null;
+
+  const totalValue =
+    totalCurrentValue ?? activeBreakdown.reduce((sum, item) => sum + (item.currentValue || 0), 0);
+  const computedHoldings =
+    totalHoldingsCount ?? activeBreakdown.reduce((sum, item) => sum + (item.itemCount || 0), 0);
+
+  const data = activeBreakdown.map((item) => ({
     name: item.assetType.replace(/_/g, ' ').toUpperCase(),
+    rawType: item.assetType,
     value: item.allocationPercent,
     currentValue: item.currentValue,
+    itemCount: item.itemCount || 0,
   }));
 
+  // Dynamic formatting for any portfolio valuation scale (from hundreds to Crores)
+  const formatSmartAmount = (val: number): string => {
+    if (isPrivacyMode) return '••••••';
+    const abs = Math.abs(val);
+    if (abs >= 10000000) {
+      return `${currencySymbol}${(val / 10000000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}Cr`;
+    }
+    if (abs >= 100000) {
+      return `${currencySymbol}${(val / 100000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}L`;
+    }
+    return `${currencySymbol}${val.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  };
+
+  // Dynamically calibrate ring thickness and padding based on number of assets
+  const assetCount = data.length;
+  const paddingAngle = assetCount <= 2 ? 4 : assetCount <= 5 ? 3 : 1.5;
+  const innerRadius = assetCount <= 3 ? 36 : 38;
+  const outerRadius = 58;
+
+  const renderCustomLabel = (props: any) => {
+    const { cx, cy, midAngle, outerRadius: r, value, index } = props;
+    if (!value || value <= 0) return null;
+
+    const RADIAN = Math.PI / 180;
+    const cos = Math.cos(-midAngle * RADIAN);
+    const sin = Math.sin(-midAngle * RADIAN);
+
+    const isHovered = activeIndex === index;
+
+    // Start point on the outer edge of slice
+    const sx = cx + (r + 2) * cos;
+    const sy = cy + (r + 2) * sin;
+
+    // Stagger leader lines for small slices so adjacent labels never collide regardless of how many assets exist
+    const staggerOffset = data.length > 4 && Number(value) < 6 ? (index % 2 === 1 ? 6 : 0) : 0;
+    const radialOffset = (isHovered ? 13 : 10) + staggerOffset;
+    const mx = cx + (r + radialOffset) * cos;
+    const my = cy + (r + radialOffset) * sin;
+
+    // Horizontal tail and text alignment
+    let ex = mx;
+    let ey = my;
+    let textAnchor: 'start' | 'middle' | 'end' = 'middle';
+    let textX = mx;
+    let textY = my;
+
+    if (cos > 0.25) {
+      // Right hemisphere
+      ex = mx + 8;
+      ey = my;
+      textX = ex + 4;
+      textY = ey;
+      textAnchor = 'start';
+    } else if (cos < -0.25) {
+      // Left hemisphere
+      ex = mx - 8;
+      ey = my;
+      textX = ex - 4;
+      textY = ey;
+      textAnchor = 'end';
+    } else {
+      // Top or Bottom (near vertical alignment)
+      const isTop = sin < 0;
+      ex = mx;
+      ey = my + (isTop ? -4 : 4);
+      textX = ex;
+      textY = ey + (isTop ? -6 : 6);
+      textAnchor = 'middle';
+    }
+
+    const formattedVal = `${Number.isInteger(Number(value)) ? Number(value) : Number(value).toFixed(1)}%`;
+
+    return (
+      <g className="transition-all duration-150 pointer-events-none">
+        {/* Neo-brutalist leader line */}
+        <path
+          d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`}
+          stroke="#121212"
+          strokeWidth={isHovered ? 2.5 : 1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+        {/* Joint dot on outer slice */}
+        <circle cx={sx} cy={sy} r={isHovered ? 3 : 2} fill="#121212" />
+
+        {/* Clear percentage numbering with crisp white halo outline */}
+        <text
+          x={textX}
+          y={textY}
+          textAnchor={textAnchor}
+          dominantBaseline="central"
+          fill="#121212"
+          stroke="#FFFFFF"
+          strokeWidth={3.5}
+          paintOrder="stroke fill"
+          strokeLinejoin="round"
+          className="font-mono select-none"
+          style={{
+            fontSize: isHovered ? '12px' : '11px',
+            fontWeight: 900,
+          }}
+        >
+          {formattedVal}
+        </text>
+      </g>
+    );
+  };
+
   return (
-    <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 sm:p-6 flex flex-col gap-3">
+    <div className="bg-white border-[3px] border-[#121212] shadow-neo p-4 sm:p-6 flex flex-col justify-between gap-3">
       <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3">
         <h3 className="text-xs font-black uppercase text-[#121212] tracking-wider">
           Asset Allocation
         </h3>
+        <span className="text-[10px] font-mono font-bold text-neutral-500 uppercase">
+          {data.length} {data.length === 1 ? 'Class' : 'Classes'}
+        </span>
       </div>
-      <div className="flex flex-col sm:flex-row items-center gap-6">
-        <div className="w-full sm:w-1/2 h-48">
-          <ResponsiveContainer width="100%" height="100%">
-            <RePieChart>
+      <div className="flex flex-col sm:flex-row items-center gap-6 my-auto">
+        {/* Dynamic Pie Chart with Center Stats */}
+        <div className="w-full sm:w-[50%] h-56 relative flex items-center justify-center overflow-visible">
+          <ResponsiveContainer width="100%" height="100%" className="overflow-visible">
+            <RePieChart style={{ overflow: 'visible' }}>
               <Pie
                 data={data}
                 cx="50%"
                 cy="50%"
-                innerRadius={50}
-                outerRadius={80}
-                paddingAngle={2}
+                innerRadius={innerRadius}
+                outerRadius={outerRadius}
+                paddingAngle={paddingAngle}
                 dataKey="value"
-                label={({ name, value }: PieLabelRenderProps) => `${value}%`}
+                label={renderCustomLabel}
+                labelLine={false}
+                onMouseEnter={(_, index) => setActiveIndex(index)}
+                onMouseLeave={() => setActiveIndex(null)}
               >
-                {data.map((entry, index) => (
-                  <Cell key={index} fill={ASSET_COLORS[entry.name?.toLowerCase().replace(/\s+/g, '_')] || '#FFE600'} stroke="#121212" strokeWidth={2} />
-                ))}
+                {data.map((entry, index) => {
+                  const isHovered = activeIndex === index;
+                  const isOtherHovered = activeIndex !== null && !isHovered;
+                  const colorKey = entry.rawType || entry.name?.toLowerCase().replace(/\s+/g, '_');
+                  const fillColor = ASSET_COLORS[colorKey] || '#FFE600';
+                  return (
+                    <Cell
+                      key={index}
+                      fill={fillColor}
+                      stroke="#121212"
+                      strokeWidth={isHovered ? 3.5 : 2}
+                      opacity={isOtherHovered ? 0.35 : 1}
+                      className="transition-all duration-200 cursor-pointer"
+                    />
+                  );
+                })}
               </Pie>
-              <Tooltip
-                contentStyle={{
-                  background: '#121212',
-                  border: '2px solid #FFE600',
-                  color: '#FFF',
-                  fontWeight: 700,
-                  fontSize: '12px',
-                }}
-                formatter={(value: any, name: any, item: any) => [
-                  isPrivacyMode
-                    ? `${value}% (••••••)`
-                    : `${value}% (₹${Number(item?.payload?.currentValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
-                  'Allocation',
-                ]}
-              />
             </RePieChart>
           </ResponsiveContainer>
-        </div>
-        <div className="w-full sm:w-1/2 flex flex-col gap-2">
-          {data.map((item) => (
-            <div key={item.name} className="flex items-center justify-between text-xs font-black">
-              <div className="flex items-center gap-2 min-w-0">
-                <div
-                  className="w-3 h-3 border border-[#121212] shrink-0"
-                  style={{ backgroundColor: ASSET_COLORS[item.name?.toLowerCase().replace(/\s+/g, '_')] || '#FFE600' }}
-                />
-                <span className="uppercase truncate max-w-[120px] sm:max-w-none">{item.name}</span>
+
+          {/* Donut Hole Center Information (Dynamically Adapts to Any Portfolio) */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none text-center px-1">
+            {activeIndex !== null && data[activeIndex] ? (
+              <div className="flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-150">
+                <span className="text-[9px] font-black uppercase tracking-wider text-neutral-500 truncate max-w-[76px]">
+                  {data[activeIndex].name}
+                </span>
+                <span className="text-base sm:text-lg font-mono font-black text-[#121212] leading-tight">
+                  {data[activeIndex].value}%
+                </span>
+                <span className="text-[10px] font-mono font-bold text-neutral-600 truncate max-w-[85px]">
+                  {formatSmartAmount(data[activeIndex].currentValue)}
+                </span>
+                {data[activeIndex].itemCount > 0 && (
+                  <span className="text-[8px] font-mono font-bold text-neutral-400">
+                    {data[activeIndex].itemCount} {data[activeIndex].itemCount === 1 ? 'item' : 'items'}
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-3">
-                <span className="font-mono">{item.value}%</span>
-                <span className="text-neutral-500 font-mono text-[11px]">
-                  {isPrivacyMode ? '••••••' : `₹${item.currentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            ) : (
+              <div className="flex flex-col items-center justify-center animate-in fade-in duration-200">
+                <span className="text-[9px] font-black uppercase tracking-wider text-neutral-400">
+                  PORTFOLIO
+                </span>
+                <span className="text-sm sm:text-base font-mono font-black text-[#121212] leading-tight">
+                  {formatSmartAmount(totalValue)}
+                </span>
+                <span className="text-[9px] font-mono font-bold text-neutral-500 mt-0.5">
+                  {data.length} {data.length === 1 ? 'Asset' : 'Assets'}
+                  {computedHoldings > 0 && ` • ${computedHoldings}H`}
                 </span>
               </div>
-            </div>
-          ))}
+            )}
+          </div>
+        </div>
+
+        {/* Dynamic Allocation Legend List */}
+        <div className="w-full sm:w-[50%] flex flex-col gap-2 max-h-56 overflow-y-auto pr-1">
+          {data.map((item, index) => {
+            const isHovered = activeIndex === index;
+            const isOtherHovered = activeIndex !== null && !isHovered;
+            const colorKey = item.rawType || item.name?.toLowerCase().replace(/\s+/g, '_');
+            const color = ASSET_COLORS[colorKey] || '#FFE600';
+
+            return (
+              <div
+                key={item.name}
+                onMouseEnter={() => setActiveIndex(index)}
+                onMouseLeave={() => setActiveIndex(null)}
+                className={`flex items-center justify-between text-xs font-black p-1.5 rounded transition-all cursor-pointer ${
+                  isHovered
+                    ? 'bg-neutral-100 shadow-neo-sm translate-x-1 border-l-2 border-[#121212]'
+                    : isOtherHovered
+                    ? 'opacity-40'
+                    : 'hover:bg-neutral-50'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className="w-3 h-3 border border-[#121212] shrink-0 shadow-neo-sm"
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="uppercase truncate max-w-[110px] sm:max-w-none" title={item.name}>
+                    {item.name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="font-mono font-black text-[#121212]">{item.value}%</span>
+                  <span className="text-neutral-500 font-mono text-[11px]">
+                    {isPrivacyMode
+                      ? '••••••'
+                      : `₹${item.currentValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
