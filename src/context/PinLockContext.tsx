@@ -40,6 +40,7 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
+  const lastActivityUpdateRef = useRef<number>(Date.now());
 
   // Sync with cloud pinStatus as soon as query resolves
   useEffect(() => {
@@ -63,19 +64,80 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [isPinEnabled]);
 
   // ─── Dynamic Inactivity & Background Lock ───────────────────────────
-  // Dual-timer system driven by the user's autoLockTimeoutMs setting:
-  //   1. IN-APP IDLE TIMER: When the tab is visible, resets on any user
-  //      interaction (mouse, keyboard, scroll, touch). Fires after
-  //      autoLockTimeoutMs of zero interaction.
-  //   2. BACKGROUND TIMER: When the tab is hidden/minimized, fires after
-  //      autoLockTimeoutMs. "Immediate" (0 ms) locks instantly on hide.
+  // Universal multi-device auto-lock system (Mobile, Tablet, Desktop, PWA):
+  //   1. IN-APP IDLE TIMER & HEARTBEAT: Checks activity continuously without timer throttling.
+  //   2. MOBILE LIFECYCLE LISTENERS: Listens to pagehide, pageshow, and visibilitychange.
+  //   3. STORAGE FALLBACK: Tracks timestamps in localStorage and sessionStorage
+  //      to survive iOS/Android process freezing and background suspension.
+  //   4. THROTTLED ACTIVITY: Preserves silky-smooth 60/120fps scrolling on mobile devices.
   useEffect(() => {
     if (!isPinEnabled || isLocked) return;
 
-    // The effective timeout from the user's setting (0 = immediate on background)
     const timeoutMs = autoLockTimeoutMs;
 
-    // ── Helper: clear & restart the in-app idle timer ──
+    const getStoredTs = (key: string): number => {
+      try {
+        const val = localStorage.getItem(key) || sessionStorage.getItem(key);
+        return val ? parseInt(val, 10) : 0;
+      } catch {
+        return 0;
+      }
+    };
+
+    const setStoredTs = (key: string, ts: number) => {
+      try {
+        localStorage.setItem(key, String(ts));
+        sessionStorage.setItem(key, String(ts));
+      } catch { }
+    };
+
+    const clearStoredTs = (key: string) => {
+      try {
+        localStorage.removeItem(key);
+        sessionStorage.removeItem(key);
+      } catch { }
+    };
+
+    // Helper: evaluate if the timeout duration was exceeded
+    const evaluateAndLock = (): boolean => {
+      const storedHidden = getStoredTs('panam_backgrounded_at');
+
+      // If app was backgrounded / tab switched:
+      if (storedHidden > 0) {
+        if (timeoutMs <= 0) {
+          setIsLocked(true);
+          clearStoredTs('panam_backgrounded_at');
+          return true;
+        }
+
+        const now = Date.now();
+        const bgElapsed = now - storedHidden;
+        if (bgElapsed >= timeoutMs) {
+          setIsLocked(true);
+          clearStoredTs('panam_backgrounded_at');
+          return true;
+        }
+      }
+
+      // Check in-app idle inactivity (only if timeoutMs > 0)
+      if (timeoutMs > 0) {
+        const now = Date.now();
+        const storedActive = getStoredTs('panam_last_active_at');
+        const lastActive = Math.max(lastActivityRef.current, storedActive);
+        if (lastActive > 0 && now - lastActive >= timeoutMs) {
+          setIsLocked(true);
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    // Check immediately on mounting or entering this state
+    if (evaluateAndLock()) {
+      return;
+    }
+
     const clearIdleTimer = () => {
       if (idleTimerRef.current) {
         clearTimeout(idleTimerRef.current);
@@ -85,108 +147,132 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
 
     const startIdleTimer = () => {
       clearIdleTimer();
-      // "Immediate" (0 ms) means only lock on tab switch, not while actively using
       if (timeoutMs <= 0) return;
       idleTimerRef.current = setTimeout(() => {
         setIsLocked(true);
       }, timeoutMs);
     };
 
-    // ── Helper: clear background tracking ──
-    const clearBgTracking = () => {
+    // User activity handler: checks if expired first, then records activity (throttled)
+    const onUserActivity = () => {
+      const now = Date.now();
+      // On mobile, if timers were throttled by OS, check if already expired before resetting!
+      if (timeoutMs > 0 && (now - lastActivityRef.current >= timeoutMs)) {
+        setIsLocked(true);
+        return;
+      }
+
+      lastActivityRef.current = now;
+
+      // Throttle storage writes and timer restarts to once every 1.5 seconds for peak performance
+      if (now - lastActivityUpdateRef.current > 1500) {
+        lastActivityUpdateRef.current = now;
+        setStoredTs('panam_last_active_at', now);
+        if (document.visibilityState === 'visible') {
+          startIdleTimer();
+        }
+      }
+    };
+
+    // Background transition (phone screen locked, home swipe, tab switch)
+    const onAppBackground = () => {
+      clearIdleTimer();
+      const now = Date.now();
+      setStoredTs('panam_backgrounded_at', now);
+      setStoredTs('panam_last_active_at', now);
+
+      if (timeoutMs <= 0) {
+        setIsLocked(true);
+        return;
+      }
+
+      if (bgTimerRef.current) {
+        clearTimeout(bgTimerRef.current);
+      }
+      bgTimerRef.current = setTimeout(() => {
+        setIsLocked(true);
+      }, timeoutMs);
+    };
+
+    // Foreground transition (phone unlocked, app restored, tab visible)
+    const onAppForeground = () => {
       if (bgTimerRef.current) {
         clearTimeout(bgTimerRef.current);
         bgTimerRef.current = null;
       }
-      try {
-        sessionStorage.removeItem('panam_backgrounded_at');
-      } catch { }
-    };
 
-    // ── User activity handler: resets idle timer ──
-    const onUserActivity = () => {
-      if (document.visibilityState === 'visible') {
-        lastActivityRef.current = Date.now();
-        startIdleTimer();
+      if (evaluateAndLock()) {
+        return;
       }
+
+      clearStoredTs('panam_backgrounded_at');
+      const now = Date.now();
+      lastActivityRef.current = now;
+      lastActivityUpdateRef.current = now;
+      setStoredTs('panam_last_active_at', now);
+      startIdleTimer();
     };
 
-    // ── Visibility change handler: manages background timer ──
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        // Tab is now hidden — pause the idle timer, start background timer
-        clearIdleTimer();
-
-        const hiddenAt = Date.now();
-        try {
-          sessionStorage.setItem('panam_backgrounded_at', String(hiddenAt));
-        } catch { }
-
-        clearBgTracking();
-
-        // "Immediate" (0 ms) — lock right away on tab switch
-        if (timeoutMs <= 0) {
-          setIsLocked(true);
-          return;
-        }
-
-        bgTimerRef.current = setTimeout(() => {
-          if (document.visibilityState === 'hidden') {
-            setIsLocked(true);
-          }
-        }, timeoutMs);
+        onAppBackground();
       } else if (document.visibilityState === 'visible') {
-        // Tab became visible again
-        if (bgTimerRef.current) {
-          clearTimeout(bgTimerRef.current);
-          bgTimerRef.current = null;
-        }
-
-        // Check if the tab was hidden longer than the timeout
-        try {
-          const bgAtStr = sessionStorage.getItem('panam_backgrounded_at');
-          if (bgAtStr) {
-            const hiddenAt = parseInt(bgAtStr, 10);
-            if (hiddenAt > 0 && timeoutMs > 0) {
-              const elapsed = Date.now() - hiddenAt;
-              if (elapsed >= timeoutMs) {
-                setIsLocked(true);
-                clearBgTracking();
-                return;
-              }
-            }
-          }
-        } catch { }
-
-        clearBgTracking();
-
-        // Resume idle tracking now that the user is back
-        lastActivityRef.current = Date.now();
-        startIdleTimer();
+        onAppForeground();
       }
     };
 
-    // ── Attach all listeners ──
+    // iOS Safari / WebKit pagehide & pageshow lifecycle
+    const handlePageHide = () => onAppBackground();
+    const handlePageShow = () => onAppForeground();
+
+    // Mobile-safe heartbeat interval (every 2.5s) to combat aggressive background timer throttling
+    const heartbeatTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        if (timeoutMs > 0 && now - lastActivityRef.current >= timeoutMs) {
+          setIsLocked(true);
+        }
+      }
+    }, 2500);
+
+    // Register all standard and mobile lifecycle listeners
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+
+    // Touch, pointer, mouse, and keyboard interaction listeners
+    window.addEventListener('touchstart', onUserActivity, { passive: true });
+    window.addEventListener('touchend', onUserActivity, { passive: true });
     window.addEventListener('pointerdown', onUserActivity, { passive: true });
     window.addEventListener('keydown', onUserActivity, { passive: true });
     window.addEventListener('scroll', onUserActivity, { passive: true });
     window.addEventListener('mousemove', onUserActivity, { passive: true });
-    window.addEventListener('touchstart', onUserActivity, { passive: true });
 
-    // Start the idle timer immediately (user just unlocked or PIN was just enabled)
-    lastActivityRef.current = Date.now();
+    // Initial activation
+    const now = Date.now();
+    lastActivityRef.current = now;
+    lastActivityUpdateRef.current = now;
+    setStoredTs('panam_last_active_at', now);
     startIdleTimer();
 
     return () => {
       clearIdleTimer();
-      clearBgTracking();
+      if (bgTimerRef.current) {
+        clearTimeout(bgTimerRef.current);
+        bgTimerRef.current = null;
+      }
+      clearInterval(heartbeatTimer);
+
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+
+      window.removeEventListener('touchstart', onUserActivity);
+      window.removeEventListener('touchend', onUserActivity);
       window.removeEventListener('pointerdown', onUserActivity);
       window.removeEventListener('keydown', onUserActivity);
       window.removeEventListener('scroll', onUserActivity);
       window.removeEventListener('mousemove', onUserActivity);
-      window.removeEventListener('touchstart', onUserActivity);
     };
   }, [isPinEnabled, isLocked, autoLockTimeoutMs]);
 
@@ -196,12 +282,26 @@ export const PinLockProvider: React.FC<{ children: ReactNode }> = ({ children })
         const res = await verifyPinMutation({ pin });
         if (res?.success) {
           setIsLocked(false);
+          const now = Date.now();
+          lastActivityRef.current = now;
+          try {
+            localStorage.setItem('panam_last_active_at', String(now));
+            localStorage.removeItem('panam_backgrounded_at');
+            sessionStorage.removeItem('panam_backgrounded_at');
+          } catch { }
           return { success: true };
         }
         return { success: false, message: res?.message || "Incorrect PIN" };
       }
       if (pin.length === (pinLength || 6)) {
         setIsLocked(false);
+        const now = Date.now();
+        lastActivityRef.current = now;
+        try {
+          localStorage.setItem('panam_last_active_at', String(now));
+          localStorage.removeItem('panam_backgrounded_at');
+          sessionStorage.removeItem('panam_backgrounded_at');
+        } catch { }
         return { success: true };
       }
       return { success: false, message: "Invalid PIN" };
