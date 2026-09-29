@@ -102,7 +102,7 @@ export const BrokerExportGuideModal: React.FC<BrokerExportGuideModalProps> = ({
               <span>How To Export From Any Broker</span>
             </h2>
             <p className="text-xs font-semibold text-neutral-600 mt-0.5">
-              Step-by-step export instructions & password guides across all 30+ Indian brokers & depositories
+              Step-by-step export instructions & password guides across 30+ Indian brokers & depositories
             </p>
           </div>
         </div>
