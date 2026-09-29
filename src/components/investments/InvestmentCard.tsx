@@ -316,7 +316,7 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
       {/* Valuation Grid */}
       <div className="grid grid-cols-2 gap-2 pt-1 border-t border-neutral-200">
         <div>
-          <span className="text-[10px] font-black uppercase text-neutral-500 block">INVESTED BASIS</span>
+          <span className="text-[10px] font-black uppercase text-neutral-500 block">INVESTED AMOUNT</span>
           <span className="text-base font-mono font-bold text-[#121212]">
             {formatPrivateAmount(invested, currencySymbol)}
           </span>
