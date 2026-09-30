@@ -96,6 +96,67 @@ const GRANULAR_ASSET_TYPES: { label: string; assetType: AssetType; subType: stri
 
 const BROKER_OPTIONS = ALL_BROKER_OPTIONS;
 
+/**
+ * Strict sanity and anti-anomaly validator for incoming market prices.
+ * Prevents cross-asset contamination (e.g. stock ₹1,226 assigned to mutual fund NAV ₹28)
+ * and rejects wild price discrepancies compared to statement baseline prices.
+ */
+function validateLivePriceAgainstHolding(
+  holding: ParsedHolding,
+  res: { price: number; symbol?: string; isin?: string; schemeCode?: number } | number
+): { valid: boolean; reason?: string } {
+  const price = typeof res === 'number' ? res : res.price;
+  const symbol = typeof res === 'number' ? undefined : res.symbol;
+
+  if (!price || price <= 0 || isNaN(price)) {
+    return { valid: false, reason: 'Invalid or zero price' };
+  }
+
+  // Guard 1: Mutual Funds must NEVER accept stock exchange symbols (.NS, .BO, BSE, NSE tickers)
+  if (holding.assetType === 'mutual_fund') {
+    if (symbol && (symbol.endsWith('.NS') || symbol.endsWith('.BO') || symbol.includes('^'))) {
+      console.warn(`[PriceGuard] Rejected stock symbol "${symbol}" for mutual fund "${holding.name}"`);
+      return { valid: false, reason: `Stock symbol ${symbol} matched to mutual fund` };
+    }
+  }
+
+  // Guard 2: Statement Baseline Drift Check
+  // Determine baseline unit price from statement fields
+  const baseline =
+    (holding.statementPrice && holding.statementPrice > 0 ? holding.statementPrice : 0) ||
+    (holding.currentPrice && holding.currentPrice > 0 ? holding.currentPrice : 0) ||
+    (holding.units && holding.units > 0 && holding.statementValue && holding.statementValue > 0
+      ? holding.statementValue / holding.units
+      : 0) ||
+    (holding.units && holding.units > 0 && holding.currentValue && holding.currentValue > 0
+      ? holding.currentValue / holding.units
+      : 0) ||
+    (holding.buyPrice && holding.buyPrice > 0 ? holding.buyPrice : 0) ||
+    (holding.units && holding.units > 0 && holding.investedAmount > 0
+      ? holding.investedAmount / holding.units
+      : 0);
+
+  if (baseline > 0) {
+    const ratio = price / baseline;
+    // For mutual funds, NAV changes daily by fractions of a percent, rarely more than ±10-20% in a month.
+    // If ratio > 1.75 (more than 75% gain) or ratio < 0.55 (more than 45% drop), it's almost certainly a wrong security match.
+    const maxRatio = holding.assetType === 'mutual_fund' ? 1.75 : 3.0;
+    const minRatio = holding.assetType === 'mutual_fund' ? 0.55 : 0.25;
+
+    if (ratio > maxRatio || ratio < minRatio) {
+      console.warn(
+        `[PriceGuard] Anomaly drift detected for "${holding.name}". Baseline: ${baseline}, API Price: ${price} (Ratio: ${ratio.toFixed(2)}x). Rejecting update.`
+      );
+      return {
+        valid: false,
+        reason: `Price anomaly (${ratio.toFixed(1)}x drift from baseline ${baseline})`,
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
 export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
   isOpen,
   onClose,
@@ -208,6 +269,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           const idx = updatedHoldings.findIndex((h) => h.id === id);
           if (idx !== -1 && res && res.price > 0) {
             const h = { ...updatedHoldings[idx] };
+            const validation = validateLivePriceAgainstHolding(h, res);
+            if (!validation.valid) {
+              console.warn(`[Enrichment] Skipping price for "${h.name}": ${validation.reason}`);
+              continue;
+            }
             const oldPrice = h.statementPrice || h.currentPrice || 0;
             const cleanPrice = cleanNavPrice(res.price, h.assetType === 'mutual_fund');
             h.currentPrice = cleanPrice;
@@ -311,6 +377,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             const idx = updatedHoldings.findIndex((h) => h.id === holding.id);
             if (idx !== -1) {
               const h = { ...updatedHoldings[idx] };
+              const validation = validateLivePriceAgainstHolding(h, livePrice);
+              if (!validation.valid) {
+                console.warn(`[Enrichment Fallback] Skipping price for "${h.name}": ${validation.reason}`);
+                return;
+              }
               const oldPrice = h.statementPrice || h.currentPrice || 0;
               const cleanPrice = cleanNavPrice(livePrice, h.assetType === 'mutual_fund');
               h.currentPrice = cleanPrice;
@@ -442,6 +513,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       setParsedHoldings((prev) =>
         prev.map((h) => {
           if (h.id !== id) return h;
+          const validation = validateLivePriceAgainstHolding(h, livePrice!);
+          if (!validation.valid) {
+            console.warn(`[RowPrice] Skipping price for "${h.name}": ${validation.reason}`);
+            return h;
+          }
           const cleanPrice = cleanNavPrice(livePrice!, targetType === 'mutual_fund');
           const updated = {
             ...h,

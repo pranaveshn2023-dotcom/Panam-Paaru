@@ -1251,6 +1251,12 @@ async function fetchStockQuote(
   knownTicker?: string,
   statementPrice?: number
 ): Promise<{ price: number; prevClose?: number; symbol?: string; isin?: string } | null> {
+  // Guard: If this asset is clearly a mutual fund scheme, NEVER treat it as a stock!
+  const isMutualFund = /\b(mutual\s*fund|index\s*fund|flexi\s*cap|mid\s*cap|small\s*cap|large\s*cap|balanced\s*advantage|liquid\s*fund|direct\s*fund|debt\s*fund|hybrid\s*fund|fof|fund\s*of\s*funds?|direct\s*plan|regular\s*plan|growth\s*plan|\bgrowth\b|\bdir\b|\breg\b)\b/i.test(name);
+  if (isMutualFund && !/\b(etf|\w*bees|bees)\b/i.test(name)) {
+    return null;
+  }
+
   const clean = name.trim().toUpperCase();
   const combined = `${name} ${notes || ""}`;
   const isin = knownIsin || extractStockIsin(combined) || extractSecurityIsin(combined);
@@ -1312,16 +1318,9 @@ async function fetchStockQuote(
   }
 
   const tokens = clean.split(/[^A-Z0-9]+/).filter((t) => t.length >= 2 && t.length <= 14);
-  const firstToken = tokens[0];
-  if (firstToken && firstToken.length >= 3 && !searchQueries.includes(firstToken)) {
-    searchQueries.push(firstToken);
-  }
-  const lastToken = tokens[tokens.length - 1];
-  if (lastToken && lastToken.length >= 4 && !searchQueries.includes(lastToken)) {
-    searchQueries.push(lastToken);
-  }
-
-  if (firstToken && firstToken.length >= 3) {
+  // Only add firstToken as candidate if the input was actually a single-word stock ticker (e.g. "ZOMATO" or "RELIANCE")
+  if (tokens.length === 1 && tokens[0].length >= 2) {
+    const firstToken = tokens[0];
     addCandidate(`${firstToken}.NS`);
     addCandidate(`${firstToken}.BO`);
   }
@@ -2288,7 +2287,7 @@ export async function getAmfiOfficialNavTable(): Promise<{
       try {
         res = await fetch("https://portal.amfiindia.com/spages/NAVAll.txt", {
           headers: AMFI_CLEAN_HEADERS,
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(2500),
         });
       } catch (e1) {
         console.warn("[AMFI] portal.amfiindia.com failed, trying amfiindia.com fallback:", e1);
@@ -2297,7 +2296,7 @@ export async function getAmfiOfficialNavTable(): Promise<{
       if (!res || !res.ok) {
         res = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
           headers: AMFI_CLEAN_HEADERS,
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(2500),
         });
       }
       if (!res || !res.ok) return amfiTableCache;
@@ -2483,38 +2482,9 @@ export async function fetchMfNav(
     }
   }
 
-  // 2. Official AMFI Portal Table Lookup (Instant, in-memory, 100% active schemes directly from AMFI)
   const strippedName = stripBrokerSuffix(name);
-  try {
-    const amfiTable = await getAmfiOfficialNavTable();
-    if (amfiTable && amfiTable.entries.length > 0) {
-      let bestTableMatch: AmfiTableEntry | null = null;
-      let bestTableScore = -1;
 
-      for (const item of amfiTable.entries) {
-        const dateMs = parseNavDateToMs(item.date);
-        if (dateMs > 0 && (now - dateMs) > 45 * 24 * 60 * 60 * 1000) continue;
-
-        const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, strippedName);
-        if (score > bestTableScore && score >= 50) {
-          bestTableScore = score;
-          bestTableMatch = item;
-        }
-      }
-
-      if (bestTableMatch && bestTableScore >= 50) {
-        return {
-          nav: bestTableMatch.nav,
-          date: bestTableMatch.date,
-          schemeName: bestTableMatch.name,
-          schemeCode: bestTableMatch.code,
-          isin: bestTableMatch.isin || isin,
-        };
-      }
-    }
-  } catch {}
-
-  // 3. High-Speed Cloudflare CDN Mirror Search Fallback
+  // 2. High-Speed Cloudflare CDN Mirror Search (Instant <100ms response, unblocked on all cloud platforms)
   try {
     const clean = strippedName
       .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, "")
@@ -2556,7 +2526,7 @@ export async function fetchMfNav(
         try {
           const searchRes = await fetch(
             `https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`,
-            { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(3000) }
+            { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(2500) }
           );
           if (searchRes.ok) {
             const list: any[] = await searchRes.json();
@@ -2583,7 +2553,7 @@ export async function fetchMfNav(
           try {
             const latestRes = await fetch(
               `https://api.mfapi.in/mf/${cand.schemeCode}/latest`,
-              { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(3000) }
+              { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(2500) }
             );
             if (latestRes.ok) {
               const details: any = await latestRes.json();
@@ -2608,6 +2578,36 @@ export async function fetchMfNav(
       }
     }
   } catch { }
+
+  // 3. Official AMFI Portal Table Lookup Fallback
+  try {
+    const amfiTable = await getAmfiOfficialNavTable();
+    if (amfiTable && amfiTable.entries.length > 0) {
+      let bestTableMatch: AmfiTableEntry | null = null;
+      let bestTableScore = -1;
+
+      for (const item of amfiTable.entries) {
+        const dateMs = parseNavDateToMs(item.date);
+        if (dateMs > 0 && (now - dateMs) > 45 * 24 * 60 * 60 * 1000) continue;
+
+        const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, strippedName);
+        if (score > bestTableScore && score >= 50) {
+          bestTableScore = score;
+          bestTableMatch = item;
+        }
+      }
+
+      if (bestTableMatch && bestTableScore >= 50) {
+        return {
+          nav: bestTableMatch.nav,
+          date: bestTableMatch.date,
+          schemeName: bestTableMatch.name,
+          schemeCode: bestTableMatch.code,
+          isin: bestTableMatch.isin || isin,
+        };
+      }
+    }
+  } catch {}
 
   return null;
 }
@@ -4416,8 +4416,7 @@ export const fetchLivePrice = action({
       if (mf && mf.nav > 0) {
         return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
       }
-      // Universal dynamic fallback for ETFs or funds searched under mutual_fund
-      return await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker, statementPrice });
+      return null;
     }
 
     if (assetType === "crypto") {
@@ -4550,15 +4549,8 @@ export const fetchBatchLivePrices = action({
               });
               if (mf && mf.nav > 0) {
                 res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
-              } else {
-                res = await getOrFetchStockPriceWithCache(ctx, name, {
-                  force: args.force,
-                  notes,
-                  knownIsin: isin,
-                  knownTicker: ticker,
-                  statementPrice,
-                });
               }
+              // STRICT: Never fall back to stock prices for mutual funds!
             } else if (assetType === "crypto") {
               res = await fetchCryptoPrice(name);
             } else if (assetType === "gold") {
