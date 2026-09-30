@@ -761,15 +761,24 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                       setIsSearchingMarket(true);
                       searchTimeoutRef.current = setTimeout(async () => {
                         try {
-                          const res = await searchMarketAssetsAction({ query: newName.trim() });
+                          const queryAssetType = (assetType === 'mutual_fund' || assetType === 'stocks') ? assetType : undefined;
+                          const res = await searchMarketAssetsAction({ query: newName.trim(), assetType: queryAssetType });
                           if (res && (res.mutualFunds.length > 0 || res.stocks.length > 0)) {
                             setSearchResults(res);
+                            if (assetType === 'mutual_fund' && res.mutualFunds.length > 0) {
+                              setSearchTab('mutual_fund');
+                            } else if (assetType === 'stocks' && res.stocks.length > 0) {
+                              setSearchTab('stocks');
+                            } else {
+                              setSearchTab('all');
+                            }
                             setShowSuggestions(true);
                           } else {
                             // Secondary fallback for mutual funds via public CORS-enabled API
                             const mfs = await searchIndianMutualFunds(newName.trim()).catch(() => []);
                             if (mfs.length > 0) {
                               setSearchResults({ mutualFunds: mfs, stocks: [] });
+                              setSearchTab('mutual_fund');
                               setShowSuggestions(true);
                             } else {
                               setSearchResults(null);
@@ -781,6 +790,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                             const mfs = await searchIndianMutualFunds(newName.trim()).catch(() => []);
                             if (mfs.length > 0) {
                               setSearchResults({ mutualFunds: mfs, stocks: [] });
+                              setSearchTab('mutual_fund');
                               setShowSuggestions(true);
                             } else {
                               setSearchResults(null);
@@ -819,7 +829,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
               {showSuggestions && searchResults && (searchResults.mutualFunds.length > 0 || searchResults.stocks.length > 0) && (
                 <div
                   ref={dropdownRef}
-                  className="absolute left-0 right-0 top-full mt-1 bg-white border-[2.5px] border-[#121212] shadow-neo-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 max-h-[340px] flex flex-col"
+                  className="absolute left-0 right-0 top-full mt-1 bg-white border-[2.5px] border-[#121212] shadow-neo-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 max-h-[250px] sm:max-h-[340px] flex flex-col"
                 >
                   {/* Category Tabs Header */}
                   <div className="flex items-center justify-between border-b-2 border-[#121212] bg-[#FFFDF5] px-2 py-1.5 text-[10px] font-black uppercase">
@@ -1076,7 +1086,11 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                   <button
                     key={type.value}
                     type="button"
-                    onClick={() => setAssetType(type.value)}
+                    onClick={() => {
+                      setAssetType(type.value);
+                      if (type.value === 'mutual_fund') setSearchTab('mutual_fund');
+                      else if (type.value === 'stocks') setSearchTab('stocks');
+                    }}
                     className="p-2 text-[11px] font-black uppercase border-2 transition-all cursor-pointer text-center truncate"
                     style={
                       assetType === type.value
@@ -1321,11 +1335,11 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           </div>
         )}
 
-        <div className="flex justify-end gap-2.5 pt-2">
-          <NeoButton type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+        <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-2.5 pt-2">
+          <NeoButton type="button" variant="outline" onClick={onClose} disabled={isSubmitting} className="w-full sm:w-auto">
             Cancel
           </NeoButton>
-          <NeoButton type="submit" variant="secondary" disabled={isSubmitting}>
+          <NeoButton type="submit" variant="secondary" disabled={isSubmitting} className="w-full sm:w-auto">
             {isSubmitting
               ? 'Saving...'
               : mode === 'topup' && matchedHolding

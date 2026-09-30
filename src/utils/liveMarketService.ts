@@ -170,6 +170,92 @@ export function detectAmcFromText(text: string): AmcDefinition | null {
   return null;
 }
 
+export const ALL_INDIAN_AMCS = [
+  { id: '360_one', names: ['360 one', 'iifl'] },
+  { id: 'abakkus', names: ['abakkus'] },
+  { id: 'aditya_birla', names: ['aditya birla', 'birla', 'absl'] },
+  { id: 'alphagrep', names: ['alphagrep'] },
+  { id: 'angel_one', names: ['angel one'] },
+  { id: 'axis', names: ['axis'] },
+  { id: 'bajaj', names: ['bajaj finserv', 'bajaj'] },
+  { id: 'bandhan', names: ['bandhan', 'idfc'] },
+  { id: 'bank_of_india', names: ['bank of india', 'boi'] },
+  { id: 'baroda_bnp', names: ['baroda bnp', 'baroda', 'bnp paribas'] },
+  { id: 'canara_robeco', names: ['canara robeco', 'canara'] },
+  { id: 'capitalmind', names: ['capitalmind'] },
+  { id: 'choice', names: ['choice'] },
+  { id: 'dsp', names: ['dsp'] },
+  { id: 'edelweiss', names: ['edelweiss'] },
+  { id: 'franklin', names: ['franklin templeton', 'franklin'] },
+  { id: 'groww', names: ['groww'] },
+  { id: 'hdfc', names: ['hdfc'] },
+  { id: 'helios', names: ['helios'] },
+  { id: 'hsbc', names: ['hsbc'] },
+  { id: 'icici', names: ['icici prudential', 'icici'] },
+  { id: 'invesco', names: ['invesco'] },
+  { id: 'iti', names: ['iti'] },
+  { id: 'jio_blackrock', names: ['jio blackrock', 'jio'] },
+  { id: 'jm_financial', names: ['jm financial', 'jm'] },
+  { id: 'kotak', names: ['kotak mahindra', 'kotak'] },
+  { id: 'lakshya', names: ['lakshya'] },
+  { id: 'lic', names: ['lic mutual', 'lic'] },
+  { id: 'mahindra_manulife', names: ['mahindra manulife', 'mahindra', 'manulife'] },
+  { id: 'mirae', names: ['mirae asset', 'mirae'] },
+  { id: 'monarch', names: ['monarch'] },
+  { id: 'motilal', names: ['motilal oswal', 'motilal', 'moamc'] },
+  { id: 'navi', names: ['navi'] },
+  { id: 'nippon', names: ['nippon india', 'nippon', 'reliance mutual'] },
+  { id: 'nj', names: ['nj mutual', 'nj'] },
+  { id: 'old_bridge', names: ['old bridge'] },
+  { id: 'ppfas', names: ['parag parikh', 'ppfas'] },
+  { id: 'pgim', names: ['pgim india', 'pgim'] },
+  { id: 'quant', names: ['quant mutual', 'quant'] },
+  { id: 'quantum', names: ['quantum mutual', 'quantum'] },
+  { id: 'samco', names: ['samco'] },
+  { id: 'sbi', names: ['sbi', 'state bank of india'] },
+  { id: 'shriram', names: ['shriram'] },
+  { id: 'sundaram', names: ['sundaram'] },
+  { id: 'tata', names: ['tata'] },
+  { id: 'taurus', names: ['taurus'] },
+  { id: 'the_wealth_co', names: ['the wealth company'] },
+  { id: 'trust', names: ['trust mutual', 'trust'] },
+  { id: 'unifi', names: ['unifi'] },
+  { id: 'union', names: ['union mutual', 'union'] },
+  { id: 'uti', names: ['uti'] },
+  { id: 'whiteoak', names: ['whiteoak capital', 'whiteoak'] },
+  { id: 'zerodha', names: ['zerodha'] }
+];
+
+export const ALL_MF_CATEGORIES = [
+  { key: 'multicap', match: /\bmulti[\s-]?cap\b/i },
+  { key: 'flexicap', match: /\bflexi[\s-]?cap\b/i },
+  { key: 'smallcap', match: /\bsmall[\s-]?cap\b/i },
+  { key: 'midcap', match: /\bmid[\s-]?cap\b/i },
+  { key: 'largecap', match: /\b(large[\s-]?cap|bluechip)\b/i },
+  { key: 'largeandmid', match: /\blarge\s*(?:&|and)\s*mid\b/i },
+  { key: 'focused', match: /\bfocused\b/i },
+  { key: 'elss', match: /\b(elss|tax\s*saver|tax\s*saving)\b/i },
+  { key: 'contra', match: /\b(contra|value)\b/i },
+  { key: 'dividendyield', match: /\bdividend\s*yield\b/i },
+  { key: 'arbitrage', match: /\barbitrage\b/i },
+  { key: 'balancedadvantage', match: /\b(balanced\s*advantage|baf|dynamic\s*asset)\b/i },
+  { key: 'liquid', match: /\bliquid\b/i },
+  { key: 'overnight', match: /\bovernight\b/i },
+  { key: 'gilt', match: /\bgilt\b/i },
+  { key: 'corporatebond', match: /\bcorporate\s*bond\b/i },
+  { key: 'defence', match: /\b(defence|defense)\b/i },
+  { key: 'digital', match: /\b(digital|technology|tech|it)\b/i },
+  { key: 'pharma', match: /\b(pharma|healthcare)\b/i },
+  { key: 'auto', match: /\bauto\b/i },
+  { key: 'banking', match: /\b(banking|bank|psu\s*bank|financial\s*services)\b/i },
+  { key: 'infra', match: /\b(infra|infrastructure)\b/i },
+  { key: 'energy', match: /\b(energy|power)\b/i },
+  { key: 'consumption', match: /\b(consumption|consumer)\b/i },
+  { key: 'index', match: /\b(index|nifty|sensex)\b/i },
+  { key: 'gold', match: /\bgold\b/i },
+  { key: 'silver', match: /\bsilver\b/i },
+];
+
 export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
   const stripped = stripBrokerSuffix(rawQuery);
   const qClean = stripped.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -177,11 +263,38 @@ export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: str
   const sClean = sName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
   if (!qClean || !sClean) return 0;
-  if (sClean === qClean) return 300;
+  if (sClean === qClean) return 400;
+
+  // 1. Strict Brand / AMC Matching across all 53 AMCs
+  let matchedAmc: (typeof ALL_INDIAN_AMCS)[0] | null = null;
+  for (const a of ALL_INDIAN_AMCS) {
+    if (a.names.some((n) => qClean.includes(n))) {
+      matchedAmc = a;
+      break;
+    }
+  }
+  if (matchedAmc) {
+    const schemeMatchesAmc = matchedAmc.names.some((n) => sClean.includes(n));
+    if (!schemeMatchesAmc) return -100; // Reject completely: brand mismatch
+  }
+
+  // 2. Strict Category Matching across all SEBI categories
+  let matchedCat: (typeof ALL_MF_CATEGORIES)[0] | null = null;
+  for (const cat of ALL_MF_CATEGORIES) {
+    if (cat.match.test(qClean)) {
+      matchedCat = cat;
+      if (!cat.match.test(sClean)) {
+        return -100; // Reject completely: Category mismatch
+      }
+      break;
+    }
+  }
 
   const stopWords = new Set(['fund', 'scheme', 'plan', 'option', 'growth', 'direct', 'regular', 'idcw', 'dividend', 'amc', 'mutual', 'the', 'of', 'and', '&', '-']);
   const qTokens = qClean.split(/\s+/).filter((t) => t.length >= 2 && !stopWords.has(t));
   const sTokens = new Set(sClean.split(/\s+/).filter((t) => t.length >= 2 && !stopWords.has(t)));
+
+  if (qTokens.length === 0) return 0;
 
   let matchedTokens = 0;
   for (const qt of qTokens) {
@@ -190,57 +303,57 @@ export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: str
     } else {
       for (const st of sTokens) {
         if (st.includes(qt) || qt.includes(st)) {
-          matchedTokens += 0.6;
+          matchedTokens += 0.7;
           break;
         }
       }
     }
   }
 
-  // Pure mathematical Dice similarity scaled to 120
-  const totalTokens = qTokens.length + sTokens.size;
-  const diceSimilarity = totalTokens > 0 ? (2 * matchedTokens) / totalTokens : 0;
-  let score = Math.round(diceSimilarity * 120);
+  const tokenRatio = matchedTokens / qTokens.length;
+  // If fewer than 35% of query keywords match, reject
+  if (tokenRatio < 0.35) return -50;
+
+  let score = Math.round(tokenRatio * 100);
 
   // Exact substring match bonus
   if (sClean.includes(qClean)) score += 50;
 
-  // Leading brand match
-  const qBrands = extractBrandTokens(rawQuery);
-  const sBrands = extractBrandTokens(sName);
-  if (qBrands.length > 0 && sBrands.length > 0) {
-    const brandMatch = qBrands.some((qb) => sBrands.some((sb) => qb === sb || qb.includes(sb) || sb.includes(qb)));
-    if (brandMatch) score += 40;
-    else score -= 80;
+  // Bonus for matching category
+  if (matchedCat && matchedCat.match.test(sClean)) {
+    score += 50;
   }
 
-  // Direct vs Regular intent
+  // Bonus for matching AMC
+  if (matchedAmc) {
+    score += 40;
+  }
+
+  // Direct vs Regular intent (Default to Direct)
   const wantsDirect = /\b(direct|dir)\b/i.test(stripped);
   const wantsRegular = /\b(regular|reg)\b/i.test(stripped);
-  const isDirect = /\b(direct|dir)\b/i.test(sClean);
-  const isRegular = /\b(regular|reg)\b/i.test(sClean);
+  const isDirect = /\bdirect\b/i.test(sClean);
+  const isRegular = /\bregular\b/i.test(sClean);
 
-  if (wantsDirect) {
-    if (isDirect) score += 25;
-    if (isRegular) score -= 25;
-  } else if (wantsRegular) {
-    if (isRegular) score += 25;
-    if (isDirect) score -= 25;
+  if (wantsRegular) {
+    if (isRegular) score += 30;
+    if (isDirect) score -= 30;
   } else {
-    if (isDirect) score += 10;
+    if (isDirect) score += 30;
+    if (isRegular) score += 5;
   }
 
-  // Growth vs IDCW intent (Default to Growth)
+  // Growth vs IDCW intent (Default to Growth, heavily penalize IDCW if not requested)
   const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(stripped);
   const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sClean);
   const isGrowth = /\bgrowth\b/i.test(sClean);
 
   if (wantsIdcw) {
-    if (isIdcw) score += 25;
-    if (isGrowth) score -= 15;
+    if (isIdcw) score += 30;
+    if (isGrowth) score -= 30;
   } else {
-    if (isGrowth) score += 25;
-    if (isIdcw) score -= 40;
+    if (isGrowth) score += 40;
+    if (isIdcw) score -= 60;
   }
 
   return score;
@@ -341,18 +454,20 @@ export async function fetchAmfiNav(
       .replace(/\bmid\s+cap\b/gi, 'Midcap')
       .replace(/\bsmall\s+cap\b/gi, 'Smallcap')
       .replace(/\blarge\s+cap\b/gi, 'Largecap')
-      .replace(/\bflexi\s+cap\b/gi, 'Flexicap');
+      .replace(/\bflexi\s+cap\b/gi, 'Flexicap')
+      .replace(/\bmulti\s+cap\b/gi, 'Multicap');
     const compoundSpaced = baseQuery
       .replace(/\bmidcap\b/gi, 'Mid Cap')
       .replace(/\bsmallcap\b/gi, 'Small Cap')
       .replace(/\blargecap\b/gi, 'Large Cap')
-      .replace(/\bflexicap\b/gi, 'Flexi Cap');
+      .replace(/\bflexicap\b/gi, 'Flexi Cap')
+      .replace(/\bmulticap\b/gi, 'Multi Cap');
     const largeCapAlt = baseQuery.replace(/\bblue\s*chip\b/gi, 'Large Cap');
 
     const queries: string[] = [
+      compoundSpaced,
       baseQuery,
       compoundJoined,
-      compoundSpaced,
       largeCapAlt !== baseQuery ? largeCapAlt : null,
       coreWords.slice(0, 4).join(' '),
       coreWords.slice(0, 3).join(' '),
@@ -1651,48 +1766,73 @@ export async function searchIndianMutualFunds(
 ): Promise<Array<{ schemeCode: number; schemeName: string; nav?: number; date?: string }>> {
   if (!query || query.trim().length < 2) return [];
   const clean = cleanSearchQuery(query);
-  try {
-    const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(clean)}`, {
-      signal: AbortSignal.timeout(3500),
-    });
-    if (!res.ok) return [];
-    const list: Array<{ schemeCode: number; schemeName: string }> = await res.json();
-    if (!Array.isArray(list) || list.length === 0) return [];
+  const compoundSpaced = clean
+    .replace(/\bmidcap\b/gi, 'Mid Cap')
+    .replace(/\bsmallcap\b/gi, 'Small Cap')
+    .replace(/\blargecap\b/gi, 'Large Cap')
+    .replace(/\bflexicap\b/gi, 'Flexi Cap')
+    .replace(/\bmulticap\b/gi, 'Multi Cap');
+  const subqueries = [...new Set([compoundSpaced, clean])];
+  const candidateMap = new Map<number, { schemeCode: number; schemeName: string }>();
 
-    const scored = list
-      .map((item) => ({ ...item, score: scoreSchemeCandidate(item, query) }))
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 6);
+  for (const sq of subqueries) {
+    try {
+      const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(sq)}`, {
+        signal: AbortSignal.timeout(3500),
+      });
+      if (res.ok) {
+        const list: Array<{ schemeCode: number; schemeName: string }> = await res.json();
+        if (Array.isArray(list)) {
+          for (const item of list) {
+            if (item.schemeCode !== 102957 && !candidateMap.has(item.schemeCode)) {
+              candidateMap.set(item.schemeCode, item);
+            }
+          }
+        }
+      }
+    } catch {}
+    if (candidateMap.size >= 15) break;
+  }
 
-    // Fetch /latest NAV for top 3 in parallel
-    await Promise.all(
-      scored.slice(0, 3).map(async (item: any) => {
-        try {
-          const detailRes = await fetch(`https://api.mfapi.in/mf/${item.schemeCode}/latest`, {
-            signal: AbortSignal.timeout(2500),
-          });
-          if (detailRes.ok) {
-            const data = await detailRes.json();
-            const latest = data?.data?.[0];
-            if (latest?.nav) {
+  const scored = Array.from(candidateMap.values())
+    .map((item) => ({ ...item, score: scoreSchemeCandidate(item, query) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+
+  const now = Date.now();
+  // Fetch /latest NAV for top candidates in parallel (filtering dead schemes)
+  await Promise.all(
+    scored.slice(0, 5).map(async (item: any) => {
+      try {
+        const detailRes = await fetch(`https://api.mfapi.in/mf/${item.schemeCode}/latest`, {
+          signal: AbortSignal.timeout(2500),
+        });
+        if (detailRes.ok) {
+          const data = await detailRes.json();
+          const latest = data?.data?.[0];
+          if (latest?.nav) {
+            const navDate = parseNavDate(latest.date);
+            const isDead = navDate && (now - navDate.getTime()) > 45 * 24 * 60 * 60 * 1000;
+            if (!isDead) {
               item.nav = parseFloat(latest.nav);
               item.date = latest.date;
             }
           }
-        } catch {}
-      })
-    );
+        }
+      } catch {}
+    })
+  );
 
-    return scored.map((s: any) => ({
+  return scored
+    .filter((s: any) => s.nav && s.nav > 0)
+    .slice(0, 6)
+    .map((s: any) => ({
       schemeCode: s.schemeCode,
       schemeName: s.schemeName,
       nav: s.nav,
       date: s.date,
     }));
-  } catch {
-    return [];
-  }
 }
 
 /**
@@ -1719,9 +1859,7 @@ export async function searchIndianStocks(
         sym.endsWith('.NS') ||
         sym.endsWith('.BO') ||
         q.exchange === 'NSI' ||
-        q.exchange === 'BOM' ||
-        q.quoteType === 'EQUITY' ||
-        q.quoteType === 'ETF'
+        q.exchange === 'BOM'
       );
     });
 

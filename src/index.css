@@ -50,6 +50,11 @@
   user-select: none;
 }
 
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
 body {
   background-color: #FFFDF5;
   color: #121212;
