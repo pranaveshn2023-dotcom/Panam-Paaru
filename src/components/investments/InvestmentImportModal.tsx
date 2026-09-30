@@ -472,6 +472,20 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     }
   };
 
+  const handleBrokerSelect = (brokerName: string) => {
+    setSelectedBroker(brokerName);
+    const tag = brokerName === 'Auto-Detect Broker' ? null : brokerName;
+    setDetectedBrokerTag(tag);
+    if (parsedHoldings.length > 0) {
+      setParsedHoldings((prev) =>
+        prev.map((h) => ({
+          ...h,
+          broker: tag || undefined,
+        }))
+      );
+    }
+  };
+
   const processFile = async (file: File) => {
     try {
       setIsParsing(true);
@@ -482,17 +496,17 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       const result = await parseInvestmentFile(file);
       setRawGrid(result.rawGrid);
 
-      // Intelligent Universal Broker Detection across all 30+ brokers & depositories
+      // Intelligent Universal Broker Detection across brokers & depositories
       const autoDetected = detectBrokerFromFile(file.name, result.rawGrid);
-      if (autoDetected) {
-        setSelectedBroker(autoDetected);
-        setDetectedBrokerTag(autoDetected);
-      }
+      const chosenBroker = autoDetected || 'Others';
+      setSelectedBroker(chosenBroker);
+      setDetectedBrokerTag(autoDetected ? autoDetected : 'Others');
 
       if (result.holdings.length > 0) {
-        const taggedHoldings = autoDetected
-          ? result.holdings.map((h) => ({ ...h, broker: h.broker || autoDetected }))
-          : result.holdings;
+        const taggedHoldings = result.holdings.map((h) => ({
+          ...h,
+          broker: h.broker || chosenBroker,
+        }));
         setParsedHoldings(taggedHoldings);
         setIsParsing(false);
         enrichHoldingsWithLivePrices(taggedHoldings);
@@ -558,15 +572,15 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       setRawGrid(result.rawGrid);
 
       const autoDetected = detectBrokerFromFile(pendingFile.name, result.rawGrid);
-      if (autoDetected) {
-        setSelectedBroker(autoDetected);
-        setDetectedBrokerTag(autoDetected);
-      }
+      const chosenBroker = autoDetected || 'Others';
+      setSelectedBroker(chosenBroker);
+      setDetectedBrokerTag(autoDetected ? autoDetected : 'Others');
 
       if (result.holdings.length > 0) {
-        const taggedHoldings = autoDetected
-          ? result.holdings.map((h) => ({ ...h, broker: h.broker || autoDetected }))
-          : result.holdings;
+        const taggedHoldings = result.holdings.map((h) => ({
+          ...h,
+          broker: h.broker || chosenBroker,
+        }));
         setParsedHoldings(taggedHoldings);
         setIsPasswordPrompt(false);
         setIsParsing(false);
@@ -608,14 +622,14 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       }
 
       const autoDetected = detectBrokerFromFile(undefined, undefined, pastedText);
-      if (autoDetected) {
-        setSelectedBroker(autoDetected);
-        setDetectedBrokerTag(autoDetected);
-      }
+      const chosenBroker = autoDetected || 'Others';
+      setSelectedBroker(chosenBroker);
+      setDetectedBrokerTag(autoDetected ? autoDetected : 'Others');
 
-      const taggedHoldings = autoDetected
-        ? extracted.map((h) => ({ ...h, broker: h.broker || autoDetected }))
-        : extracted;
+      const taggedHoldings = extracted.map((h) => ({
+        ...h,
+        broker: h.broker || chosenBroker,
+      }));
 
       setParsedHoldings(taggedHoldings);
       setError('');
@@ -876,14 +890,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                   <span className="text-[10px] font-black uppercase text-neutral-600 shrink-0">Broker:</span>
                   <BrokerSelectDropdown
                     value={selectedBroker}
-                    onChange={(brokerName) => {
-                      setSelectedBroker(brokerName);
-                      if (brokerName === 'Auto-Detect Broker') {
-                        setDetectedBrokerTag(null);
-                      } else {
-                        setDetectedBrokerTag(brokerName);
-                      }
-                    }}
+                    onChange={handleBrokerSelect}
                   />
 
                   {detectedBrokerTag && detectedBrokerTag !== 'Auto-Detect Broker' && (
@@ -1175,6 +1182,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     })}
                   </span>
                 </div>
+                <div className="flex items-center gap-1.5 pl-2 sm:border-l sm:border-neutral-300">
+                  <span className="text-neutral-500 font-bold uppercase text-[10px]">Broker:</span>
+                  <BrokerSelectDropdown
+                    value={selectedBroker}
+                    onChange={handleBrokerSelect}
+                  />
+                </div>
               </div>
             </div>
 
@@ -1260,6 +1274,18 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                               onChange={(e) => updateItemField(h.id, 'name', e.target.value)}
                               className="w-full p-1 bg-transparent hover:bg-neutral-100 focus:bg-white border border-transparent hover:border-neutral-300 focus:border-[#121212] font-black text-xs text-[#121212]"
                             />
+                            <div className="flex items-center flex-wrap gap-1.5 mt-0.5">
+                              {h.assetType === 'mutual_fund' && h.amc && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                  AMC: {h.amc}
+                                </span>
+                              )}
+                              {h.isin && (
+                                <span className="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-mono text-neutral-500">
+                                  {h.isin}
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           {/* Type dropdown cell */}
@@ -1501,6 +1527,22 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                     className="w-full p-1 border border-neutral-300 text-xs bg-white"
                                   />
                                 </div>
+
+                                {h.assetType === 'mutual_fund' && (
+                                  <div>
+                                    <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">
+                                      Fund AMC
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={h.amc || ''}
+                                      placeholder="e.g. Motilal Oswal AMC, Groww"
+                                      onChange={(e) => updateItemField(h.id, 'amc', e.target.value || undefined)}
+                                      className="w-full p-1 border border-neutral-300 text-xs bg-white text-purple-800 font-semibold"
+                                      title="Asset Management Company (Fund House)"
+                                    />
+                                  </div>
+                                )}
 
                                 <div>
                                   <label className="text-[10px] font-black uppercase text-neutral-500 block mb-0.5">

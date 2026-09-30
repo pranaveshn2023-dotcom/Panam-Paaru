@@ -50,9 +50,14 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Discount Brokers',
     iconBg: '#00D09C',
     iconText: 'G',
-    keywords: ['groww', 'nextbillion', 'groww.in'],
-    filePatterns: [/groww/i, /nextbillion/i],
-    contentPatterns: [/groww/i, /nextbillion technology/i, /groww\.in/i],
+    keywords: ['groww', 'nextbillion', 'groww invest tech', 'groww.in'],
+    filePatterns: [/groww[_\-\s]?(?:holdings?|statement|portfolio|tradebook|report|user|export)/i, /nextbillion/i, /^groww[_\-\.]/i],
+    contentPatterns: [
+      /nextbillion technology/i,
+      /groww invest tech/i,
+      /groww\.in/i,
+      /\bgroww\b(?!.*(?:mutual\s*fund|asset\s*management|amc))/i,
+    ],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://groww.in/user/profile/report',
     exportSteps: [
@@ -111,9 +116,9 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Full-Service & Banking',
     iconBg: '#F37021',
     iconText: 'IC',
-    keywords: ['icici', 'icicidirect', 'icici securities'],
-    filePatterns: [/icici/i, /direct/i],
-    contentPatterns: [/icici direct/i, /icici securities/i],
+    keywords: ['icicidirect', 'icici direct', 'icici securities', 'icicisecurities'],
+    filePatterns: [/icici[_\-\s]?direct/i, /icicidirect/i, /icici[_\-\s]?sec/i],
+    contentPatterns: [/icici direct/i, /icici securities/i, /icicidirect\.com/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.icicidirect.com',
     exportSteps: [
@@ -130,8 +135,8 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Depositories & CAS',
     iconBg: '#1A56A0',
     iconText: 'C',
-    keywords: ['cdsl', 'ecas', 'cdslindia', 'central depository services'],
-    filePatterns: [/cdsl/i, /ecas/i],
+    keywords: ['cdsl', 'cdslindia', 'central depository services'],
+    filePatterns: [/cdsl[_\-\s]?ecas/i, /cdsl/i],
     contentPatterns: [/central depository services/i, /cdsl/i, /bo id/i, /dp id.*120\d{5}/i],
     supportedFormats: ['.pdf'],
     portalUrl: 'https://www.cdslindia.com',
@@ -150,8 +155,8 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Discount Brokers',
     iconBg: '#D8232A',
     iconText: 'A',
-    keywords: ['angel', 'angelone', 'angel broking'],
-    filePatterns: [/angel/i, /angelone/i],
+    keywords: ['angelone', 'angel one', 'angel broking'],
+    filePatterns: [/angel[_\-\s]?one/i, /angelone/i, /angel[_\-\s]?broking/i],
     contentPatterns: [/angel one/i, /angel broking/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.angelone.in',
@@ -212,7 +217,7 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     iconBg: '#004B87',
     iconText: 'N',
     keywords: ['nsdl', 'speed-e', 'nsdleservices', 'national securities depository'],
-    filePatterns: [/nsdl/i, /ecas/i],
+    filePatterns: [/nsdl[_\-\s]?ecas/i, /nsdl/i],
     contentPatterns: [/national securities depository/i, /nsdl/i, /dp id.*in30\d{4}/i],
     supportedFormats: ['.pdf'],
     portalUrl: 'https://nsdl.com',
@@ -230,8 +235,8 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Full-Service & Banking',
     iconBg: '#004C8F',
     iconText: 'H',
-    keywords: ['hdfc', 'hdfcsky', 'hdfcsec', 'hdfc securities'],
-    filePatterns: [/hdfc/i, /sky/i],
+    keywords: ['hdfc sky', 'hdfcsky', 'hdfc securities', 'hdfcsec'],
+    filePatterns: [/hdfc[_\-\s]?sky/i, /hdfc[_\-\s]?sec/i, /hdfcsky/i],
     contentPatterns: [/hdfc sky/i, /hdfc securities/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://hdfcsky.com',
@@ -249,9 +254,9 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Full-Service & Banking',
     iconBg: '#ED1C24',
     iconText: 'K',
-    keywords: ['kotak', 'kotaksec', 'cherry', 'kotak neo'],
-    filePatterns: [/kotak/i, /cherry/i, /neo/i],
-    contentPatterns: [/kotak securities/i, /kotak mahindra/i],
+    keywords: ['kotak securities', 'kotaksec', 'kotak neo', 'kotak cherry'],
+    filePatterns: [/kotak[_\-\s]?sec/i, /kotak[_\-\s]?neo/i, /kotak[_\-\s]?cherry/i],
+    contentPatterns: [/kotak securities/i, /kotak mahindra capital/i, /kotak neo/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.kotaksecurities.com',
     exportSteps: [
@@ -266,8 +271,8 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Full-Service & Banking',
     iconBg: '#97144D',
     iconText: 'A',
-    keywords: ['axis', 'axisdirect', 'axis securities'],
-    filePatterns: [/axis/i],
+    keywords: ['axis direct', 'axisdirect', 'axis securities'],
+    filePatterns: [/axis[_\-\s]?direct/i, /axis[_\-\s]?sec/i, /axisdirect/i],
     contentPatterns: [/axis direct/i, /axis securities/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.axisdirect.in',
@@ -284,8 +289,8 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Full-Service & Banking',
     iconBg: '#280071',
     iconText: 'S',
-    keywords: ['sbi', 'sbicap', 'sbisec'],
-    filePatterns: [/sbi/i, /sbicap/i],
+    keywords: ['sbi securities', 'sbicap', 'sbisec', 'sbisecurities'],
+    filePatterns: [/sbi[_\-\s]?sec/i, /sbicap/i, /sbisecurities/i],
     contentPatterns: [/sbi securities/i, /sbicap securities/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.sbisecurities.in',
@@ -301,9 +306,14 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Full-Service & Banking',
     iconBg: '#EF4444',
     iconText: 'M',
-    keywords: ['motilal', 'mofsl', 'oswal'],
-    filePatterns: [/motilal/i, /mofsl/i],
-    contentPatterns: [/motilal oswal/i, /mofsl/i],
+    keywords: ['mofsl', 'motilal oswal financial', 'motilal securities'],
+    filePatterns: [/mofsl/i, /motilal[_\-\s]?oswal[_\-\s]?(?:financial|securities|broking|holdings?|statement|portfolio|tradebook)/i],
+    contentPatterns: [
+      /motilal oswal financial services/i,
+      /mofsl/i,
+      /motilal oswal securities/i,
+      /\bmotilal oswal\b(?!.*(?:asset\s*management|mutual\s*fund|amc))/i,
+    ],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.motilaloswal.com',
     exportSteps: [
@@ -463,8 +473,8 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Full-Service & Banking',
     iconBg: '#C2410C',
     iconText: 'M',
-    keywords: ['mstock', 'mirae', 'mirae asset'],
-    filePatterns: [/mstock/i, /mirae/i],
+    keywords: ['mstock', 'mirae capital', 'mirae securities'],
+    filePatterns: [/mstock/i, /m\.stock/i, /mirae[_\-\s]?asset[_\-\s]?(?:capital|securities|broking)/i],
     contentPatterns: [/m\.stock/i, /mirae asset capital/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.mstock.com',
@@ -480,9 +490,9 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Full-Service & Banking',
     iconBg: '#4F46E5',
     iconText: 'N',
-    keywords: ['nuvama', 'edelweiss'],
-    filePatterns: [/nuvama/i, /edelweiss/i],
-    contentPatterns: [/nuvama wealth/i, /edelweiss/i],
+    keywords: ['nuvama', 'edelweiss wealth', 'edelweiss broking'],
+    filePatterns: [/nuvama/i, /edelweiss[_\-\s]?(?:broking|securities|wealth)/i],
+    contentPatterns: [/nuvama wealth/i, /edelweiss securities/i, /edelweiss broking/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.nuvamawealth.com',
     exportSteps: [
@@ -565,8 +575,8 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Other / Generic',
     iconBg: '#374151',
     iconText: '🏦',
-    keywords: ['bank', 'statement', 'account statement', 'passbook'],
-    filePatterns: [/bank/i, /statement/i, /passbook/i],
+    keywords: ['bank', 'bank statement', 'account statement', 'passbook'],
+    filePatterns: [/bank[_\-\s]?statement/i, /passbook/i, /account[_\-\s]?statement/i],
     contentPatterns: [/account statement/i, /account balance/i, /opening balance/i, /closing balance/i],
     supportedFormats: ['.pdf', '.xlsx', '.csv'],
     exportSteps: [
@@ -626,40 +636,78 @@ export function detectBrokerFromFile(
   const safeName = (fileName || '').toLowerCase();
   const safeSnippet = (textSnippet || '').toLowerCase();
 
-  let sheetText = '';
+  // 1. Strict File Name Match (Highest Confidence)
+  if (safeName) {
+    for (const broker of BROKER_DIRECTORY) {
+      if (broker.id === 'other_broker') continue;
+      for (const pat of broker.filePatterns) {
+        if (pat.test(safeName)) return broker.shortName;
+      }
+    }
+  }
+
+  // 2. Sheet Name Match (e.g. "Groww_Holdings", "Kite_Equity", "Upstox_Portfolio")
   if (rawContent?.sheets) {
     for (const sheet of rawContent.sheets) {
-      sheetText += ` ${sheet.sheetName.toLowerCase()}`;
-      const sampleRows = (sheet.rows || []).slice(0, 15);
+      const sName = sheet.sheetName.toLowerCase();
+      for (const broker of BROKER_DIRECTORY) {
+        if (broker.id === 'other_broker') continue;
+        for (const pat of broker.filePatterns) {
+          if (pat.test(sName)) return broker.shortName;
+        }
+        for (const kw of broker.keywords) {
+          if (kw.length >= 4 && sName.includes(kw.toLowerCase())) {
+            return broker.shortName;
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Document Banner / Top Metadata Rows (STRICT: only rows BEFORE the table header)
+  let headerBannerText = '';
+  if (rawContent?.sheets) {
+    for (const sheet of rawContent.sheets) {
+      const sampleRows = (sheet.rows || []).slice(0, 5);
       for (const row of sampleRows) {
-        sheetText += ` ${row.join(' ').toLowerCase()}`;
+        const rowStr = row.join(' ').toLowerCase();
+        // If this row contains table column headers, stop! Holdings lie beneath this row.
+        if (
+          /\b(isin|symbol|instrument|scheme\s*name|units|quantity|qty|nav|current\s*value|invested)\b/i.test(
+            rowStr
+          )
+        ) {
+          break;
+        }
+        headerBannerText += ` ${rowStr}`;
       }
     }
   }
 
-  const combinedSearchSpace = `${safeName} ${sheetText} ${safeSnippet}`;
+  const metadataSearchSpace = `${headerBannerText} ${safeSnippet}`;
 
-  for (const broker of BROKER_DIRECTORY) {
-    if (broker.id === 'other_broker') continue;
+  // 4. Strict Content Patterns on Banner / Metadata
+  if (metadataSearchSpace.trim()) {
+    // If banner indicates this is solely an AMC mutual fund house statement (not a stock broker statement)
+    const isPureAmcStatement =
+      /\b(asset\s*management\s*(?:company|ltd|co)|mutual\s*fund\s*trustee|amc)\b/i.test(metadataSearchSpace) &&
+      !/\b(broking|securities|financial\s*services|trading\s*member|member\s*of\s*(?:nse|bse)|inz\d|dp\s*id)\b/i.test(
+        metadataSearchSpace
+      );
 
-    // 1. Check file patterns
-    for (const pat of broker.filePatterns) {
-      if (pat.test(safeName)) return broker.shortName;
-    }
-
-    // 2. Check content patterns
-    for (const pat of broker.contentPatterns) {
-      if (pat.test(combinedSearchSpace)) return broker.shortName;
-    }
-
-    // 3. Keyword scan
-    for (const kw of broker.keywords) {
-      if (combinedSearchSpace.includes(kw.toLowerCase())) {
-        return broker.shortName;
+    for (const broker of BROKER_DIRECTORY) {
+      if (broker.id === 'other_broker') continue;
+      // If pure AMC statement, skip stock brokers to prevent confusing AMC with broker
+      if (isPureAmcStatement && broker.category !== 'Depositories & CAS') {
+        continue;
+      }
+      for (const pat of broker.contentPatterns) {
+        if (pat.test(metadataSearchSpace)) return broker.shortName;
       }
     }
   }
 
+  // No high-confidence broker identified — return null so caller treats it as "Others" / optional
   return null;
 }
 

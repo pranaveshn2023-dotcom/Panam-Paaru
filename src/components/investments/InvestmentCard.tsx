@@ -18,6 +18,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { usePrivacy } from '../../context/PrivacyContext';
+import { detectAmcFromText } from '../../utils/liveMarketService';
 
 interface InvestmentCardProps {
   inv: Investment;
@@ -55,7 +56,14 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
     inv.currentPrice ? String(inv.currentPrice) : inv.units && inv.units > 0 ? String(Math.round((inv.currentValue / inv.units) * 10000) / 10000) : ''
   );
 
-  const badgeInfo = ASSET_COLORS[inv.assetType] || { label: inv.assetType, color: '#FFE600' };
+  const isEtf =
+    inv.assetType === 'stocks' &&
+    (inv.subType?.toLowerCase().includes('etf') || /\b(etf|\w*bees|bees)\b/i.test(inv.name)) &&
+    !/\b(fof|fund\s*of\s*funds?)\b/i.test(inv.name);
+
+  const badgeInfo = isEtf
+    ? { label: 'ETF', color: '#00F0FF' }
+    : ASSET_COLORS[inv.assetType] || { label: inv.assetType, color: '#FFE600' };
   const invested = typeof inv.investedAmount === 'number' && !isNaN(inv.investedAmount) ? inv.investedAmount : 0;
   const currentVal = typeof inv.currentValue === 'number' && !isNaN(inv.currentValue) ? inv.currentValue : 0;
   const gain = currentVal - invested;
@@ -112,8 +120,24 @@ export const InvestmentCard: React.FC<InvestmentCardProps> = ({
             {inv.subType || badgeInfo.label}
           </NeoBadge>
           {inv.broker && (
-            <span className="text-[9px] font-black uppercase bg-[#FFE600] text-[#121212] px-1.5 py-0.5 border border-[#121212]">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(inv);
+              }}
+              title="Click to edit broker and holding details"
+              className="text-[9px] font-black uppercase bg-[#FFE600] text-[#121212] px-1.5 py-0.5 border border-[#121212] cursor-pointer hover:bg-[#FFD700] transition-colors"
+            >
               {inv.broker}
+            </button>
+          )}
+          {inv.assetType === 'mutual_fund' && (inv.amc || detectAmcFromText(inv.name)?.name) && (
+            <span
+              className="text-[9px] font-bold uppercase bg-purple-50 text-purple-700 px-1.5 py-0.5 border border-purple-200"
+              title={`Fund AMC: ${inv.amc || detectAmcFromText(inv.name)?.name}`}
+            >
+              AMC: {inv.amc || detectAmcFromText(inv.name)?.name}
             </span>
           )}
           {inv.sector && (

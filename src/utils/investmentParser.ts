@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
 import { AssetType } from '../types';
-import { detectDetailedAssetType, detectStockSector } from './liveMarketService';
+import { detectDetailedAssetType, detectStockSector, detectAmcFromText } from './liveMarketService';
 
 // PDF Worker Initialization
 function initPdfWorker() {
@@ -37,6 +37,7 @@ export interface ParsedHolding {
   assetType: AssetType;
   subType?: string;
   sector?: string;
+  amc?: string;
   investedAmount: number;
   currentValue: number;
   returns?: number;
@@ -969,6 +970,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
 
         if (invested > 0 || current > 0) {
           const detailed = detectDetailedAssetType(fullName, rawType || rawSubCat, rawSector, rawIsin);
+          const detectedAmc = detailed.assetType === 'mutual_fund' ? detectAmcFromText(fullName)?.name : undefined;
           const notesParts = [
             rawFolio ? `Folio: ${rawFolio}` : '',
             rawIsin ? `ISIN: ${rawIsin}` : '',
@@ -981,6 +983,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             assetType: detailed.assetType,
             subType: rawSubCat || rawType || detailed.subType,
             sector: rawSector || detailed.sector || undefined,
+            amc: detectedAmc,
             broker: rawBroker || undefined,
             folioNo: rawFolio || undefined,
             isin: rawIsin || undefined,
@@ -1063,12 +1066,14 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
 
           if (invested > 0 || current > 0) {
             const detailed = detectDetailedAssetType(String(stringCell));
+            const detectedAmc = detailed.assetType === 'mutual_fund' ? detectAmcFromText(String(stringCell))?.name : undefined;
             holdings.push({
               id: `pos_${sheet.sheetName}_${r}_${Date.now()}`,
               name: String(stringCell).trim(),
               assetType: detailed.assetType,
               subType: detailed.subType,
               sector: undefined,
+              amc: detectedAmc,
               units: units ? cleanUnits(units) : undefined,
               currentPrice: currentPrice ? cleanNavPrice(currentPrice, detailed.assetType === 'mutual_fund') : undefined,
               investedAmount: cleanCurrency(Math.abs(invested)),

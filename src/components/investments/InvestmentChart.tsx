@@ -54,8 +54,6 @@ export const AllocationChart: React.FC<AllocationChartProps> = ({
 
   const totalValue =
     totalCurrentValue ?? activeBreakdown.reduce((sum, item) => sum + (item.currentValue || 0), 0);
-  const computedHoldings =
-    totalHoldingsCount ?? activeBreakdown.reduce((sum, item) => sum + (item.itemCount || 0), 0);
 
   const data = activeBreakdown.map((item) => ({
     name: item.assetType.replace(/_/g, ' ').toUpperCase(),
@@ -248,10 +246,6 @@ export const AllocationChart: React.FC<AllocationChartProps> = ({
                 </span>
                 <span className="text-sm sm:text-base font-mono font-black text-[#121212] leading-tight">
                   {formatSmartAmount(totalValue)}
-                </span>
-                <span className="text-[9px] font-mono font-bold text-neutral-500 mt-0.5">
-                  {data.length} {data.length === 1 ? 'Asset' : 'Assets'}
-                  {computedHoldings > 0 && ` • ${computedHoldings}H`}
                 </span>
               </div>
             )}

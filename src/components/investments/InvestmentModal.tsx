@@ -15,6 +15,7 @@ import {
   ArrowRight,
   Edit3,
   RefreshCw,
+  Building2,
 } from 'lucide-react';
 import { useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
@@ -39,6 +40,7 @@ export interface InvestmentModalProps {
     schemeCode?: number;
     isin?: string;
     ticker?: string;
+    broker?: string;
     sipAmount?: number;
     sipDay?: number;
     xirr?: string;
@@ -144,6 +146,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   const [sipDay, setSipDay] = useState('5');
   const [xirr, setXirr] = useState('');
   const [notes, setNotes] = useState('');
+  const [broker, setBroker] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -178,6 +181,11 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   const fetchLivePriceAction = useAction(api.investments.fetchLivePrice);
   const searchMarketAssetsAction = useAction(api.investments.searchMarketAssets);
 
+  // Distinct brokers present in portfolio
+  const portfolioExistingBrokers = React.useMemo(() => {
+    return Array.from(new Set((existingInvestments || []).map((i) => i.broker).filter(Boolean))) as string[];
+  }, [existingInvestments]);
+
   // Close suggestions on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -202,6 +210,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setSipDay(initialData.sipDay ? String(initialData.sipDay) : '5');
       setXirr(initialData.xirr || '');
       setNotes(initialData.notes || '');
+      setBroker(initialData.broker || '');
       setLivePrice(initialData.currentPrice || null);
       setLivePriceSymbol(initialData.name);
       setResolvedSchemeCode(initialData.schemeCode);
@@ -229,6 +238,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setSipDay('5');
       setXirr('');
       setNotes('');
+      setBroker('');
       setLivePrice(null);
       setLivePriceSymbol('');
       setResolvedSchemeCode(undefined);
@@ -620,6 +630,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
           schemeCode: resolvedSchemeCode,
           isin: resolvedIsin,
           ticker: resolvedTicker,
+          broker: broker.trim() || undefined,
           sipAmount: numSip,
           sipDay: numSipDay,
           xirr: xirr.trim() || undefined,
@@ -909,19 +920,19 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                             }
                           }
                         }}
-                        className="w-full text-left p-2.5 hover:bg-[#E8F8F0] transition-colors flex items-start justify-between gap-2 group cursor-pointer"
+                        className="w-full text-left p-2.5 hover:bg-[#F3E8FF] transition-colors flex items-start justify-between gap-2 group cursor-pointer"
                       >
                         <div className="flex flex-col gap-0.5 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[9px] font-black uppercase bg-[#00F0FF] text-[#121212] px-1 py-0.2 border border-[#121212]">
-                              AMFI MF
+                            <span className="text-[9px] font-black uppercase bg-[#9B51E0] text-white px-1.5 py-0.5 border border-[#121212]">
+                              MF • AMFI
                             </span>
-                            <span className="text-xs font-black text-[#121212] truncate group-hover:text-[#0B6B38]">
+                            <span className="text-xs font-black text-[#121212] truncate group-hover:text-[#6B21A8]">
                               {mf.schemeName}
                             </span>
                           </div>
-                          <span className="text-[10px] font-mono text-neutral-500">
-                            Scheme Code: {mf.schemeCode} {mf.isin ? `• ISIN: ${mf.isin}` : ''}
+                          <span className="text-[10px] font-mono text-neutral-600 font-medium">
+                            MF • Scheme Code: {mf.schemeCode} {mf.isin ? `• ISIN: ${mf.isin}` : ''}
                           </span>
                         </div>
                         {mf.nav && mf.nav > 0 && (
@@ -940,56 +951,67 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                     ))}
 
                     {/* Stocks & ETFs from NSE & BSE */}
-                    {(searchTab === 'all' || searchTab === 'stocks') && searchResults.stocks.map((stk) => (
-                      <button
-                        key={`stk_${stk.symbol}`}
-                        type="button"
-                        onClick={() => {
-                          setName(stk.name || stk.symbol);
-                          setAssetType('stocks');
-                          setResolvedTicker(stk.symbol);
-                          setShowSuggestions(false);
-                          setNotes((prev) => {
-                            const withoutTicker = prev.replace(/\bticker\s*[:#-]?\s*[\w\.]+\b/gi, '').trim();
-                            return `Ticker: ${stk.symbol}${withoutTicker ? ` • ${withoutTicker}` : ''}`;
-                          });
+                    {(searchTab === 'all' || searchTab === 'stocks') && searchResults.stocks.map((stk) => {
+                      const isEtf = /\b(etf|\w*bees|bees)\b/i.test(stk.name) || /\b(bees|etf)\b/i.test(stk.symbol);
+                      const cleanSym = stk.symbol.replace(/\.(NS|BO)$/i, '');
+                      return (
+                        <button
+                          key={`stk_${stk.symbol}`}
+                          type="button"
+                          onClick={() => {
+                            setName(stk.name || stk.symbol);
+                            setAssetType('stocks');
+                            setResolvedTicker(stk.symbol);
+                            setShowSuggestions(false);
+                            setNotes((prev) => {
+                              const withoutTicker = prev.replace(/\bticker\s*[:#-]?\s*[\w\.]+\b/gi, '').trim();
+                              return `Ticker: ${stk.symbol}${withoutTicker ? ` • ${withoutTicker}` : ''}`;
+                            });
 
-                          if (stk.price && stk.price > 0) {
-                            setLivePrice(stk.price);
-                            setLivePriceSymbol(stk.symbol);
-                            setCurrentPrice(String(stk.price));
-                            const numInv = parseFloat(investedAmountRef.current);
-                            const numUnits = parseFloat(unitsRef.current);
-                            const numBuy = parseFloat(buyPriceRef.current);
-                            if (!isNaN(numUnits) && numUnits > 0) {
-                              setCurrentValue(String(Math.round(numUnits * stk.price * 100) / 100));
-                              if (!isNaN(numInv) && numInv > 0 && isNaN(numBuy)) {
-                                setBuyPrice(String(Math.round((numInv / numUnits) * 10000) / 10000));
+                            if (stk.price && stk.price > 0) {
+                              setLivePrice(stk.price);
+                              setLivePriceSymbol(stk.symbol);
+                              setCurrentPrice(String(stk.price));
+                              const numInv = parseFloat(investedAmountRef.current);
+                              const numUnits = parseFloat(unitsRef.current);
+                              const numBuy = parseFloat(buyPriceRef.current);
+                              if (!isNaN(numUnits) && numUnits > 0) {
+                                setCurrentValue(String(Math.round(numUnits * stk.price * 100) / 100));
+                                if (!isNaN(numInv) && numInv > 0 && isNaN(numBuy)) {
+                                  setBuyPrice(String(Math.round((numInv / numUnits) * 10000) / 10000));
+                                }
+                              } else if (!isNaN(numInv) && numInv > 0) {
+                                const effBuy = !isNaN(numBuy) && numBuy > 0 ? numBuy : stk.price;
+                                const derivedUnits = Math.round((numInv / effBuy) * 10000) / 10000;
+                                setUnits(String(derivedUnits));
+                                setCurrentValue(String(Math.round(derivedUnits * stk.price * 100) / 100));
+                                if (isNaN(numBuy) || numBuy <= 0) setBuyPrice(String(stk.price));
                               }
-                            } else if (!isNaN(numInv) && numInv > 0) {
-                              const effBuy = !isNaN(numBuy) && numBuy > 0 ? numBuy : stk.price;
-                              const derivedUnits = Math.round((numInv / effBuy) * 10000) / 10000;
-                              setUnits(String(derivedUnits));
-                              setCurrentValue(String(Math.round(derivedUnits * stk.price * 100) / 100));
-                              if (isNaN(numBuy) || numBuy <= 0) setBuyPrice(String(stk.price));
                             }
-                          }
-                        }}
-                        className="w-full text-left p-2.5 hover:bg-[#FFF9DB] transition-colors flex items-start justify-between gap-2 group cursor-pointer"
-                      >
-                        <div className="flex flex-col gap-0.5 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[9px] font-black uppercase bg-[#FFE600] text-[#121212] px-1 py-0.2 border border-[#121212]">
-                              {stk.exchange || 'NSE'}
-                            </span>
-                            <span className="text-xs font-black text-[#121212] truncate group-hover:text-[#705800]">
-                              {stk.name}
+                          }}
+                          className={`w-full text-left p-2.5 transition-colors flex items-start justify-between gap-2 group cursor-pointer ${
+                            isEtf ? 'hover:bg-[#E6FFFA]' : 'hover:bg-[#FFF9DB]'
+                          }`}
+                        >
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {isEtf ? (
+                                <span className="text-[9px] font-black uppercase bg-[#00F0FF] text-[#121212] px-1.5 py-0.5 border border-[#121212]">
+                                  ETF • {stk.exchange || 'NSE'}
+                                </span>
+                              ) : (
+                                <span className="text-[9px] font-black uppercase bg-[#FFE600] text-[#121212] px-1.5 py-0.5 border border-[#121212]">
+                                  STOCK • {stk.exchange || 'NSE'}
+                                </span>
+                              )}
+                              <span className="text-xs font-black text-[#121212] truncate group-hover:text-black">
+                                {stk.name}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono font-bold text-neutral-600">
+                              {isEtf ? `ETF • ${cleanSym}` : `Stock • ${cleanSym}`}
                             </span>
                           </div>
-                          <span className="text-[10px] font-mono font-bold text-neutral-500">
-                            Ticker: {stk.symbol}
-                          </span>
-                        </div>
                         {stk.price && stk.price > 0 && (
                           <div className="text-right shrink-0 flex flex-col items-end">
                             <span className="text-xs font-mono font-black text-[#121212]">
@@ -1003,8 +1025,9 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                           </div>
                         )}
                       </button>
-                    ))}
-                  </div>
+                    );
+                  })}
+                </div>
                 </div>
               )}
 
@@ -1295,6 +1318,64 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
                     className="neo-input py-1.5 px-2.5 text-xs font-mono font-bold"
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Broker / Platform (Optional, Fully User Configurable) */}
+            <div className="flex flex-col gap-1.5 p-2.5 bg-[#FFFDF5] border-2 border-[#121212]">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-black uppercase text-[#121212] flex items-center gap-1.5">
+                  <Building2 size={13} className="text-[#121212]" />
+                  <span>Broker / Platform (Optional)</span>
+                </label>
+                {broker && (
+                  <button
+                    type="button"
+                    onClick={() => setBroker('')}
+                    className="text-[10px] font-bold text-neutral-400 hover:text-red-500 cursor-pointer lowercase"
+                  >
+                    clear
+                  </button>
+                )}
+              </div>
+
+              <input
+                type="text"
+                value={broker}
+                onChange={(e) => setBroker(e.target.value)}
+                placeholder="e.g. Groww, Zerodha, Angel One, Upstox, Others..."
+                className="neo-input py-1.5 px-2.5 text-xs font-bold bg-white"
+              />
+
+              {/* Quick broker selection pills */}
+              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                <span className="text-[9px] font-black uppercase text-neutral-400">Presets:</span>
+                {[
+                  ...new Set([
+                    ...portfolioExistingBrokers,
+                    'Groww',
+                    'Zerodha',
+                    'Angel One',
+                    'Upstox',
+                    'Dhan',
+                    'ICICI Direct',
+                    'HDFC Sky',
+                    'Others',
+                  ]),
+                ].slice(0, 10).map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => setBroker(b)}
+                    className={`px-2 py-0.5 text-[10px] border transition-all cursor-pointer ${
+                      broker.toLowerCase() === b.toLowerCase()
+                        ? 'bg-[#FFE600] text-[#121212] border-[#121212] font-black shadow-neo-sm'
+                        : 'bg-white text-neutral-600 border-neutral-300 hover:border-neutral-500 font-bold'
+                    }`}
+                  >
+                    {b}
+                  </button>
+                ))}
               </div>
             </div>
 

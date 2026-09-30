@@ -1628,8 +1628,9 @@ export function detectDetailedAssetType(
         const sub = /silver|silve/i.test(lowerName) ? 'Silver ETF' : 'Gold ETF';
         return { assetType: 'gold', subType: sub, sector: explicitSector || 'Commodities' };
       }
-      if (/\b(etf|\w*bees|bees)\b/i.test(lowerName)) {
-        return { assetType: 'stocks', subType: 'Stock / Equity', sector: explicitSector || 'Equities' };
+      const isFofOrFundPlan = /\b(fof|fund\s*of\s*funds?|direct|regular|growth|idcw)\b/i.test(lowerName);
+      if (/\b(etf|\w*bees|bees)\b/i.test(lowerName) && !isFofOrFundPlan) {
+        return { assetType: 'stocks', subType: 'ETF (Exchange Traded Fund)', sector: explicitSector || 'Index & ETFs' };
       }
       if (/liquid|overnight|debt|money\s*market|gilt|bond/i.test(lowerName)) {
         return { assetType: 'mutual_fund', subType: 'Debt Mutual Fund', sector: explicitSector };
@@ -1716,15 +1717,19 @@ export function detectDetailedAssetType(
     return { assetType: 'real_estate', subType: 'Real Estate & REITs', sector: explicitSector };
   }
 
-  // 6. Mutual Funds (AMFI Universe)
+  // 6. Mutual Funds (AMFI Universe vs Pure Exchange-Traded ETFs)
   const isDirectOrRegular = /\b(direct\s*plan|regular\s*plan|\bdir\b|\breg\b|direct|regular)\b/i.test(lowerName);
   const isGrowthOrIdcw = /\b(growth\s*option|growth\s*plan|\bgrowth\b|\bgr\b|idcw|dividend|payout|reinvestment)\b/i.test(lowerName);
-  const isEtf = /\b(\w*etf|\w*bees|etf|bees)\b/i.test(lowerName);
+  const isFof = /\b(fof|fund\s*of\s*funds?)\b/i.test(lowerName);
+  const isIndexFund = /\bindex\s*fund\b/i.test(lowerName);
+  const isPureEtf = /\b(\w*etf|\w*bees|etf|bees)\b/i.test(lowerName) && !isFof && !isDirectOrRegular && !isGrowthOrIdcw;
   const isFundOrScheme = /\b(fund|mutual\s*fund|scheme)\b/i.test(lowerName);
 
   const isMf =
-    !isEtf &&
+    !isPureEtf &&
     (
+      isFof ||
+      isIndexFund ||
       (isDirectOrRegular && isGrowthOrIdcw) ||
       (isFundOrScheme && !/\b(ltd|limited|inc|corp|holdings|exchange)\b/i.test(lowerName)) ||
       (isDirectOrRegular && isFundOrScheme)
@@ -1732,7 +1737,11 @@ export function detectDetailedAssetType(
 
   if (isMf) {
     let sub = 'Equity Mutual Fund';
-    if (/\b(liquid|overnight|debt|money\s*market|gilt|bond)\b/i.test(lowerName)) {
+    if (isFof) {
+      sub = 'ETF FoF (Mutual Fund)';
+    } else if (isIndexFund) {
+      sub = 'Index Mutual Fund';
+    } else if (/\b(liquid|overnight|debt|money\s*market|gilt|bond)\b/i.test(lowerName)) {
       sub = 'Debt Mutual Fund';
     } else if (/\b(hybrid|balanced|arbitrage|multi\s*asset)\b/i.test(lowerName)) {
       sub = 'Hybrid Mutual Fund';
@@ -1740,9 +1749,17 @@ export function detectDetailedAssetType(
     return { assetType: 'mutual_fund', subType: normType || sub, sector: explicitSector };
   }
 
-  // 7. Stocks, Equities & ETFs (Universal — any listed/unlisted company, ticker, or exchange security)
+  // 7. Exchange-Traded ETFs (NSE / BSE Real-time Traded)
+  if (isPureEtf) {
+    return {
+      assetType: 'stocks',
+      subType: 'ETF (Exchange Traded Fund)',
+      sector: explicitSector || (isGold || isSilver ? 'Commodities' : 'Index & ETFs'),
+    };
+  }
+
+  // 8. Stocks & Corporate Equities (Universal — any listed/unlisted company, ticker, or exchange security)
   const isStock =
-    isEtf ||
     /\b(ltd|limited|pvt|inc|corp|corporation|co|holdings|exchange|equity|equities|stock|shares?)\b/i.test(lowerName) ||
     /^[A-Z0-9_\-&]{2,20}(\.(NS|BO|NSE|BSE))?$/i.test(cleanName) ||
     /\s*[-–—:]\s*(eq|cnc|be|sm|st|t2t|bz)$/i.test(cleanName);

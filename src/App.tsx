@@ -152,6 +152,7 @@ export function AppContent() {
   const removeCategoryMutation = useMutation(api.categories.remove);
   const addInvestmentMutation = useMutation(api.investments.add);
   const batchAddInvestmentMutation = useMutation(api.investments.batchAdd);
+  const batchUpdateBrokerMutation = useMutation(api.investments.batchUpdateBroker);
   const syncLiveMarketPricesAction = useAction(api.investments.syncLiveMarketPrices);
   const updateInvestmentMutation = useMutation(api.investments.update);
   const quickUpdateInvestmentMutation = useMutation(api.investments.quickUpdateValue);
@@ -511,6 +512,7 @@ export function AppContent() {
     name: string; assetType: AssetType; investedAmount: number; currentValue: number;
     units?: number; buyPrice?: number; currentPrice?: number;
     schemeCode?: number; isin?: string; ticker?: string;
+    broker?: string;
     sipAmount?: number; sipDay?: number; xirr?: string; notes?: string;
     existingIdToMerge?: string;
   }) => {
@@ -528,6 +530,7 @@ export function AppContent() {
         schemeCode: data.schemeCode,
         isin: data.isin,
         ticker: data.ticker,
+        broker: data.broker,
         sipAmount: data.sipAmount,
         sipDay: data.sipDay,
         xirr: data.xirr,
@@ -541,6 +544,20 @@ export function AppContent() {
     } else {
       await addInvestmentMutation(data);
       syncLiveMarketPricesAction({ force: false }).catch(() => {});
+    }
+  };
+
+  const handleBatchUpdateBroker = async (fromBroker?: string, toBroker: string = '', investmentIds?: string[]) => {
+    if (navigator.vibrate) navigator.vibrate(20);
+    try {
+      const res = await batchUpdateBrokerMutation({
+        fromBroker,
+        toBroker,
+        investmentIds: investmentIds as any,
+      });
+      toast.success(`Updated broker to "${toBroker || 'None'}" for ${res.count} holding(s)!`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update broker');
     }
   };
 
@@ -621,6 +638,7 @@ export function AppContent() {
         }}
         onDelete={handleDeleteInvestment}
         onQuickUpdateValue={handleQuickUpdateInvestmentValue}
+        onBatchUpdateBroker={handleBatchUpdateBroker}
         currencySymbol={currencySymbol}
       />
     )

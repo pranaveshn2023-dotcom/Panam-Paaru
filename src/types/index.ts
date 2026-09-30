@@ -100,6 +100,7 @@ export interface Investment {
   subType?: string;
   sector?: string;
   broker?: string;
+  amc?: string;
   importBatchId?: string;
   investedAmount: number;
   currentValue: number;

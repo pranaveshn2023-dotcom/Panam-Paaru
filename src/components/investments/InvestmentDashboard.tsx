@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Investment, PortfolioSummary, AssetType } from '../../types';
 import { usePrivacy } from '../../context/PrivacyContext';
 import { NeoButton } from '../ui/NeoButton';
+import { NeoModal } from '../ui/NeoModal';
 import { toast } from 'sonner';
 import { AllocationChart } from './InvestmentChart';
 import { ReturnsChart } from './InvestmentChart';
@@ -15,6 +16,7 @@ import {
   Plus,
   Layers,
   Edit,
+  Edit3,
   Trash2,
   Calendar,
   PieChart,
@@ -51,6 +53,7 @@ interface InvestmentDashboardProps {
   onDelete: (id: string) => void;
   onQuickUpdateValue: (id: string, currentValue: number, currentPrice?: number) => Promise<void>;
   onTopUp?: (inv: Investment) => void;
+  onBatchUpdateBroker?: (fromBroker?: string, toBroker?: string, investmentIds?: string[]) => Promise<void>;
   currencySymbol?: string;
 }
 
@@ -63,12 +66,16 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
   onDelete,
   onQuickUpdateValue,
   onTopUp,
+  onBatchUpdateBroker,
   currencySymbol = '₹',
 }) => {
   const { formatPrivateAmount, isPrivacyMode, togglePrivacyMode } = usePrivacy();
 
   const [selectedFilter, setSelectedFilter] = useState<'all' | AssetType>('all');
   const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<string>('all');
+  const [isReassignModalOpen, setIsReassignModalOpen] = useState(false);
+  const [newBrokerTarget, setNewBrokerTarget] = useState('');
+  const [isReassigning, setIsReassigning] = useState(false);
   const [quickUpdateId, setQuickUpdateId] = useState<string | null>(null);
   const [quickValueInput, setQuickValueInput] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -512,20 +519,37 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
 
             {/* Broker Filter */}
             {availableBrokers.length > 0 && (
-              <div className="flex items-center gap-1 flex-1 sm:flex-initial">
-                <Building2 size={13} className="text-neutral-500 hidden sm:inline shrink-0" />
-                <select
-                  value={selectedBrokerFilter}
-                  onChange={(e) => setSelectedBrokerFilter(e.target.value)}
-                  className="px-2.5 py-1.5 text-xs font-black bg-[#FFE600] border border-[#121212] cursor-pointer text-[#121212] w-full sm:w-auto"
-                >
-                  <option value="all">All Brokers ({availableBrokers.length})</option>
-                  {availableBrokers.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex items-center gap-1.5 flex-1 sm:flex-initial flex-wrap">
+                <div className="flex items-center gap-1 flex-1 sm:flex-initial">
+                  <Building2 size={13} className="text-neutral-500 hidden sm:inline shrink-0" />
+                  <select
+                    value={selectedBrokerFilter}
+                    onChange={(e) => setSelectedBrokerFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs font-black bg-[#FFE600] border border-[#121212] cursor-pointer text-[#121212] w-full sm:w-auto"
+                  >
+                    <option value="all">All Brokers ({availableBrokers.length})</option>
+                    {availableBrokers.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedBrokerFilter !== 'all' && onBatchUpdateBroker && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewBrokerTarget(selectedBrokerFilter === 'ICICI Direct' ? 'Groww' : '');
+                      setIsReassignModalOpen(true);
+                    }}
+                    className="px-2 py-1 bg-white hover:bg-neutral-100 text-[#121212] border border-[#121212] text-[10px] font-black uppercase flex items-center gap-1 shadow-neo-sm cursor-pointer whitespace-nowrap"
+                    title={`Change broker for all holdings tagged as "${selectedBrokerFilter}"`}
+                  >
+                    <Edit3 size={11} />
+                    <span>Change Broker</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -617,6 +641,83 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             />
           ))}
         </div>
+      )}
+
+      {/* Reassign Broker Modal */}
+      {isReassignModalOpen && onBatchUpdateBroker && (
+        <NeoModal
+          isOpen={isReassignModalOpen}
+          onClose={() => setIsReassignModalOpen(false)}
+          title={`Change Broker: "${selectedBrokerFilter}"`}
+        >
+          <div className="flex flex-col gap-3 p-1">
+            <p className="text-xs text-neutral-600 font-semibold">
+              Select or type the correct broker name to apply to all holdings currently tagged as{' '}
+              <span className="font-black text-[#121212]">"{selectedBrokerFilter}"</span>:
+            </p>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-black uppercase text-neutral-700">
+                Correct Broker Name
+              </label>
+              <input
+                type="text"
+                value={newBrokerTarget}
+                onChange={(e) => setNewBrokerTarget(e.target.value)}
+                placeholder="e.g. Groww, Zerodha, Angel One, Others..."
+                className="neo-input py-2 px-3 text-xs font-bold bg-white"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="text-[10px] font-black uppercase text-neutral-400">Presets:</span>
+              {['Groww', 'Zerodha', 'Angel One', 'Upstox', 'Dhan', 'HDFC Sky', 'Others', 'None'].map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => setNewBrokerTarget(b === 'None' ? '' : b)}
+                  className={`px-2.5 py-1 text-[11px] border transition-all cursor-pointer ${
+                    newBrokerTarget.toLowerCase() === b.toLowerCase() || (b === 'None' && !newBrokerTarget)
+                      ? 'bg-[#FFE600] text-[#121212] border-[#121212] font-black shadow-neo-sm'
+                      : 'bg-white text-neutral-700 border-neutral-300 hover:border-neutral-500 font-bold'
+                  }`}
+                >
+                  {b}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-neutral-200 mt-2">
+              <NeoButton
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsReassignModalOpen(false)}
+              >
+                Cancel
+              </NeoButton>
+              <NeoButton
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={isReassigning}
+                onClick={async () => {
+                  try {
+                    setIsReassigning(true);
+                    await onBatchUpdateBroker(selectedBrokerFilter, newBrokerTarget);
+                    setSelectedBrokerFilter(newBrokerTarget || 'all');
+                    setIsReassignModalOpen(false);
+                  } finally {
+                    setIsReassigning(false);
+                  }
+                }}
+              >
+                {isReassigning ? 'Updating...' : `Apply to All (${filteredInvestments.length})`}
+              </NeoButton>
+            </div>
+          </div>
+        </NeoModal>
       )}
     </div>
   );

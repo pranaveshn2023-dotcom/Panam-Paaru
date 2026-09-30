@@ -430,6 +430,7 @@ export const add = mutation({
     sipDay: v.optional(v.number()),
     xirr: v.optional(v.string()),
     notes: v.optional(v.string()),
+    broker: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -491,6 +492,7 @@ export const add = mutation({
         schemeCode: autoSchemeCode ?? matched.schemeCode,
         isin: autoIsin ?? matched.isin,
         ticker: args.ticker ?? matched.ticker,
+        broker: args.broker !== undefined ? args.broker : matched.broker,
         sipAmount: args.sipAmount ?? matched.sipAmount,
         sipDay: args.sipDay ?? matched.sipDay,
         updatedAt: Date.now(),
@@ -511,6 +513,7 @@ export const add = mutation({
       schemeCode: autoSchemeCode,
       isin: autoIsin,
       ticker: args.ticker,
+      broker: args.broker,
       sipAmount: args.sipAmount,
       sipDay: args.sipDay,
       xirr: args.xirr,
@@ -914,6 +917,7 @@ export const update = mutation({
     sipDay: v.optional(v.number()),
     xirr: v.optional(v.string()),
     notes: v.optional(v.string()),
+    broker: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -955,6 +959,7 @@ export const update = mutation({
       schemeCode: autoSchemeCode,
       isin: autoIsin,
       ticker: args.ticker ?? existing.ticker,
+      broker: args.broker !== undefined ? args.broker : existing.broker,
       sipAmount: args.sipAmount,
       sipDay: args.sipDay,
       xirr: args.xirr,
@@ -1059,6 +1064,45 @@ export const quickUpdateValue = mutation({
 
     await ctx.db.patch(args.id, patchData);
     return { success: true };
+  },
+});
+
+export const batchUpdateBroker = mutation({
+  args: {
+    fromBroker: v.optional(v.string()),
+    toBroker: v.string(),
+    investmentIds: v.optional(v.array(v.id("investments"))),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Unauthorized");
+
+    const userInvestments = await ctx.db
+      .query("investments")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+
+    let updatedCount = 0;
+    const now = Date.now();
+    const targetBroker = args.toBroker.trim() === 'None' || args.toBroker.trim() === '' ? undefined : args.toBroker.trim();
+
+    for (const inv of userInvestments) {
+      const matchById = args.investmentIds && args.investmentIds.includes(inv._id);
+      const matchByFrom =
+        args.fromBroker &&
+        (args.fromBroker.toLowerCase() === (inv.broker || '').toLowerCase() ||
+          (args.fromBroker === 'none' && !inv.broker));
+
+      if (matchById || matchByFrom) {
+        await ctx.db.patch(inv._id, {
+          broker: targetBroker,
+          updatedAt: now,
+        });
+        updatedCount++;
+      }
+    }
+
+    return { success: true, count: updatedCount };
   },
 });
 
