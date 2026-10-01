@@ -847,6 +847,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             broker: rawBroker || undefined,
             folioNo: rawFolio || undefined,
             isin: rawIsin || resolved.isin || undefined,
+            ticker: resolved.symbol || symbolVal || undefined,
             investedAmount: cleanCurrency(Math.abs(invested)),
             currentValue: cleanCurrency(Math.abs(current)),
             returns: pnl !== undefined ? cleanCurrency(pnl) : cleanCurrency(current - invested),

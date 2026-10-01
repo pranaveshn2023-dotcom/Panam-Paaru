@@ -143,6 +143,37 @@ export async function fetchBatchYahooQuotes(symbols: string[]): Promise<Map<stri
     } catch (err) {
       console.warn("[YahooBatchQuote] Batch fetch chunk failed:", err);
     }
+
+    // High-resilience fallback: If session was missing or symbols in chunk weren't resolved,
+    // fetch missing symbols concurrently using the public chart endpoint (zero crumb/cookie needed)
+    const missingSymbols = chunk.filter((s) => !resultMap.has(s.toUpperCase()));
+    if (missingSymbols.length > 0) {
+      await Promise.all(
+        missingSymbols.map(async (sym) => {
+          try {
+            const chartRes = await fetch(
+              `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+              { headers: { "User-Agent": DESKTOP_USER_AGENT, "Accept": "application/json" }, signal: AbortSignal.timeout(4500) }
+            );
+            if (chartRes.ok) {
+              const data: any = await chartRes.json();
+              const meta = data?.chart?.result?.[0]?.meta;
+              if (meta && typeof meta.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
+                const prev = meta.previousClose || meta.chartPreviousClose;
+                resultMap.set(sym.toUpperCase(), {
+                  symbol: sym.toUpperCase(),
+                  price: meta.regularMarketPrice,
+                  prevClose: prev,
+                  change: typeof prev === "number" ? meta.regularMarketPrice - prev : undefined,
+                  currency: meta.currency,
+                  shortName: meta.shortName || sym,
+                });
+              }
+            }
+          } catch {}
+        })
+      );
+    }
   }
 
   return resultMap;
@@ -1257,7 +1288,13 @@ async function fetchStockQuote(
     return null;
   }
 
-  const clean = name.trim().toUpperCase();
+  const cleanRaw = name.trim().toUpperCase();
+  // Strip exchange series prefixes/suffixes (e.g. -EQ, -BE, [NSE], (BSE), EQ)
+  const clean = cleanRaw
+    .replace(/\b(NSE|BSE)\s*[:：]/gi, "")
+    .replace(/[-_\s]+(?:EQ|BE|SM|ST|BL|BZ)$/i, "")
+    .replace(/[\[\(]?(?:EQ|BE|SM|ST|BL|BZ)[\]\)]?$/i, "")
+    .trim();
   const combined = `${name} ${notes || ""}`;
   const isin = knownIsin || extractStockIsin(combined) || extractSecurityIsin(combined);
   const candidates: string[] = [];
@@ -1275,11 +1312,21 @@ async function fetchStockQuote(
 
   // 1. If explicit ticker known from holding or notes, prioritize NSE version
   if (knownTicker) {
-    const kt = knownTicker.trim().toUpperCase();
+    const kt = knownTicker
+      .trim()
+      .toUpperCase()
+      .replace(/\b(NSE|BSE)\s*[:：]/gi, "")
+      .replace(/[-_\s]+(?:EQ|BE|SM|ST|BL|BZ)$/i, "")
+      .replace(/[\[\(]?(?:EQ|BE|SM|ST|BL|BZ)[\]\)]?$/i, "")
+      .trim();
     if (kt.endsWith(".BO")) {
       addCandidate(kt.replace(/\.BO$/, ".NS"), true);
     }
     addCandidate(kt, true);
+    if (!kt.endsWith(".NS") && !kt.endsWith(".BO")) {
+      addCandidate(`${kt}.NS`, true);
+      addCandidate(`${kt}.BO`, true);
+    }
   }
 
   // 3. Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
@@ -1321,8 +1368,8 @@ async function fetchStockQuote(
   // Only add firstToken as candidate if the input was actually a single-word stock ticker (e.g. "ZOMATO" or "RELIANCE")
   if (tokens.length === 1 && tokens[0].length >= 2) {
     const firstToken = tokens[0];
-    addCandidate(`${firstToken}.NS`);
-    addCandidate(`${firstToken}.BO`);
+    addCandidate(`${firstToken}.NS`, true);
+    addCandidate(`${firstToken}.BO`, true);
   }
 
   for (const sq of searchQueries) {
@@ -1356,15 +1403,21 @@ async function fetchStockQuote(
   }
 
   // 4. Direct bare ticker match if single word / short identifier
-  if (/^[A-Z0-9]{1,14}$/.test(clean)) {
-    addCandidate(`${clean}.NS`);
-    addCandidate(`${clean}.BO`);
+  if (/^[A-Z0-9.\-]{1,14}$/.test(clean)) {
+    addCandidate(`${clean}.NS`, true);
+    addCandidate(`${clean}.BO`, true);
     addCandidate(clean);
   }
   const compact = strippedCorporate.replace(/[^A-Z0-9]/g, "");
   if (compact.length >= 2 && compact.length <= 14) {
-    addCandidate(`${compact}.NS`);
-    addCandidate(`${compact}.BO`);
+    addCandidate(`${compact}.NS`, true);
+    addCandidate(`${compact}.BO`, true);
+  }
+  // Try hyphenated for multi-word (e.g. BAJAJ-AUTO, M&M)
+  const hyphenated = strippedCorporate.replace(/[^A-Z0-9]+/g, "-");
+  if (hyphenated.length >= 2 && hyphenated.length <= 14 && hyphenated !== compact) {
+    addCandidate(`${hyphenated}.NS`, true);
+    addCandidate(`${hyphenated}.BO`, true);
   }
 
   // 5. Fallback tokens only if no candidates found yet
@@ -1414,11 +1467,11 @@ async function fetchStockQuote(
             }
           }
 
-          // Price plausibility validation against statement baseline
-          if (statementPrice && statementPrice > 0) {
+          // Price plausibility validation against statement baseline (only if no verified ISIN)
+          if (statementPrice && statementPrice > 0 && !isin) {
             const ratio = price / statementPrice;
-            if (ratio > 5.0 || ratio < 0.15) {
-              // Plausibility check failed: price drift is too extreme for a matched stock
+            if (ratio > 8.0 || ratio < 0.10) {
+              // Plausibility check failed: price drift is too extreme for a matched stock without ISIN
               continue;
             }
           }
@@ -1447,12 +1500,12 @@ async function fetchStockQuote(
     try {
       let chartRes = await fetch(
         `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
-        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) }
+        { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4500) }
       );
       if (!chartRes.ok) {
         chartRes = await fetch(
           `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
-          { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2000) }
+          { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4500) }
         );
       }
       if (!chartRes.ok) continue;
@@ -4538,10 +4591,21 @@ export const fetchBatchLivePrices = action({
     const tickersToBatch: string[] = [];
     for (const item of args.items) {
       if (item.assetType !== "mutual_fund" && item.assetType !== "crypto") {
-        if (item.ticker) {
-          tickersToBatch.push(item.ticker);
-        } else if (item.name && (item.name.toUpperCase().endsWith(".NS") || item.name.toUpperCase().endsWith(".BO"))) {
-          tickersToBatch.push(item.name);
+        const raw = item.ticker || item.name;
+        if (raw) {
+          const cleanTicker = raw
+            .trim()
+            .toUpperCase()
+            .replace(/\b(NSE|BSE)\s*[:：]/gi, "")
+            .replace(/[-_\s]+(?:EQ|BE|SM|ST|BL|BZ)$/i, "")
+            .replace(/[\[\(]?(?:EQ|BE|SM|ST|BL|BZ)[\]\)]?$/i, "")
+            .trim();
+          if (cleanTicker.endsWith(".NS") || cleanTicker.endsWith(".BO")) {
+            tickersToBatch.push(cleanTicker);
+          } else if (/^[A-Z0-9.\-]{1,14}$/.test(cleanTicker)) {
+            tickersToBatch.push(`${cleanTicker}.NS`);
+            tickersToBatch.push(`${cleanTicker}.BO`);
+          }
         }
       }
     }

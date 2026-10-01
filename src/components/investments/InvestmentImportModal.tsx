@@ -128,13 +128,16 @@ function validateLivePriceAgainstHolding(
   }
 
   // If response has a valid AMFI scheme code or verified ISIN, the price is guaranteed authentic — skip drift check.
-  // AMFI codes and ISINs are only assigned by official depositories and prove this is a genuine NAV.
-  if ((schemeCode && schemeCode > 0 && schemeCode !== 102957) || (holding.isin && holding.isin.startsWith('INF'))) {
+  // AMFI codes and ISINs (INF for MF, INE for Equities) are assigned by official depositories and prove this is the genuine asset.
+  if (
+    (schemeCode && schemeCode > 0 && schemeCode !== 102957) ||
+    (holding.isin && (holding.isin.startsWith('INF') || holding.isin.startsWith('INE')))
+  ) {
     return { valid: true };
   }
 
-  // Guard 2: Statement Baseline Drift Check (only for non-AMFI-verified responses)
-  // Determine baseline unit price from statement fields
+  // Guard 2: Statement Baseline Drift Check (only for non-depository-verified responses)
+  // Determine baseline unit price from statement closing price first
   let baseline = 0;
   if (holding.statementPrice && holding.statementPrice > 0) {
     baseline = holding.statementPrice;
@@ -144,18 +147,14 @@ function validateLivePriceAgainstHolding(
     baseline = holding.statementValue / holding.units;
   } else if (holding.units && holding.units > 0 && holding.currentValue && holding.currentValue > 0) {
     baseline = holding.currentValue / holding.units;
-  } else if (holding.buyPrice && holding.buyPrice > 0) {
-    baseline = holding.buyPrice;
-  } else if (holding.units && holding.units > 0 && holding.investedAmount > 0) {
-    baseline = holding.investedAmount / holding.units;
   }
 
   if (baseline > 0) {
     const ratio = price / baseline;
-    // For mutual funds, NAV changes daily by fractions of a percent, rarely more than ±10-20% in a month.
-    // If ratio > 2.5 (more than 150% gain) or ratio < 0.4 (more than 60% drop), it's almost certainly a wrong security match.
-    const maxRatio = holding.assetType === 'mutual_fund' ? 2.5 : 5.0;
-    const minRatio = holding.assetType === 'mutual_fund' ? 0.4 : 0.15;
+    // For mutual funds, statement price vs live NAV changes by fractions of a percent.
+    // For stocks, statement closing price vs live LTP is usually within reasonable drift.
+    const maxRatio = holding.assetType === 'mutual_fund' ? 2.5 : 8.0;
+    const minRatio = holding.assetType === 'mutual_fund' ? 0.4 : 0.10;
 
     if (ratio > maxRatio || ratio < minRatio) {
       console.warn(

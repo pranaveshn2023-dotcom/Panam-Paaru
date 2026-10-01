@@ -220,30 +220,41 @@ export function classifyAsset(
     return { assetType: 'bonds', subType: 'Bond / Debenture' };
   }
 
-  // 9. Stocks Check (Explicit stock tickers, corporate names, or bank names without fund keywords)
-  const hasMfKeywords = /\b(fund|scheme|index\s*fund|flexi\s*cap|mid\s*cap|small\s*cap|large\s*cap|elss|tax\s*saver|hybrid|arbitrage|overnight|liquid|equity\s*fund|debt\s*fund|direct\s*plan|regular\s*plan|\bgrowth\b|\bidcw\b|dividend|plan|option)\b/i.test(clean);
-  const isExplicitStock = /\b(bank|ltd|limited|corp|technologies|industries|enterprises|motors|holding)\b/i.test(clean) && !hasMfKeywords;
-
-  if (isExplicitStock) {
+  // 9. Hint-based Equity check
+  if (/\b(stock|stocks|equity|equities|shares?|scrip|holdings?)\b/i.test(cleanHints)) {
     return { assetType: 'stocks', subType: hintSubCat || 'Equity Share' };
   }
 
-  // 10. Mutual Funds
+  // 10. Mutual Funds check
+  const hasMfKeywords = /\b(fund|scheme|index\s*fund|flexi\s*cap|mid\s*cap|small\s*cap|large\s*cap|multi\s*cap|balanced\s*advantage|elss|tax\s*saver|hybrid|arbitrage|overnight|liquid|equity\s*fund|debt\s*fund|direct\s*plan|regular\s*plan|direct\s*growth|regular\s*growth|\bidcw\b|dividend\s*yield)\b/i.test(clean);
   const isMfPattern =
     hasMfKeywords ||
-    /\b(mutual\s*fund|mf)\b/i.test(cleanHints) ||
+    /\b(mutual\s*fund|\bmf\b)\b/i.test(cleanHints) ||
     MAJOR_AMCS.some((a) => a.aliases.some((al) => clean.includes(al) && (hasMfKeywords || clean.includes('mutual fund') || clean.includes('amc'))));
 
   if (isMfPattern) {
     return { assetType: 'mutual_fund', subType: hintSubCat || 'Mutual Fund Scheme' };
   }
 
-  // 11. Default Stocks if single symbol or company indicators
-  if (/^[a-z0-9]{2,14}$/i.test(clean) || /\b(ltd|limited|corp|technologies|industries|enterprises|bank|finance|motors)\b/i.test(clean)) {
-    return { assetType: 'stocks', subType: 'Equity Share' };
-  }
+  // 11. Universal Stock / Equity Classification:
+  // In any investment statement or broker portfolio, any asset that is not a mutual fund,
+  // not gold/sgb, not crypto, not an FD, and not a bond is an Equity Stock.
+  return { assetType: 'stocks', subType: hintSubCat || 'Equity Share' };
+}
 
-  return { assetType: 'other', subType: hintSubCat || 'Other Investment' };
+/**
+ * Strips series suffixes like -EQ, -BE, (EQ), [NSE] from stock ticker or name
+ */
+export function extractCleanStockTicker(raw: string): string {
+  if (!raw) return '';
+  return raw
+    .replace(/\b(NSE|BSE)\s*[:：]/gi, '')
+    .replace(/[-_\s]+(?:EQ|BE|SM|ST|BL|BZ)$/i, '')
+    .replace(/[\[\(]?(?:EQ|BE|SM|ST|BL|BZ)[\]\)]?$/i, '')
+    .replace(/\b(LIMITED|LTD|CORPORATION|CORP|COMPANY|CO|PLC|PVT|PRIVATE)\b\.?/gi, '')
+    .replace(/[\.\,\(\)]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -264,6 +275,7 @@ export function resolveSecurityIdentity(
   let plan: 'Direct' | 'Regular' | 'Unknown' = 'Unknown';
   let option: 'Growth' | 'IDCW' | 'Dividend' | 'Unknown' = 'Unknown';
   let amc: string | undefined;
+  let resolvedSymbol = symbolValue;
 
   if (assetType === 'mutual_fund') {
     plan = detectMfPlan(normName);
@@ -278,6 +290,11 @@ export function resolveSecurityIdentity(
         amc = dynAmcMatch[1].trim();
       }
     }
+  } else if (assetType === 'stocks') {
+    const candidateSymbol = extractCleanStockTicker(symbolValue || normName);
+    if (candidateSymbol && /^[A-Z0-9.\-]{1,14}$/i.test(candidateSymbol)) {
+      resolvedSymbol = candidateSymbol.toUpperCase();
+    }
   }
 
   let confidence: ResolutionConfidence = 'UNRESOLVED';
@@ -287,7 +304,7 @@ export function resolveSecurityIdentity(
   if (isin) {
     confidence = 'MATCHED_BY_ISIN';
     confidenceScore = 95;
-  } else if (symbolValue && /^[A-Z0-9\-]+$/i.test(symbolValue)) {
+  } else if (resolvedSymbol && /^[A-Z0-9\-]+$/i.test(resolvedSymbol)) {
     confidence = 'MATCHED_BY_SYMBOL';
     confidenceScore = 80;
   } else if (assetType === 'mutual_fund') {
@@ -301,7 +318,7 @@ export function resolveSecurityIdentity(
     }
   } else if (assetType === 'stocks') {
     confidence = 'EXACT';
-    confidenceScore = 70;
+    confidenceScore = 80;
   }
 
   return {
@@ -313,7 +330,7 @@ export function resolveSecurityIdentity(
     subType,
     amc,
     isin,
-    symbol: symbolValue,
+    symbol: resolvedSymbol,
     plan,
     option,
     confidence,

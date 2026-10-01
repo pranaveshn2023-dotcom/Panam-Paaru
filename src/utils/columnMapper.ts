@@ -59,32 +59,32 @@ export interface CanonicalHoldingRecord {
 // Configurable Alias Dictionary
 const ALIASES = {
   securityName: [
-    /^(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|security\s*name|holding\s*name|instrument\s*name|asset\s*name|amc\s*name)$/i,
-    /^(scheme|fund|stock|scrip|instrument|security|particulars?|description|asset|amc|symbol)$/i,
-    /\b(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|security\s*name|holding\s*name|instrument\s*name|scrip|scheme)\b/i,
+    /^(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|security\s*name|holding\s*name|instrument\s*name|asset\s*name|amc\s*name|trading\s*symbol|tradingsymbol|symbol\s*name|company|ticker)$/i,
+    /^(scheme|fund|stock|scrip|instrument|security|particulars?|description|asset|amc|symbol|ticker|tradingsymbol|company|equity|holding)$/i,
+    /\b(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|security\s*name|holding\s*name|instrument\s*name|scrip|scheme|tradingsymbol|trading\s*symbol|ticker)\b/i,
   ],
   isin: [
     /^\s*isin\s*$/i,
     /\b(isin\s*code|isin\s*no|isin\s*number|\bisin\b)\b/i,
   ],
   symbol: [
-    /^\s*(symbol|ticker|trading\s*symbol|scrip\s*code|nse\s*symbol|bse\s*code)\s*$/i,
-    /\b(symbol|ticker|trading\s*symbol)\b/i,
+    /^\s*(symbol|ticker|trading\s*symbol|tradingsymbol|scrip\s*code|nse\s*symbol|bse\s*code)\s*$/i,
+    /\b(symbol|ticker|trading\s*symbol|tradingsymbol)\b/i,
   ],
   units: [
-    /^\s*(quantity|qty|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|units?\s*invested|invested\s*units?)\s*$/i,
-    /\b(quantity|qty|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|units?\s*invested|invested\s*units?)\b/i,
+    /^\s*(quantity|qty|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|units?\s*invested|invested\s*units?|total\s*qty|total\s*quantity|net\s*qty)\s*$/i,
+    /\b(quantity|qty|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|units?\s*invested|invested\s*units?|total\s*qty|total\s*quantity|net\s*qty)\b/i,
   ],
   buyPrice: [
-    /^\s*(buy\s*price|avg\s*price|average\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate)\s*$/i,
-    /\b(buy\s*price|avg\s*price|average\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate)\b/i,
+    /^\s*(buy\s*price|avg\s*price|average\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate|weighted\s*avg|buy\s*rate|avg\s*cost\s*price)\s*$/i,
+    /\b(buy\s*price|avg\s*price|average\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate|weighted\s*avg)\b/i,
   ],
   currentPrice: [
-    /^\s*(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|nav|closing\s*price|last\s*traded\s*price)\s*$/i,
-    /\b(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|\bnav\b|closing\s*price|last\s*traded\s*price)\b/i,
+    /^\s*(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|nav|closing\s*price|close\s*price|last\s*price|last\s*traded\s*price|mkt\s*price|prev\s*close|previous\s*close)\s*$/i,
+    /\b(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|\bnav\b|closing\s*price|close\s*price|last\s*price|last\s*traded\s*price)\b/i,
   ],
   investedValue: [
-    /^\s*(invested\s*val\w*|invested\s*amount|cost\s*val\w*|cost|invested|investment|purchase\s*val\w*|purchase\s*cost|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost)\s*$/i,
+    /^\s*(invested\s*val\w*|invested\s*amount|cost\s*val\w*|cost|invested|investment|purchase\s*val\w*|purchase\s*cost|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost|total\s*cost)\s*$/i,
     /\b(invested\s*val\w*|invested\s*amount|cost\s*val\w*|cost|invested|investment|purchase\s*val\w*|purchase\s*cost|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost)\b/i,
   ],
   currentValue: [
@@ -92,8 +92,8 @@ const ALIASES = {
     /\b(current\s*val\w*|market\s*val\w*|present\s*val\w*|latest\s*val\w*|today\s*val\w*|portfolio\s*val\w*|total\s*val\w*|cur\s*val\w*|mkt\s*val\w*|valuation|current\s*amount|cur\s*amount|current|value)\b/i,
   ],
   pnl: [
-    /^\s*(p\s*l|profit|loss|gain|returns?|unrealized|unrealised|overall\s*gain|returns?\s*[%]|return\s*[%])\s*$/i,
-    /\b(p\s*l|profit|loss|gain|returns?|unrealized|unrealised)\b/i,
+    /^\s*(p\s*l|profit|loss|gain|returns?|unrealized|unrealised|overall\s*gain|returns?\s*[%]|return\s*[%]|net\s*chg|total\s*p\s*l|unrealized\s*p\s*l|unrealised\s*p\s*l)\s*$/i,
+    /\b(p\s*l|profit|loss|gain|returns?|unrealized|unrealised|net\s*chg)\b/i,
   ],
   assetType: [
     /^\s*(asset\s*class|asset\s*type|asset\s*category|instrument\s*type|security\s*type|holding\s*type|investment\s*type|category|type|class|segment)\s*$/i,
@@ -125,7 +125,7 @@ function cleanHeaderCell(c: any): string {
   if (c === null || c === undefined) return '';
   return String(c)
     .replace(/[\r\n\t]+/g, ' ')
-    .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
+    .replace(/[\.\(\)₹\$\[\]\/\\&\-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
