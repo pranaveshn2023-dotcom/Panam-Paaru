@@ -1604,27 +1604,19 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                                   No ISIN
                                 </span>
                               )}
-                              {h.resolutionStatus && (
-                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                  h.resolutionStatus === 'EXACT' || h.resolutionStatus === 'MATCHED_BY_ISIN'
-                                    ? 'bg-[#05DF72]/15 text-[#0B6B38] border border-[#05DF72]/40'
-                                    : h.resolutionStatus === 'REVIEW_REQUIRED'
-                                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                    : h.resolutionStatus === 'UNRESOLVED'
-                                    ? 'bg-red-100 text-red-700 border border-red-200'
-                                    : 'bg-blue-50 text-blue-700 border border-blue-200'
-                                }`}>
-                                  {h.resolutionStatus === 'MATCHED_BY_ISIN'
-                                    ? '✓ Exact ISIN'
-                                    : h.resolutionStatus === 'EXACT'
-                                    ? '✓ Exact Match'
-                                    : h.resolutionStatus === 'REVIEW_REQUIRED'
-                                    ? '⚠ Review Required'
-                                    : h.resolutionStatus === 'UNRESOLVED'
-                                    ? '✕ Unresolved'
-                                    : h.resolutionStatus}
+                              {h.resolutionStatus === 'REVIEW_REQUIRED' ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                  ⚠ Review Required
                                 </span>
-                              )}
+                              ) : h.resolutionStatus === 'UNRESOLVED' ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
+                                  ✕ Unresolved
+                                </span>
+                              ) : !h.isin && h.resolutionStatus === 'EXACT' ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#05DF72]/15 text-[#0B6B38] border border-[#05DF72]/40">
+                                  ✓ Exact Match
+                                </span>
+                              ) : null}
                               {h.assetType === 'mutual_fund' && h.amc && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
                                   AMC: {h.amc}

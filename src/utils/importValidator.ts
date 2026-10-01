@@ -99,7 +99,7 @@ export function validateHoldingRow(
       ? 'MATCHED_BY_ISIN'
       : requiresReview
       ? 'REVIEW_REQUIRED'
-      : 'HIGH_CONFIDENCE';
+      : 'EXACT';
 
   return {
     isValid: errors.length === 0,

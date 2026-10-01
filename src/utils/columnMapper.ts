@@ -28,7 +28,7 @@ export interface CanonicalColumnMapping {
   xirrCol?: number;
   transactionDateCol?: number;
   transactionTypeCol?: number;
-  confidence: 'CONFIDENT_AUTO_MAP' | 'HIGH_CONFIDENCE' | 'REVIEW_REQUIRED' | 'FAILED';
+  confidence: 'CONFIDENT_AUTO_MAP' | 'REVIEW_REQUIRED' | 'FAILED';
   confidenceScore: number; // 0 to 100
   mappedFieldsCount: number;
   reasons: string[];
@@ -297,13 +297,11 @@ export function mapHeadersToCanonical(
     currentPriceCol !== undefined ||
     buyPriceCol !== undefined;
 
-  let confidence: 'CONFIDENT_AUTO_MAP' | 'HIGH_CONFIDENCE' | 'REVIEW_REQUIRED' | 'FAILED' = 'FAILED';
+  let confidence: 'CONFIDENT_AUTO_MAP' | 'REVIEW_REQUIRED' | 'FAILED' = 'FAILED';
 
   if (nameCol !== -1 && hasFinancialCol) {
-    if (confidenceScore >= 70) {
+    if (confidenceScore >= 50) {
       confidence = 'CONFIDENT_AUTO_MAP';
-    } else if (confidenceScore >= 50) {
-      confidence = 'HIGH_CONFIDENCE';
     } else {
       confidence = 'REVIEW_REQUIRED';
     }

@@ -5,7 +5,7 @@
  * 1. Strict ISIN resolution (INF for MF, INE for Equities)
  * 2. Scheme plan (Direct vs Regular) and option (Growth vs IDCW) separation
  * 3. Multi-asset class differentiation: Mutual Funds, Stocks, ETFs, Gold, Crypto, FD, PPF, REITs, Bonds
- * 4. Confidence status assignment: EXACT, MATCHED_BY_ISIN, MATCHED_BY_SCHEME_CODE, MATCHED_BY_SYMBOL, HIGH_CONFIDENCE, REVIEW_REQUIRED, UNRESOLVED
+ * 4. Confidence status assignment: EXACT, MATCHED_BY_ISIN, MATCHED_BY_SCHEME_CODE, MATCHED_BY_SYMBOL, REVIEW_REQUIRED, UNRESOLVED
  *
  * NO GUESSING: If ambiguous, marks as REVIEW_REQUIRED.
  */
@@ -15,7 +15,6 @@ export type ResolutionConfidence =
   | 'MATCHED_BY_ISIN'
   | 'MATCHED_BY_SCHEME_CODE'
   | 'MATCHED_BY_SYMBOL'
-  | 'HIGH_CONFIDENCE'
   | 'REVIEW_REQUIRED'
   | 'UNRESOLVED';
 
@@ -273,6 +272,11 @@ export function resolveSecurityIdentity(
     const matchedAmc = MAJOR_AMCS.find((a) => a.aliases.some((al) => normName.toLowerCase().includes(al)));
     if (matchedAmc) {
       amc = matchedAmc.name;
+    } else {
+      const dynAmcMatch = normName.match(/^([A-Za-z0-9&.\s]+?\s+(?:Mutual\s+Fund|Asset\s+Management|AMC))/i);
+      if (dynAmcMatch) {
+        amc = dynAmcMatch[1].trim();
+      }
     }
   }
 
@@ -292,11 +296,11 @@ export function resolveSecurityIdentity(
       confidence = 'REVIEW_REQUIRED';
       confidenceScore = 55;
     } else {
-      confidence = 'HIGH_CONFIDENCE';
+      confidence = 'EXACT';
       confidenceScore = 75;
     }
   } else if (assetType === 'stocks') {
-    confidence = 'HIGH_CONFIDENCE';
+    confidence = 'EXACT';
     confidenceScore = 70;
   }
 

@@ -2246,7 +2246,7 @@ export function scoreMfCandidate(
     if (isIdcw) return -100; // Reject IDCW when Growth is requested
   }
 
-  // Statement Price proximity bonus (high confidence for mutual fund NAV matching)
+  // Statement Price proximity bonus (exact mutual fund NAV matching)
   if (statementPrice && statementPrice > 0 && item.nav && item.nav > 0) {
     const ratio = item.nav / statementPrice;
     if (ratio >= 0.88 && ratio <= 1.12) {
