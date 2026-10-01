@@ -66,11 +66,31 @@ export function stripBrokerSuffix(name: string): string {
   return cleaned;
 }
 
+export function sanitizeTruncatedSchemeName(name: string): string {
+  if (!name) return '';
+  let cleaned = stripBrokerSuffix(name);
+  // Trim trailing unclosed brackets or punctuation (e.g. "Edelweiss Emerging Markets (")
+  cleaned = cleaned.replace(/[\s\(\[\{/\\:,\.\-]+$/, '').trim();
+  // Expand common truncated abbreviations from statement feeds:
+  cleaned = cleaned
+    .replace(/\bgrc\b/gi, 'growth')
+    .replace(/\bgrowt\b/gi, 'growth')
+    .replace(/\bfun\b/gi, 'fund')
+    .replace(/\bdir\b/gi, 'direct')
+    .replace(/\breg\b/gi, 'regular')
+    .replace(/\bpl\b/gi, 'plan')
+    .replace(/\bopp\b|\boppo\b/gi, 'opportunities')
+    .replace(/\bmkt\b|\bmkts\b/gi, 'markets')
+    .replace(/\bidx\b/gi, 'index')
+    .replace(/\beq\b/gi, 'equity');
+  return cleaned;
+}
+
 /**
  * Clean scheme name for AMFI search query
  */
 export function cleanSearchQuery(raw: string): string {
-  const stripped = stripBrokerSuffix(raw);
+  const stripped = sanitizeTruncatedSchemeName(raw);
   return stripped
     .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, '')
     .replace(/\bmid-?cap\b/gi, 'mid cap')
@@ -80,7 +100,7 @@ export function cleanSearchQuery(raw: string): string {
     .replace(/\bmulti-?cap\b/gi, 'multi cap')
     .replace(/\bdir\b/gi, 'direct')
     .replace(/\breg\b/gi, 'regular')
-    .replace(/\bgr\b/gi, 'growth')
+    .replace(/\bgr\b|\bgrc\b|\bgrowt\b/gi, 'growth')
     .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, '')
     .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
     .replace(/\s{2,}/g, ' ')
@@ -257,7 +277,7 @@ export const ALL_MF_CATEGORIES = [
 ];
 
 export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
-  const stripped = stripBrokerSuffix(rawQuery);
+  const stripped = sanitizeTruncatedSchemeName(rawQuery);
   const qClean = stripped.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const sName = item.schemeName || '';
   const sClean = sName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();

@@ -51,12 +51,12 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     iconBg: '#00D09C',
     iconText: 'G',
     keywords: ['groww', 'nextbillion', 'groww invest tech', 'groww.in'],
-    filePatterns: [/groww[_\-\s]?(?:holdings?|statement|portfolio|tradebook|report|user|export)/i, /nextbillion/i, /^groww[_\-\.]/i],
+    filePatterns: [/groww[_\-\s]?(?:holdings?|statement|portfolio|tradebook|report|user|export|mf|stock|mutual)/i, /nextbillion/i, /^groww[_\-\.]/i, /groww/i],
     contentPatterns: [
       /nextbillion technology/i,
       /groww invest tech/i,
       /groww\.in/i,
-      /\bgroww\b(?!.*(?:mutual\s*fund|asset\s*management|amc))/i,
+      /\bgroww\b/i,
     ],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://groww.in/user/profile/report',
@@ -664,11 +664,34 @@ export function detectBrokerFromFile(
     }
   }
 
+  // 2.5. Table Column / Cell Values Match (e.g. "Source: Groww", "Broker: Zerodha")
+  if (rawContent?.sheets) {
+    for (const sheet of rawContent.sheets) {
+      const rows = sheet.rows || [];
+      for (const row of rows.slice(0, 35)) {
+        for (const cell of row) {
+          const val = String(cell || '').trim().toLowerCase();
+          if (!val || val.length < 3) continue;
+          for (const broker of BROKER_DIRECTORY) {
+            if (broker.id === 'other_broker') continue;
+            if (
+              val === broker.shortName.toLowerCase() ||
+              val === broker.name.toLowerCase() ||
+              broker.keywords.some((k) => k.length >= 4 && val === k.toLowerCase())
+            ) {
+              return broker.shortName;
+            }
+          }
+        }
+      }
+    }
+  }
+
   // 3. Document Banner / Top Metadata Rows (STRICT: only rows BEFORE the table header)
   let headerBannerText = '';
   if (rawContent?.sheets) {
     for (const sheet of rawContent.sheets) {
-      const sampleRows = (sheet.rows || []).slice(0, 5);
+      const sampleRows = (sheet.rows || []).slice(0, 8);
       for (const row of sampleRows) {
         const rowStr = row.join(' ').toLowerCase();
         // If this row contains table column headers, stop! Holdings lie beneath this row.
@@ -703,6 +726,29 @@ export function detectBrokerFromFile(
       }
       for (const pat of broker.contentPatterns) {
         if (pat.test(metadataSearchSpace)) return broker.shortName;
+      }
+    }
+  }
+
+  // 5. Deep Content Scan — scan ALL data rows (not just banner) for explicit broker references
+  //    This catches files where there's no banner metadata but the broker name appears in data cells,
+  //    sheet footers, or header/footer rows (e.g. "Groww" in the sheet name or data content).
+  if (rawContent?.sheets) {
+    let fullContentSample = '';
+    for (const sheet of rawContent.sheets) {
+      // Include sheet name
+      fullContentSample += ` ${sheet.sheetName.toLowerCase()}`;
+      // Sample first 30 rows (header + data) for broker references
+      const sampleRows = (sheet.rows || []).slice(0, 30);
+      for (const row of sampleRows) {
+        fullContentSample += ` ${row.join(' ').toLowerCase()}`;
+      }
+    }
+    // Only check content patterns that are highly specific (avoid false positives)
+    for (const broker of BROKER_DIRECTORY) {
+      if (broker.id === 'other_broker') continue;
+      for (const pat of broker.contentPatterns) {
+        if (pat.test(fullContentSample)) return broker.shortName;
       }
     }
   }

@@ -1967,6 +1967,26 @@ export function stripBrokerSuffix(name: string): string {
   return cleaned;
 }
 
+export function sanitizeTruncatedSchemeName(name: string): string {
+  if (!name) return '';
+  let cleaned = stripBrokerSuffix(name);
+  // Trim trailing unclosed brackets or punctuation (e.g. "Edelweiss Emerging Markets (")
+  cleaned = cleaned.replace(/[\s\(\[\{/\\:,\.\-]+$/, '').trim();
+  // Expand common truncated abbreviations from statement feeds:
+  cleaned = cleaned
+    .replace(/\bgrc\b/gi, 'growth')
+    .replace(/\bgrowt\b/gi, 'growth')
+    .replace(/\bfun\b/gi, 'fund')
+    .replace(/\bdir\b/gi, 'direct')
+    .replace(/\breg\b/gi, 'regular')
+    .replace(/\bpl\b/gi, 'plan')
+    .replace(/\bopp\b|\boppo\b/gi, 'opportunities')
+    .replace(/\bmkt\b|\bmkts\b/gi, 'markets')
+    .replace(/\bidx\b/gi, 'index')
+    .replace(/\beq\b/gi, 'equity');
+  return cleaned;
+}
+
 export function canonicalizeMfQuery(q: string): string {
   return q
     .toLowerCase()
@@ -2112,10 +2132,11 @@ export const ALL_MF_CATEGORIES = [
 ];
 
 export function scoreMfCandidate(
-  item: { schemeCode: number; schemeName: string; amc?: string; category?: string },
-  rawQuery: string
+  item: { schemeCode: number; schemeName: string; amc?: string; category?: string; nav?: number },
+  rawQuery: string,
+  statementPrice?: number
 ): number {
-  const stripped = stripBrokerSuffix(rawQuery);
+  const stripped = sanitizeTruncatedSchemeName(rawQuery);
   const qClean = stripped.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const sName = item.schemeName || '';
   const sFull = `${sName} ${item.amc || ''} ${item.category || ''}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -2212,6 +2233,18 @@ export function scoreMfCandidate(
   } else {
     if (isGrowth) score += 40;
     if (isIdcw) score -= 60;
+  }
+
+  // Statement Price proximity bonus (high confidence for mutual fund NAV matching)
+  if (statementPrice && statementPrice > 0 && item.nav && item.nav > 0) {
+    const ratio = item.nav / statementPrice;
+    if (ratio >= 0.88 && ratio <= 1.12) {
+      score += 150;
+    } else if (ratio >= 0.75 && ratio <= 1.25) {
+      score += 70;
+    } else if (ratio > 2.5 || ratio < 0.4) {
+      score -= 150;
+    }
   }
 
   return score;
@@ -2408,7 +2441,8 @@ export async function fetchMfNav(
   name: string,
   notes?: string,
   knownSchemeCode?: number,
-  knownIsin?: string
+  knownIsin?: string,
+  statementPrice?: number
 ): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number; isin?: string } | null> {
   const combined = `${name} ${notes || ""}`;
   const isin = knownIsin || (combined.match(/\b(INF[A-Z0-9]{9})\b/i)?.[1]?.toUpperCase());
@@ -2482,9 +2516,43 @@ export async function fetchMfNav(
     }
   }
 
-  const strippedName = stripBrokerSuffix(name);
+  const strippedName = sanitizeTruncatedSchemeName(name);
 
-  // 2. High-Speed Cloudflare CDN Mirror Search (Instant <100ms response, unblocked on all cloud platforms)
+  // 2. High-Speed In-Memory Official AMFI Table Search (Instant < 2ms, zero rate limits)
+  try {
+    const amfiTable = await getAmfiOfficialNavTable();
+    if (amfiTable && amfiTable.entries.length > 0) {
+      let bestTableMatch: AmfiTableEntry | null = null;
+      let bestTableScore = -1;
+
+      for (const item of amfiTable.entries) {
+        const dateMs = parseNavDateToMs(item.date);
+        if (dateMs > 0 && (now - dateMs) > 45 * 24 * 60 * 60 * 1000) continue;
+
+        const score = scoreMfCandidate(
+          { schemeCode: item.code, schemeName: item.name, amc: item.amc, category: item.category, nav: item.nav },
+          strippedName,
+          statementPrice
+        );
+        if (score > bestTableScore && score >= 50) {
+          bestTableScore = score;
+          bestTableMatch = item;
+        }
+      }
+
+      if (bestTableMatch && bestTableScore >= 50) {
+        return {
+          nav: bestTableMatch.nav,
+          date: bestTableMatch.date,
+          schemeName: bestTableMatch.name,
+          schemeCode: bestTableMatch.code,
+          isin: bestTableMatch.isin || isin,
+        };
+      }
+    }
+  } catch {}
+
+  // 3. Fallback: External API search (api.mfapi.in) if in-memory AMFI table did not find a match
   try {
     const clean = strippedName
       .replace(/^(name\s+of\s+(the\s+)?scheme|scheme\s*name|scheme)\s*[:：]\s*/i, "")
@@ -2495,7 +2563,7 @@ export async function fetchMfNav(
       .replace(/\bmulti-?cap\b/gi, "multi cap")
       .replace(/\bdir\b/gi, "direct")
       .replace(/\breg\b/gi, "regular")
-      .replace(/\bgr\b/gi, "growth")
+      .replace(/\bgr\b|\bgrc\b|\bgrowt\b/gi, "growth")
       .replace(/\b(mutual\s*fund|amc|direct|regular|growth|idcw|payout|reinvestment|plan|option)\b/gi, "")
       .replace(/[\.\(\)₹\$\[\]\/\\-]/g, " ")
       .replace(/\s{2,}/g, " ")
@@ -2526,7 +2594,7 @@ export async function fetchMfNav(
         try {
           const searchRes = await fetch(
             `https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`,
-            { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(2500) }
+            { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(2000) }
           );
           if (searchRes.ok) {
             const list: any[] = await searchRes.json();
@@ -2544,16 +2612,16 @@ export async function fetchMfNav(
 
       if (candidateMap.size > 0) {
         const sorted = Array.from(candidateMap.values())
-          .map((item) => ({ ...item, score: scoreMfCandidate(item, strippedName) }))
+          .map((item) => ({ ...item, score: scoreMfCandidate(item, strippedName, statementPrice) }))
           .filter((item) => item.score >= 40)
           .sort((a, b) => b.score - a.score);
 
         // Check top candidates in order and pick the highest scoring ACTIVE candidate
-        for (const cand of sorted.slice(0, 6)) {
+        for (const cand of sorted.slice(0, 4)) {
           try {
             const latestRes = await fetch(
               `https://api.mfapi.in/mf/${cand.schemeCode}/latest`,
-              { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(2500) }
+              { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(2000) }
             );
             if (latestRes.ok) {
               const details: any = await latestRes.json();
@@ -2578,36 +2646,6 @@ export async function fetchMfNav(
       }
     }
   } catch { }
-
-  // 3. Official AMFI Portal Table Lookup Fallback
-  try {
-    const amfiTable = await getAmfiOfficialNavTable();
-    if (amfiTable && amfiTable.entries.length > 0) {
-      let bestTableMatch: AmfiTableEntry | null = null;
-      let bestTableScore = -1;
-
-      for (const item of amfiTable.entries) {
-        const dateMs = parseNavDateToMs(item.date);
-        if (dateMs > 0 && (now - dateMs) > 45 * 24 * 60 * 60 * 1000) continue;
-
-        const score = scoreMfCandidate({ schemeCode: item.code, schemeName: item.name }, strippedName);
-        if (score > bestTableScore && score >= 50) {
-          bestTableScore = score;
-          bestTableMatch = item;
-        }
-      }
-
-      if (bestTableMatch && bestTableScore >= 50) {
-        return {
-          nav: bestTableMatch.nav,
-          date: bestTableMatch.date,
-          schemeName: bestTableMatch.name,
-          schemeCode: bestTableMatch.code,
-          isin: bestTableMatch.isin || isin,
-        };
-      }
-    }
-  } catch {}
 
   return null;
 }
@@ -3176,7 +3214,7 @@ async function getOrFetchMfNavWithCache(
   ctx: any,
   name: string,
   notes?: string,
-  options?: { force?: boolean; knownSchemeCode?: number; knownIsin?: string; knownTicker?: string }
+  options?: { force?: boolean; knownSchemeCode?: number; knownIsin?: string; knownTicker?: string; statementPrice?: number }
 ): Promise<{ nav: number; date?: string; prevNav?: number; schemeName?: string; schemeCode?: number; isin?: string } | null> {
   const cleanKey = normalizeMfSearchKey(name);
   const combined = `${name} ${notes || ''}`;
@@ -3242,7 +3280,7 @@ async function getOrFetchMfNavWithCache(
 
   // 3. Cache miss, force requested, or cached date is stale/dead:
   const knownCode = (!isCachedDead && cached?.schemeCode && cached.schemeCode > 0) ? cached.schemeCode : explicitCode;
-  const amfi = await fetchMfNav(name, notes, knownCode, resolvedIsin);
+  const amfi = await fetchMfNav(name, notes, knownCode, resolvedIsin, options?.statementPrice);
   if (amfi && amfi.nav > 0) {
     const finalIsin = amfi.isin || resolvedIsin;
     const resolvedCode = amfi.schemeCode || knownCode || 0;
@@ -4517,11 +4555,11 @@ export const fetchBatchLivePrices = action({
       }
     }
 
-    // 2. Process items in chunks of 5 with randomized jitter to simulate natural browser behaviour
-    const CHUNK_SIZE = 5;
+    // 2. Process items in parallel chunks
+    const CHUNK_SIZE = 8;
     for (let i = 0; i < args.items.length; i += CHUNK_SIZE) {
       if (i > 0) {
-        await sleepWithJitter(250, 450);
+        await sleepWithJitter(100, 200);
       }
       const itemChunk = args.items.slice(i, i + CHUNK_SIZE);
 
@@ -4546,6 +4584,7 @@ export const fetchBatchLivePrices = action({
                 knownSchemeCode: schemeCode,
                 knownIsin: isin,
                 knownTicker: ticker,
+                statementPrice: statementPrice,
               });
               if (mf && mf.nav > 0) {
                 res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
@@ -4570,6 +4609,7 @@ export const fetchBatchLivePrices = action({
                     force: args.force,
                     knownIsin: isin,
                     knownTicker: ticker,
+                    statementPrice: statementPrice,
                   });
                   if (mf && mf.nav > 0) {
                     res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
@@ -4592,6 +4632,7 @@ export const fetchBatchLivePrices = action({
                   force: args.force,
                   knownIsin: isin,
                   knownTicker: ticker,
+                  statementPrice: statementPrice,
                 });
                 if (mf && mf.nav > 0) {
                   res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };

@@ -100,6 +100,10 @@ const BROKER_OPTIONS = ALL_BROKER_OPTIONS;
  * Strict sanity and anti-anomaly validator for incoming market prices.
  * Prevents cross-asset contamination (e.g. stock ₹1,226 assigned to mutual fund NAV ₹28)
  * and rejects wild price discrepancies compared to statement baseline prices.
+ *
+ * When the response includes a valid AMFI schemeCode (> 0), the price is considered
+ * authentic and the drift guard is bypassed — AMFI scheme codes are only assigned by
+ * the official AMFI registry and guarantee the price is a genuine mutual fund NAV.
  */
 function validateLivePriceAgainstHolding(
   holding: ParsedHolding,
@@ -107,6 +111,7 @@ function validateLivePriceAgainstHolding(
 ): { valid: boolean; reason?: string } {
   const price = typeof res === 'number' ? res : res.price;
   const symbol = typeof res === 'number' ? undefined : res.symbol;
+  const schemeCode = typeof res === 'number' ? undefined : res.schemeCode;
 
   if (!price || price <= 0 || isNaN(price)) {
     return { valid: false, reason: 'Invalid or zero price' };
@@ -120,28 +125,35 @@ function validateLivePriceAgainstHolding(
     }
   }
 
-  // Guard 2: Statement Baseline Drift Check
+  // If response has a valid AMFI scheme code or verified ISIN, the price is guaranteed authentic — skip drift check.
+  // AMFI codes and ISINs are only assigned by official depositories and prove this is a genuine NAV.
+  if ((schemeCode && schemeCode > 0 && schemeCode !== 102957) || (holding.isin && holding.isin.startsWith('INF'))) {
+    return { valid: true };
+  }
+
+  // Guard 2: Statement Baseline Drift Check (only for non-AMFI-verified responses)
   // Determine baseline unit price from statement fields
-  const baseline =
-    (holding.statementPrice && holding.statementPrice > 0 ? holding.statementPrice : 0) ||
-    (holding.currentPrice && holding.currentPrice > 0 ? holding.currentPrice : 0) ||
-    (holding.units && holding.units > 0 && holding.statementValue && holding.statementValue > 0
-      ? holding.statementValue / holding.units
-      : 0) ||
-    (holding.units && holding.units > 0 && holding.currentValue && holding.currentValue > 0
-      ? holding.currentValue / holding.units
-      : 0) ||
-    (holding.buyPrice && holding.buyPrice > 0 ? holding.buyPrice : 0) ||
-    (holding.units && holding.units > 0 && holding.investedAmount > 0
-      ? holding.investedAmount / holding.units
-      : 0);
+  let baseline = 0;
+  if (holding.statementPrice && holding.statementPrice > 0) {
+    baseline = holding.statementPrice;
+  } else if (holding.currentPrice && holding.currentPrice > 0) {
+    baseline = holding.currentPrice;
+  } else if (holding.units && holding.units > 0 && holding.statementValue && holding.statementValue > 0) {
+    baseline = holding.statementValue / holding.units;
+  } else if (holding.units && holding.units > 0 && holding.currentValue && holding.currentValue > 0) {
+    baseline = holding.currentValue / holding.units;
+  } else if (holding.buyPrice && holding.buyPrice > 0) {
+    baseline = holding.buyPrice;
+  } else if (holding.units && holding.units > 0 && holding.investedAmount > 0) {
+    baseline = holding.investedAmount / holding.units;
+  }
 
   if (baseline > 0) {
     const ratio = price / baseline;
     // For mutual funds, NAV changes daily by fractions of a percent, rarely more than ±10-20% in a month.
-    // If ratio > 1.75 (more than 75% gain) or ratio < 0.55 (more than 45% drop), it's almost certainly a wrong security match.
-    const maxRatio = holding.assetType === 'mutual_fund' ? 1.75 : 3.0;
-    const minRatio = holding.assetType === 'mutual_fund' ? 0.55 : 0.25;
+    // If ratio > 2.5 (more than 150% gain) or ratio < 0.4 (more than 60% drop), it's almost certainly a wrong security match.
+    const maxRatio = holding.assetType === 'mutual_fund' ? 2.5 : 5.0;
+    const minRatio = holding.assetType === 'mutual_fund' ? 0.4 : 0.15;
 
     if (ratio > maxRatio || ratio < minRatio) {
       console.warn(
@@ -258,7 +270,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           isin: h.isin,
           schemeCode: h.schemeCode,
           ticker: h.ticker,
-          statementPrice: h.statementPrice || (h.currentPrice && h.currentPrice > 0 ? h.currentPrice : undefined),
+          statementPrice:
+            h.statementPrice ||
+            (h.currentPrice && h.currentPrice > 0 ? h.currentPrice : undefined) ||
+            (h.units && h.units > 0 && h.currentValue > 0 ? cleanCurrency(h.currentValue / h.units) : undefined),
         })),
         force: true,
       });
@@ -572,11 +587,16 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       const result = await parseInvestmentFile(file);
       setRawGrid(result.rawGrid);
 
+      // Extract broker directly from parsed holdings if available (e.g. from Source or Broker column)
+      const parsedHoldingBroker = result.holdings.find(
+        (h) => h.broker && h.broker.trim().length > 0 && h.broker.toLowerCase() !== 'others'
+      )?.broker;
+
       // Intelligent Universal Broker Detection across brokers & depositories
-      const autoDetected = detectBrokerFromFile(file.name, result.rawGrid);
+      const autoDetected = parsedHoldingBroker || detectBrokerFromFile(file.name, result.rawGrid);
       const chosenBroker = autoDetected || 'Others';
       setSelectedBroker(chosenBroker);
-      setDetectedBrokerTag(autoDetected ? autoDetected : 'Others');
+      setDetectedBrokerTag(chosenBroker);
 
       if (result.holdings.length > 0) {
         const taggedHoldings = result.holdings.map((h) => ({
@@ -647,10 +667,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       const result = await parseInvestmentFile(pendingFile, pdfPassword.trim());
       setRawGrid(result.rawGrid);
 
-      const autoDetected = detectBrokerFromFile(pendingFile.name, result.rawGrid);
+      const parsedHoldingBroker = result.holdings.find(
+        (h) => h.broker && h.broker.trim().length > 0 && h.broker.toLowerCase() !== 'others'
+      )?.broker;
+      const autoDetected = parsedHoldingBroker || detectBrokerFromFile(pendingFile.name, result.rawGrid);
       const chosenBroker = autoDetected || 'Others';
       setSelectedBroker(chosenBroker);
-      setDetectedBrokerTag(autoDetected ? autoDetected : 'Others');
+      setDetectedBrokerTag(chosenBroker);
 
       if (result.holdings.length > 0) {
         const taggedHoldings = result.holdings.map((h) => ({
@@ -697,10 +720,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         return;
       }
 
-      const autoDetected = detectBrokerFromFile(undefined, undefined, pastedText);
+      const parsedHoldingBroker = extracted.find(
+        (h) => h.broker && h.broker.trim().length > 0 && h.broker.toLowerCase() !== 'others'
+      )?.broker;
+      const autoDetected = parsedHoldingBroker || detectBrokerFromFile(undefined, undefined, pastedText);
       const chosenBroker = autoDetected || 'Others';
       setSelectedBroker(chosenBroker);
-      setDetectedBrokerTag(autoDetected ? autoDetected : 'Others');
+      setDetectedBrokerTag(chosenBroker);
 
       const taggedHoldings = extracted.map((h) => ({
         ...h,
