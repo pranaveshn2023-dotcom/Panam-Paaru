@@ -769,11 +769,8 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         }
         rawIsin = rawIsin.toUpperCase();
 
-        // Build composite holding name if AMC + Sub-category exist
-        let fullName = rawName;
-        if (rawSubCat && !fullName.toLowerCase().includes(rawSubCat.toLowerCase())) {
-          fullName = `${rawName} - ${rawSubCat}`;
-        }
+        // Use exact clean scheme / asset name from statement
+        const fullName = rawName;
 
         const units = unitsCol !== undefined ? parseCleanNumber(row[unitsCol]) : undefined;
         let buyPrice = buyPriceCol !== undefined ? parseCleanNumber(row[buyPriceCol]) : undefined;

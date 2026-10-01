@@ -4546,12 +4546,21 @@ export const fetchLivePrice = action({
       return null;
     }
 
+    // If the name explicitly signals a mutual fund or has INF ISIN, prioritize AMFI even if categorized under stocks/other!
+    const isExplicitMf = isin?.startsWith("INF") || /\b(fund|funds|scheme|direct\s*growth|direct\s*plan|regular\s*growth|regular\s*plan|flexi\s*cap|mid\s*cap|small\s*cap|large\s*cap|elss|arbitrage|liquid|index\s*fund)\b/i.test(name);
+    if (isExplicitMf) {
+      const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker, statementPrice });
+      if (mf && mf.nav > 0) {
+        return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
+      }
+    }
+
     // Stocks, SGBs, Commodities: Uses live cache or static closing price
     const stk = await getOrFetchStockPriceWithCache(ctx, name, { force, notes, knownIsin: isin, knownTicker: ticker, statementPrice });
     if (stk && stk.price > 0) return stk;
 
     // Dynamic fallback for Mutual Funds searched under stocks
-    const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker });
+    const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker, statementPrice });
     if (mf && mf.nav > 0) {
       return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
     }
@@ -4698,24 +4707,41 @@ export const fetchBatchLivePrices = action({
               }
             } else {
               // Stocks, ETFs, or other:
-              const stk = await getOrFetchStockPriceWithCache(ctx, name, {
-                force: args.force,
-                notes,
-                knownIsin: isin,
-                knownTicker: ticker,
-                statementPrice,
-              });
-              if (stk && stk.price > 0) {
-                res = stk;
-              } else {
+              const isExplicitMf = isin?.startsWith("INF") || /\b(fund|funds|scheme|direct\s*growth|direct\s*plan|regular\s*growth|regular\s*plan|flexi\s*cap|mid\s*cap|small\s*cap|large\s*cap|elss|arbitrage|liquid|index\s*fund)\b/i.test(name);
+              if (isExplicitMf) {
                 const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
                   force: args.force,
+                  knownSchemeCode: schemeCode,
                   knownIsin: isin,
                   knownTicker: ticker,
                   statementPrice: statementPrice,
                 });
                 if (mf && mf.nav > 0) {
                   res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
+                }
+              }
+
+              if (!res) {
+                const stk = await getOrFetchStockPriceWithCache(ctx, name, {
+                  force: args.force,
+                  notes,
+                  knownIsin: isin,
+                  knownTicker: ticker,
+                  statementPrice,
+                });
+                if (stk && stk.price > 0) {
+                  res = stk;
+                } else {
+                  const mf = await getOrFetchMfNavWithCache(ctx, name, notes, {
+                    force: args.force,
+                    knownSchemeCode: schemeCode,
+                    knownIsin: isin,
+                    knownTicker: ticker,
+                    statementPrice: statementPrice,
+                  });
+                  if (mf && mf.nav > 0) {
+                    res = { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
+                  }
                 }
               }
             }

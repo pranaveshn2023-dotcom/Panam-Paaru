@@ -220,20 +220,22 @@ export function classifyAsset(
     return { assetType: 'bonds', subType: 'Bond / Debenture' };
   }
 
-  // 9. Hint-based Equity check
-  if (/\b(stock|stocks|equity|equities|shares?|scrip|holdings?)\b/i.test(cleanHints)) {
-    return { assetType: 'stocks', subType: hintSubCat || 'Equity Share' };
-  }
-
-  // 10. Mutual Funds check
-  const hasMfKeywords = /\b(fund|scheme|index\s*fund|flexi\s*cap|mid\s*cap|small\s*cap|large\s*cap|multi\s*cap|balanced\s*advantage|elss|tax\s*saver|hybrid|arbitrage|overnight|liquid|equity\s*fund|debt\s*fund|direct\s*plan|regular\s*plan|direct\s*growth|regular\s*growth|\bidcw\b|dividend\s*yield)\b/i.test(clean);
+  // 9. Mutual Funds check (Prioritized over generic 'equity' hint!)
+  // In India, mutual funds are categorized as "Equity", "Hybrid", "Debt" in SEBI and broker statements.
+  // We must recognize mutual fund indicators by name, hints, plan, AMC, or fund structure:
+  const hasMfKeywords = /\b(fund|funds|scheme|schemes|index\s*fund|flexi\s*cap|mid\s*cap|small\s*cap|large\s*cap|multi\s*cap|balanced\s*advantage|elss|tax\s*saver|hybrid|arbitrage|overnight|liquid|equity\s*fund|debt\s*fund|direct\s*plan|regular\s*plan|direct\s*growth|regular\s*growth|\bidcw\b|dividend\s*yield|\bdirect\b|\bregular\b|\bgrowth\b|\bgr\b)\b/i.test(clean);
   const isMfPattern =
     hasMfKeywords ||
-    /\b(mutual\s*fund|\bmf\b)\b/i.test(cleanHints) ||
-    MAJOR_AMCS.some((a) => a.aliases.some((al) => clean.includes(al) && (hasMfKeywords || clean.includes('mutual fund') || clean.includes('amc'))));
+    /\b(mutual\s*fund|\bmf\b|amfi|folio|nav|sip)\b/i.test(cleanHints) ||
+    MAJOR_AMCS.some((a) => a.aliases.some((al) => clean.includes(al) && (hasMfKeywords || clean.includes('mutual fund') || clean.includes('scheme') || clean.includes('growth') || clean.includes('direct'))));
 
   if (isMfPattern) {
     return { assetType: 'mutual_fund', subType: hintSubCat || 'Mutual Fund Scheme' };
+  }
+
+  // 10. Hint-based Equity check (Only if not a Mutual Fund!)
+  if (/\b(stock|stocks|equity|equities|shares?|scrip|holdings?)\b/i.test(cleanHints)) {
+    return { assetType: 'stocks', subType: hintSubCat || 'Equity Share' };
   }
 
   // 11. Universal Stock / Equity Classification:
