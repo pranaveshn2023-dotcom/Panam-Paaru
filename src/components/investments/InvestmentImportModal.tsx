@@ -13,6 +13,8 @@ import {
   RawFileContent,
   PasswordRequiredError,
 } from '../../utils/investmentParser';
+import { DetectedTable } from '../../utils/tableDetector';
+import { CanonicalColumnMapping } from '../../utils/columnMapper';
 import {
   detectDetailedAssetType,
   fetchAmfiNav,
@@ -215,6 +217,16 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Table detection & manual mapping state
+  const [detectedTable, setDetectedTable] = useState<DetectedTable | null>(null);
+  const [columnMapping, setColumnMapping] = useState<CanonicalColumnMapping | null>(null);
+  const [showManualMapping, setShowManualMapping] = useState(false);
+  const [manualNameCol, setManualNameCol] = useState<number>(-1);
+  const [manualUnitsCol, setManualUnitsCol] = useState<number>(-1);
+  const [manualInvCol, setManualInvCol] = useState<number>(-1);
+  const [manualCurCol, setManualCurCol] = useState<number>(-1);
+  const [manualIsinCol, setManualIsinCol] = useState<number>(-1);
+
   const resetState = () => {
     enrichmentRunId.current++;
     setIsEnrichingLivePrices(false);
@@ -236,6 +248,14 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     setRowFetchingPrice({});
     setDetectedBrokerTag(null);
     setSelectedBroker('Auto-Detect Broker');
+    setDetectedTable(null);
+    setColumnMapping(null);
+    setShowManualMapping(false);
+    setManualNameCol(-1);
+    setManualUnitsCol(-1);
+    setManualInvCol(-1);
+    setManualCurCol(-1);
+    setManualIsinCol(-1);
   };
 
   /**
@@ -308,10 +328,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               const derivedUnits = cleanUnits(h.currentValue / oldPrice);
               h.units = derivedUnits;
               h.currentValue = cleanCurrency(derivedUnits * res.price);
-            } else if (h.investedAmount > 0 && res.price > 0) {
-              const derivedUnits = cleanUnits(h.investedAmount / res.price);
-              h.units = derivedUnits;
-              h.currentValue = cleanCurrency(derivedUnits * res.price);
+            } else {
+              // Never derive units by dividing historical invested amount by today's live price
+              h.requiresReview = true;
+              h.reviewReasons = [...(h.reviewReasons || []), 'Units / Quantity missing in statement; please confirm holding units.'];
             }
 
             if (h.assetType === 'other') {
@@ -413,10 +433,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 const derivedUnits = cleanUnits(h.currentValue / oldPrice);
                 h.units = derivedUnits;
                 h.currentValue = cleanCurrency(derivedUnits * livePrice);
-              } else if (h.investedAmount > 0 && livePrice > 0) {
-                const derivedUnits = cleanUnits(h.investedAmount / livePrice);
-                h.units = derivedUnits;
-                h.currentValue = cleanCurrency(derivedUnits * livePrice);
+              } else {
+                // Never derive units by dividing historical invested amount by today's live price
+                h.requiresReview = true;
+                h.reviewReasons = [...(h.reviewReasons || []), 'Units / Quantity missing in statement; please confirm holding units.'];
               }
 
               if (h.assetType === 'other') {
@@ -586,6 +606,17 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
       const result = await parseInvestmentFile(file);
       setRawGrid(result.rawGrid);
+      if (result.detectedTable) {
+        setDetectedTable(result.detectedTable);
+      }
+      if (result.columnMapping) {
+        setColumnMapping(result.columnMapping);
+        if (result.columnMapping.securityNameCol !== -1) setManualNameCol(result.columnMapping.securityNameCol);
+        if (result.columnMapping.unitsCol !== undefined) setManualUnitsCol(result.columnMapping.unitsCol);
+        if (result.columnMapping.investedValueCol !== undefined) setManualInvCol(result.columnMapping.investedValueCol);
+        if (result.columnMapping.currentValueCol !== undefined) setManualCurCol(result.columnMapping.currentValueCol);
+        if (result.columnMapping.isinCol !== undefined) setManualIsinCol(result.columnMapping.isinCol);
+      }
 
       // Extract broker directly from parsed holdings if available (e.g. from Source or Broker column)
       const parsedHoldingBroker = result.holdings.find(
@@ -607,8 +638,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         setIsParsing(false);
         enrichHoldingsWithLivePrices(taggedHoldings);
       } else {
-        setError('No holdings found in file. Please ensure it is a statement or copy-paste rows.');
         setIsParsing(false);
+        if (result.rawGrid && result.rawGrid.sheets.length > 0 && result.rawGrid.sheets[0].rows.length > 0) {
+          setShowManualMapping(true);
+          toast.info('Unable to confidently auto-map this statement. Please select your columns below.');
+        } else {
+          setError('No holdings found in file. Please ensure it is a statement or copy-paste rows.');
+        }
       }
     } catch (err: any) {
       setIsParsing(false);
@@ -623,6 +659,61 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       } else {
         setError(err?.message || 'Failed to read file. Please try pasting the table rows directly.');
       }
+    }
+  };
+
+  const applyManualMapping = () => {
+    if (!rawGrid || rawGrid.sheets.length === 0) return;
+    if (manualNameCol === -1) {
+      toast.error('Please select the Security Name column.');
+      return;
+    }
+    const sheet = rawGrid.sheets[0];
+    const matrix = sheet.rows;
+    const startRow = detectedTable ? detectedTable.dataStartRowIndex : 1;
+    const newHoldings: ParsedHolding[] = [];
+
+    for (let r = startRow; r < matrix.length; r++) {
+      const row = matrix[r];
+      if (!row || row.length <= manualNameCol) continue;
+      const rawName = String(row[manualNameCol] || '').trim();
+      if (!rawName || /total|summary|grand|footer|page\s+\d/i.test(rawName)) continue;
+
+      const units = manualUnitsCol !== -1 ? parseCleanNumber(row[manualUnitsCol]) : undefined;
+      let invested = manualInvCol !== -1 ? parseCleanNumber(row[manualInvCol]) : 0;
+      let current = manualCurCol !== -1 ? parseCleanNumber(row[manualCurCol]) : 0;
+      const isinVal = manualIsinCol !== -1 ? String(row[manualIsinCol] || '').trim() : undefined;
+
+      if (invested === 0 && current > 0) invested = current;
+      if (current === 0 && invested > 0) current = invested;
+
+      if (invested > 0 || current > 0 || (units !== undefined && units > 0)) {
+        const isMf = rawName.toLowerCase().includes('fund') || rawName.toLowerCase().includes('scheme') || (isinVal && isinVal.startsWith('INF'));
+        newHoldings.push({
+          id: `manual_${r}_${Date.now()}`,
+          name: rawName,
+          assetType: isMf ? 'mutual_fund' : 'stocks',
+          subType: isMf ? 'Mutual Fund' : 'Stock / Equity',
+          investedAmount: cleanCurrency(invested),
+          currentValue: cleanCurrency(current),
+          units: cleanUnits(units),
+          isin: isinVal,
+          selected: true,
+          isValid: true,
+          resolutionStatus: isinVal ? 'MATCHED_BY_ISIN' : 'REVIEW_REQUIRED',
+          requiresReview: true,
+          reviewReasons: ['Manually mapped column selection; please confirm values.'],
+        });
+      }
+    }
+
+    if (newHoldings.length > 0) {
+      setParsedHoldings(newHoldings);
+      setShowManualMapping(false);
+      enrichHoldingsWithLivePrices(newHoldings);
+      toast.success(`Extracted ${newHoldings.length} holdings from custom column mapping.`);
+    } else {
+      toast.error('No valid rows found with the selected column mapping.');
     }
   };
 
@@ -1255,6 +1346,17 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     </button>
                   </div>
                 )}
+                {rawGrid && rawGrid.sheets.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowManualMapping(!showManualMapping)}
+                    className="text-[10px] font-black uppercase tracking-wider text-neutral-600 hover:text-black hover:underline flex items-center gap-1 cursor-pointer font-bold border-l border-neutral-300 pl-2"
+                    title="Configure columns manually"
+                  >
+                    <SlidersHorizontal size={11} />
+                    {showManualMapping ? 'Hide Columns' : 'Column Mapping'}
+                  </button>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-mono">
@@ -1293,6 +1395,106 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Manual Column Mapping Fallback Panel */}
+            {showManualMapping && rawGrid && rawGrid.sheets.length > 0 && (
+              <div className="bg-[#FFFDF5] border-2 border-[#121212] p-3 shadow-neo-sm flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal size={14} className="text-[#121212]" />
+                    <span className="text-xs font-black uppercase text-[#121212]">Manual Column Mapping Fallback</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualMapping(false)}
+                    className="text-neutral-500 hover:text-black cursor-pointer text-xs font-bold"
+                  >
+                    ✕ Close
+                  </button>
+                </div>
+                <p className="text-[11px] font-semibold text-neutral-600">
+                  Select which column in your statement corresponds to each financial field:
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-700 block mb-1">Security Name *</label>
+                    <select
+                      value={manualNameCol}
+                      onChange={(e) => setManualNameCol(parseInt(e.target.value, 10))}
+                      className="w-full p-1.5 border border-neutral-300 text-xs font-bold bg-white"
+                    >
+                      <option value={-1}>-- Select Column --</option>
+                      {(detectedTable?.headers || rawGrid.sheets[0].rows[0] || []).map((col: any, idx: number) => (
+                        <option key={idx} value={idx}>Col {idx + 1}: {String(col || `Col ${idx + 1}`)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-700 block mb-1">Units / Qty</label>
+                    <select
+                      value={manualUnitsCol}
+                      onChange={(e) => setManualUnitsCol(parseInt(e.target.value, 10))}
+                      className="w-full p-1.5 border border-neutral-300 text-xs font-bold bg-white"
+                    >
+                      <option value={-1}>-- Optional --</option>
+                      {(detectedTable?.headers || rawGrid.sheets[0].rows[0] || []).map((col: any, idx: number) => (
+                        <option key={idx} value={idx}>Col {idx + 1}: {String(col || `Col ${idx + 1}`)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-700 block mb-1">Invested Value</label>
+                    <select
+                      value={manualInvCol}
+                      onChange={(e) => setManualInvCol(parseInt(e.target.value, 10))}
+                      className="w-full p-1.5 border border-neutral-300 text-xs font-bold bg-white"
+                    >
+                      <option value={-1}>-- Optional --</option>
+                      {(detectedTable?.headers || rawGrid.sheets[0].rows[0] || []).map((col: any, idx: number) => (
+                        <option key={idx} value={idx}>Col {idx + 1}: {String(col || `Col ${idx + 1}`)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-700 block mb-1">Current Value</label>
+                    <select
+                      value={manualCurCol}
+                      onChange={(e) => setManualCurCol(parseInt(e.target.value, 10))}
+                      className="w-full p-1.5 border border-neutral-300 text-xs font-bold bg-white"
+                    >
+                      <option value={-1}>-- Optional --</option>
+                      {(detectedTable?.headers || rawGrid.sheets[0].rows[0] || []).map((col: any, idx: number) => (
+                        <option key={idx} value={idx}>Col {idx + 1}: {String(col || `Col ${idx + 1}`)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-neutral-700 block mb-1">ISIN / Symbol</label>
+                    <select
+                      value={manualIsinCol}
+                      onChange={(e) => setManualIsinCol(parseInt(e.target.value, 10))}
+                      className="w-full p-1.5 border border-neutral-300 text-xs font-bold bg-white"
+                    >
+                      <option value={-1}>-- Optional --</option>
+                      {(detectedTable?.headers || rawGrid.sheets[0].rows[0] || []).map((col: any, idx: number) => (
+                        <option key={idx} value={idx}>Col {idx + 1}: {String(col || `Col ${idx + 1}`)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex justify-end pt-2">
+                  <NeoButton
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={applyManualMapping}
+                    className="text-xs"
+                  >
+                    Extract Holdings with Selected Columns
+                  </NeoButton>
+                </div>
+              </div>
+            )}
 
             {/* Table Header & Rows */}
             <div className="border-2 border-[#121212] bg-white overflow-x-auto max-h-[380px] overflow-y-auto overscroll-x-contain">
@@ -1357,13 +1559,29 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                             </button>
                           </td>
 
-                          {/* Green valid status dot */}
+                          {/* Status dot */}
                           <td className="p-2.5 text-center">
                             <span
-                              className={`w-2 h-2 rounded-full inline-block ${
-                                h.isValid ? 'bg-[#05DF72]' : 'bg-[#FF4343]'
+                              className={`w-2.5 h-2.5 rounded-full inline-block ${
+                                h.resolutionStatus === 'EXACT' || h.isin
+                                  ? 'bg-[#05DF72]'
+                                  : h.requiresReview
+                                  ? 'bg-amber-400'
+                                  : h.resolutionStatus === 'UNRESOLVED'
+                                  ? 'bg-[#FF4343]'
+                                  : h.isValid
+                                  ? 'bg-[#05DF72]'
+                                  : 'bg-[#FF4343]'
                               }`}
-                              title={h.isValid ? 'Valid entity' : 'Invalid entity'}
+                              title={
+                                h.resolutionStatus === 'EXACT'
+                                  ? 'Exact Match'
+                                  : h.isin
+                                  ? `ISIN Verified: ${h.isin}`
+                                  : h.requiresReview
+                                  ? `Review required: ${(h.reviewReasons || []).join(', ') || 'Please verify details'}`
+                                  : h.isValid ? 'Valid entity' : 'Invalid entity'
+                              }
                             />
                           </td>
 
@@ -1377,17 +1595,53 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                               className="w-full p-1 bg-transparent hover:bg-neutral-100 focus:bg-white border border-transparent hover:border-neutral-300 focus:border-[#121212] font-black text-xs text-[#121212]"
                             />
                             <div className="flex items-center flex-wrap gap-1.5 mt-0.5">
+                              {h.isin ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  ISIN: {h.isin}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                  No ISIN
+                                </span>
+                              )}
+                              {h.resolutionStatus && (
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  h.resolutionStatus === 'EXACT' || h.resolutionStatus === 'MATCHED_BY_ISIN'
+                                    ? 'bg-[#05DF72]/15 text-[#0B6B38] border border-[#05DF72]/40'
+                                    : h.resolutionStatus === 'REVIEW_REQUIRED'
+                                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                    : h.resolutionStatus === 'UNRESOLVED'
+                                    ? 'bg-red-100 text-red-700 border border-red-200'
+                                    : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                }`}>
+                                  {h.resolutionStatus === 'MATCHED_BY_ISIN'
+                                    ? '✓ Exact ISIN'
+                                    : h.resolutionStatus === 'EXACT'
+                                    ? '✓ Exact Match'
+                                    : h.resolutionStatus === 'REVIEW_REQUIRED'
+                                    ? '⚠ Review Required'
+                                    : h.resolutionStatus === 'UNRESOLVED'
+                                    ? '✕ Unresolved'
+                                    : h.resolutionStatus}
+                                </span>
+                              )}
                               {h.assetType === 'mutual_fund' && h.amc && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
                                   AMC: {h.amc}
                                 </span>
                               )}
-                              {h.isin && (
-                                <span className="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-mono text-neutral-500">
-                                  {h.isin}
+                              {h.marketProvider && h.marketProvider !== 'UNRESOLVED' && (
+                                <span className="inline-flex items-center px-1 py-0.5 rounded text-[10px] font-bold bg-neutral-100 text-neutral-600 border border-neutral-300">
+                                  {h.marketProvider}: {h.marketIdentifier || 'Live'}
                                 </span>
                               )}
                             </div>
+                            {h.requiresReview && h.reviewReasons && h.reviewReasons.length > 0 && (
+                              <div className="text-[10px] font-bold text-amber-700 mt-1 flex items-center gap-1">
+                                <AlertCircle size={11} className="shrink-0" />
+                                <span>{h.reviewReasons.join(' • ')}</span>
+                              </div>
+                            )}
                           </td>
 
                           {/* Type dropdown cell */}

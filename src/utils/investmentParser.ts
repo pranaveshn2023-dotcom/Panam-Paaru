@@ -3,6 +3,10 @@ import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
 import { AssetType } from '../types';
 import { detectDetailedAssetType, detectStockSector, detectAmcFromText } from './liveMarketService';
+import { detectTablesInSheet, selectPrimaryTable, DetectedTable } from './tableDetector';
+import { mapHeadersToCanonical, CanonicalColumnMapping } from './columnMapper';
+import { resolveSecurityIdentity, ResolutionConfidence } from './securityResolver';
+import { validateHoldingRow } from './importValidator';
 
 // PDF Worker Initialization
 function initPdfWorker() {
@@ -59,6 +63,13 @@ export interface ParsedHolding {
   xirr?: string;
   selected: boolean;
   isValid: boolean;
+  resolutionStatus?: ResolutionConfidence;
+  marketProvider?: 'AMFI' | 'YAHOO_FINANCE' | 'IMPORTED' | 'UNRESOLVED';
+  marketIdentifier?: string;
+  reviewReasons?: string[];
+  requiresReview?: boolean;
+  sourceSheet?: string;
+  sourceRowIndex?: number;
 }
 
 export function cleanNavPrice(val: number, isMf: boolean = false): number {
@@ -694,211 +705,59 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
       row.map((c) => ((c as any) instanceof Date ? '' : c))
     );
 
-    let headerIdx = -1;
-    let nameCol = -1;
-    let invCol = -1;
-    let curCol = -1;
-    let qtyCol = -1;
-    let buyPriceCol = -1;
-    let curPriceCol = -1;
-    let pnlCol = -1;
-    let typeCol = -1;
-    let subCatCol = -1;
-    let sectorCol = -1;
-    let folioCol = -1;
-    let isinCol = -1;
-    let brokerCol = -1;
-    let xirrCol = -1;
+    // 1. Detect candidate tables in this sheet
+    const detectedTables = detectTablesInSheet(sheet.sheetName, safeMatrix);
+    let sheetParsedAny = false;
 
-    // Scan up to 60 rows for the true table header (supports sheets with leading metadata)
-    for (let r = 0; r < Math.min(safeMatrix.length, 60); r++) {
-      const rawRow = safeMatrix[r];
-      // Normalize cell text: remove symbols, punctuation, collapse spaces
-      const row = rawRow.map((c) =>
-        String(c || '')
-          .toLowerCase()
-          .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-      );
-
-      let tempInv = -1;
-      let tempCur = -1;
-      let tempQty = -1;
-      let tempBuy = -1;
-      let tempCurP = -1;
-      let tempPnl = -1;
-      let tempType = -1;
-      let tempSubCat = -1;
-      let tempSector = -1;
-      let tempFolio = -1;
-      let tempIsin = -1;
-      let tempBroker = -1;
-      let tempXirr = -1;
-      let tempName = -1;
-
-      row.forEach((colName, cIdx) => {
-        if (!colName) return;
-
-        // Skip metadata / personal info headers
-        if (/client|investor|nominee|account\s*holder|user\s*name|pan|aadhaar|mobile|phone|email|address/i.test(colName)) {
-          return;
-        }
-
-        // 1. Quantity / Units
-        if (tempQty === -1 && /\b(qty|quantity|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|avail\w*\s*qty)\b/i.test(colName) && !/price|val|cost|amount/i.test(colName)) {
-          tempQty = cIdx;
-        }
-
-        // 2. Buy Price / Avg Price
-        else if (tempBuy === -1 && /\b(buy\s*price|avg\s*price|average\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate)\b/i.test(colName)) {
-          tempBuy = cIdx;
-        }
-
-        // 3. Current Price / LTP / CMP / NAV
-        else if (tempCurP === -1 && /\b(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|\bnav\b|closing\s*price|last\s*traded\s*price)\b/i.test(colName) && !/total|val/i.test(colName)) {
-          tempCurP = cIdx;
-        }
-
-        // 4. Current Value / Market Value (supports 'Current Valu', 'Cur. Value', 'Mkt Value', etc.)
-        else if (
-          tempCur === -1 &&
-          /\b(current\s*val\w*|market\s*val\w*|present\s*val\w*|latest\s*val\w*|today\s*val\w*|portfolio\s*val\w*|total\s*val\w*|cur\s*val\w*|mkt\s*val\w*|valuation|current\s*amount|cur\s*amount|current|value)\b/i.test(colName) &&
-          !/price|nav|cost|invest|buy|purchase|face|book/i.test(colName)
-        ) {
-          tempCur = cIdx;
-        }
-
-        // 5. Invested Amount / Cost Basis (supports 'Invested Valu', 'Cost (Rs.)', 'Buy Value', 'Inv Amt', etc.)
-        else if (
-          tempInv === -1 &&
-          /\b(invested\s*val\w*|invested\s*amount|invest\w*\s*val\w*|cost\s*val\w*|cost|invested|investment|purchase\s*val\w*|purchase\s*cost|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost)\b/i.test(colName) &&
-          !/price|nav|avg|per\s*unit/i.test(colName)
-        ) {
-          tempInv = cIdx;
-        }
-
-        // 6. P&L / Returns
-        else if (tempPnl === -1 && /\b(p\s*l|profit|loss|gain|returns?|unrealized|unrealised)\b/i.test(colName)) {
-          tempPnl = cIdx;
-        }
-
-        // 7. Sub-category (e.g. Mid Cap, Large Cap, Liquid, Dynamic Asset Allocation)
-        else if (tempSubCat === -1 && /\b(sub\s*category|sub\s*cat|subcategory)\b/i.test(colName)) {
-          tempSubCat = cIdx;
-        }
-
-        // 8. Asset Class / Category / Type
-        else if (tempType === -1 && /\b(asset\s*class|asset\s*type|asset\s*category|instrument\s*type|security\s*type|holding\s*type|investment\s*type|category|type|class|segment)\b/i.test(colName)) {
-          tempType = cIdx;
-        }
-
-        // 9. Sector / Industry
-        else if (tempSector === -1 && /\b(sector|industry|theme)\b/i.test(colName) && !/fund|scheme/i.test(colName)) {
-          tempSector = cIdx;
-        }
-
-        // 10. ISIN column (exact — Indian security identifier, must not be confused with folio)
-        else if (tempIsin === -1 && /^\s*isin\s*$/i.test(colName)) {
-          tempIsin = cIdx;
-        }
-
-        // 11. Folio / Demat
-        else if (tempFolio === -1 && /\b(folio|dp\s*id|demat|scrip\s*code)\b/i.test(colName)) {
-          tempFolio = cIdx;
-        }
-
-        // 12. Broker / Platform / Source
-        else if (tempBroker === -1 && /\b(broker|platform|depository|source)\b/i.test(colName)) {
-          tempBroker = cIdx;
-        }
-
-        // 13. XIRR / IRR / CAGR
-        else if (tempXirr === -1 && /\b(xirr|irr|cagr|annualized\s*returns?|annualised\s*returns?|annualized|annualised)\b/i.test(colName)) {
-          tempXirr = cIdx;
-        }
-      });
-
-      // Find the holding / stock / scheme / AMC name column
-      const specificNameIdx = row.findIndex((c) =>
-        /^(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|instrument|symbol|security\s*name|holding\s*name|scrip|particulars?|instrument\s*name|asset\s*name|amc|amc\s*name)$/i.test(c)
-      );
-
-      if (specificNameIdx !== -1) {
-        tempName = specificNameIdx;
-      } else {
-        tempName = row.findIndex((c, idx) => {
-          if (
-            idx === tempInv ||
-            idx === tempCur ||
-            idx === tempQty ||
-            idx === tempBuy ||
-            idx === tempCurP ||
-            idx === tempPnl ||
-            idx === tempType ||
-            idx === tempSubCat ||
-            idx === tempSector ||
-            idx === tempFolio ||
-            idx === tempIsin ||
-            idx === tempBroker ||
-            idx === tempXirr
-          ) {
-            return false;
-          }
-          if (/client|investor|nominee|account|user|pan|aadhaar|mobile|phone|email|address|date|status|sl\s*no|s\s*no|sr\s*no|returns|xirr/i.test(c)) {
-            return false;
-          }
-          return /scheme|fund|stock|scrip|company|symbol|security|holding|particular|instrument|description|name|amc/i.test(c);
-        });
+    for (const table of detectedTables) {
+      const mapping = mapHeadersToCanonical(table.headers, table.rawRows.slice(0, 10));
+      if (mapping.confidence === 'FAILED' || mapping.securityNameCol === -1) {
+        continue;
       }
 
-      const hasValue = tempInv !== -1 || tempCur !== -1 || tempQty !== -1 || tempCurP !== -1 || tempBuy !== -1 || tempPnl !== -1;
-      if (tempName !== -1 && hasValue) {
-        headerIdx = r;
-        nameCol = tempName;
-        invCol = tempInv;
-        curCol = tempCur;
-        qtyCol = tempQty;
-        buyPriceCol = tempBuy;
-        curPriceCol = tempCurP;
-        pnlCol = tempPnl;
-        typeCol = tempType;
-        subCatCol = tempSubCat;
-        sectorCol = tempSector;
-        folioCol = tempFolio;
-        isinCol = tempIsin;
-        brokerCol = tempBroker;
-        xirrCol = tempXirr;
-        break;
-      }
-    }
+      sheetParsedAny = true;
+      const {
+        securityNameCol,
+        isinCol,
+        symbolCol,
+        unitsCol,
+        buyPriceCol,
+        currentPriceCol,
+        investedValueCol,
+        currentValueCol,
+        pnlCol,
+        assetTypeCol,
+        subTypeCol,
+        sectorCol,
+        folioCol,
+        brokerCol,
+        xirrCol,
+      } = mapping;
 
-    if (headerIdx !== -1 && nameCol !== -1) {
-      for (let r = headerIdx + 1; r < safeMatrix.length; r++) {
-        const row = safeMatrix[r];
-        if (!row || row.length === 0) continue;
-        if (row.length <= nameCol) continue;
+      for (let r = 0; r < table.rawRows.length; r++) {
+        const row = table.rawRows[r];
+        if (!row || row.length === 0 || row.length <= securityNameCol) continue;
 
-        const rawName = String(row[nameCol] || '').trim();
+        const rawName = String(row[securityNameCol] || '').trim();
         if (!rawName) continue;
 
-        // Skip date rows, personal info, and summary/footer rows
+        // Skip non-holding rows: dates, purely numeric IDs, personal metadata, summary footers
         if (/^\d{2}[-/]\d{2}[-/]\d{2,4}/.test(rawName)) continue;
         if (/^\d+$/.test(rawName)) continue;
         if (isPersonalInfo(rawName)) continue;
         if (/total|sub\s*total|grand\s*total|summary|footer|page\s+\d/i.test(rawName)) continue;
         if (!isValidHoldingName(rawName)) continue;
 
-        const rawSubCat = subCatCol !== -1 ? String(row[subCatCol] || '').trim() : undefined;
-        const rawType = typeCol !== -1 ? String(row[typeCol] || '').trim() : undefined;
-        const rawSector = sectorCol !== -1 ? String(row[sectorCol] || '').trim() : undefined;
-        const folioVal = folioCol !== -1 ? String(row[folioCol] || '').trim() : undefined;
-        const isinVal = isinCol !== -1 ? String(row[isinCol] || '').trim() : undefined;
-        const rawBroker = brokerCol !== -1 ? String(row[brokerCol] || '').trim() : undefined;
-        const rawXirr = xirrCol !== -1 ? cleanXirr(row[xirrCol]) : undefined;
+        const rawSubCat = subTypeCol !== undefined ? String(row[subTypeCol] || '').trim() : undefined;
+        const rawType = assetTypeCol !== undefined ? String(row[assetTypeCol] || '').trim() : undefined;
+        const rawSector = sectorCol !== undefined ? String(row[sectorCol] || '').trim() : undefined;
+        const folioVal = folioCol !== undefined ? String(row[folioCol] || '').trim() : undefined;
+        const isinVal = isinCol !== undefined ? String(row[isinCol] || '').trim() : undefined;
+        const rawBroker = brokerCol !== undefined ? String(row[brokerCol] || '').trim() : undefined;
+        const rawXirr = xirrCol !== undefined ? cleanXirr(row[xirrCol]) : undefined;
+        const symbolVal = symbolCol !== undefined ? String(row[symbolCol] || '').trim() : undefined;
 
-        // Split folio vs ISIN: a dedicated ISIN column wins; otherwise detect an ISIN
-        // pattern (12-char Indian security identifier) inside the folio cell
+        // Extract and clean ISIN
         let rawIsin = isinVal || '';
         if (!rawIsin && folioVal) {
           const isinMatch = folioVal.match(/\b(IN[A-Z0-9]{9,11})\b/i);
@@ -906,46 +765,40 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         }
         let rawFolio = folioVal;
         if (rawIsin && rawFolio) {
-          // Remove the ISIN portion from the folio cell if they were combined
-          const cleaned = rawFolio.replace(/\bIN[A-Z0-9]{9,11}\b/i, '').replace(/[\/\s|,]+/g, ' ').trim();
-          rawFolio = cleaned || undefined;
+          rawFolio = rawFolio.replace(/\bIN[A-Z0-9]{9,11}\b/i, '').replace(/[\/\s|,]+/g, ' ').trim() || undefined;
         }
         rawIsin = rawIsin.toUpperCase();
 
-        // Build composite holding name if AMC + Sub-category exist (e.g. "HDFC Mutual Fund - Mid Cap")
+        // Build composite holding name if AMC + Sub-category exist
         let fullName = rawName;
         if (rawSubCat && !fullName.toLowerCase().includes(rawSubCat.toLowerCase())) {
           fullName = `${rawName} - ${rawSubCat}`;
         }
 
-        let units = qtyCol !== -1 ? parseCleanNumber(row[qtyCol]) : undefined;
-        let buyPrice = buyPriceCol !== -1 ? parseCleanNumber(row[buyPriceCol]) : undefined;
-        let currentPrice = curPriceCol !== -1 ? parseCleanNumber(row[curPriceCol]) : undefined;
-        let invested = invCol !== -1 ? parseCleanNumber(row[invCol]) : 0;
-        let current = curCol !== -1 ? parseCleanNumber(row[curCol]) : 0;
+        const units = unitsCol !== undefined ? parseCleanNumber(row[unitsCol]) : undefined;
+        let buyPrice = buyPriceCol !== undefined ? parseCleanNumber(row[buyPriceCol]) : undefined;
+        let currentPrice = currentPriceCol !== undefined ? parseCleanNumber(row[currentPriceCol]) : undefined;
+        let invested = investedValueCol !== undefined ? parseCleanNumber(row[investedValueCol]) : 0;
+        let current = currentValueCol !== undefined ? parseCleanNumber(row[currentValueCol]) : 0;
 
-        // Detect whether the P&L / Returns column holds a PERCENTAGE (e.g. "Returns (%)",
-        // "Return %", "1Y Returns") instead of an absolute ₹ figure, and convert it to an
-        // amount so the derived current/invested values never get corrupted.
-        const pnlHeader = pnlCol !== -1 ? String(safeMatrix[headerIdx][pnlCol] || '').trim().toLowerCase() : '';
-        const rawPnlCell = pnlCol !== -1 ? String(row[pnlCol] || '').trim() : '';
-        const pnlRaw = pnlCol !== -1 ? parseCleanNumber(row[pnlCol]) : undefined;
+        // P&L percentage vs absolute amount detection
+        const pnlHeader = pnlCol !== undefined ? String(table.headers[pnlCol] || '').trim().toLowerCase() : '';
+        const rawPnlCell = pnlCol !== undefined ? String(row[pnlCol] || '').trim() : '';
+        const pnlRaw = pnlCol !== undefined ? parseCleanNumber(row[pnlCol]) : undefined;
         const pnlIsPercent =
-          pnlCol !== -1 &&
+          pnlCol !== undefined &&
           (/%\s*$/.test(rawPnlCell) ||
             (/%|per\s*cent|annual|yld|yield/i.test(pnlHeader) && !/p\s*l|profit|loss|gain|amount|rs|inr|value/i.test(pnlHeader)));
 
         let pnl: number | undefined = pnlRaw;
         if (pnlIsPercent) {
-          // Convert after invested/current are known
           pnl = undefined;
         }
 
-        // Derive missing financial numbers from existing row data if needed
+        // Derive missing financial numbers only when mathematically verified from row data
         if (invested === 0 && units && buyPrice) invested = units * buyPrice;
         if (current === 0 && units && currentPrice) current = units * currentPrice;
 
-        // Percentage P&L → absolute amount
         if (pnlIsPercent && pnlRaw !== undefined) {
           const basis = invested > 0 ? invested : current > 0 ? current : 0;
           if (basis > 0) pnl = cleanCurrency((basis * pnlRaw) / 100);
@@ -954,11 +807,9 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         if (current === 0 && invested > 0 && pnl !== undefined) current = invested + pnl;
         if (invested === 0 && current > 0 && pnl !== undefined) invested = current - pnl;
 
-        // Only fallback to current if NO invested amount column and NO buy price column existed in the file
-        if (invested === 0 && current > 0 && invCol === -1 && buyPriceCol === -1) invested = current;
-        if (current === 0 && invested > 0 && curCol === -1 && curPriceCol === -1) current = invested;
+        if (invested === 0 && current > 0 && investedValueCol === undefined && buyPriceCol === undefined) invested = current;
+        if (current === 0 && invested > 0 && currentValueCol === undefined && currentPriceCol === undefined) current = invested;
 
-        // Automatically derive buyPrice and currentPrice (NAV / LTP) when units and values exist!
         if ((!currentPrice || currentPrice <= 0) && units && units > 0 && current > 0) {
           currentPrice = cleanCurrency(current / units);
         }
@@ -968,129 +819,113 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
 
         if (invested > 500000000 || current > 500000000) continue;
 
-        if (invested > 0 || current > 0) {
-          const detailed = detectDetailedAssetType(fullName, rawType || rawSubCat, rawSector, rawIsin);
-          const detectedAmc = detailed.assetType === 'mutual_fund' ? detectAmcFromText(fullName)?.name : undefined;
+        if (invested > 0 || current > 0 || (units !== undefined && units > 0)) {
+          const resolved = resolveSecurityIdentity(
+            fullName,
+            rawIsin,
+            symbolVal,
+            rawType,
+            rawSubCat,
+            rawFolio
+          );
+
           const notesParts = [
             rawFolio ? `Folio: ${rawFolio}` : '',
             rawIsin ? `ISIN: ${rawIsin}` : '',
             rawXirr ? `XIRR: ${rawXirr}` : '',
+            table.tableType === 'TRANSACTIONS' ? 'Type: Transaction Statement' : '',
           ].filter(Boolean);
 
-          holdings.push({
-            id: `auto_${sheet.sheetName}_${r}_${Date.now()}`,
+          const isMf = resolved.assetType === 'mutual_fund';
+          const holdingObj: ParsedHolding = {
+            id: `tbl_${sheet.sheetName}_${table.headerRowIndex + 1 + r}_${Date.now()}`,
             name: fullName,
-            assetType: detailed.assetType,
-            subType: rawSubCat || rawType || detailed.subType,
-            sector: rawSector || detailed.sector || undefined,
-            amc: detectedAmc,
+            assetType: resolved.assetType,
+            subType: rawSubCat || rawType || resolved.subType,
+            sector: rawSector || undefined,
+            amc: resolved.amc,
             broker: rawBroker || undefined,
             folioNo: rawFolio || undefined,
-            isin: rawIsin || undefined,
+            isin: rawIsin || resolved.isin || undefined,
             investedAmount: cleanCurrency(Math.abs(invested)),
             currentValue: cleanCurrency(Math.abs(current)),
             returns: pnl !== undefined ? cleanCurrency(pnl) : cleanCurrency(current - invested),
             units: cleanUnits(units),
             buyPrice: buyPrice && buyPrice > 0 ? cleanCurrency(buyPrice) : undefined,
-            currentPrice: currentPrice && currentPrice > 0 ? cleanNavPrice(currentPrice, detailed.assetType === 'mutual_fund') : undefined,
-            statementPrice: currentPrice && currentPrice > 0 ? cleanNavPrice(currentPrice, detailed.assetType === 'mutual_fund') : undefined,
+            currentPrice: currentPrice && currentPrice > 0 ? cleanNavPrice(currentPrice, isMf) : undefined,
+            statementPrice: currentPrice && currentPrice > 0 ? cleanNavPrice(currentPrice, isMf) : undefined,
             statementValue: cleanCurrency(Math.abs(current)),
             xirr: rawXirr,
             notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
             selected: true,
             isValid: true,
-          });
+            resolutionStatus: resolved.confidence,
+            marketProvider: isMf ? 'AMFI' : resolved.assetType === 'stocks' ? 'YAHOO_FINANCE' : 'IMPORTED',
+            marketIdentifier: rawIsin || resolved.isin || symbolVal || fullName,
+            reviewReasons: resolved.reviewReasons,
+            requiresReview: resolved.confidence === 'REVIEW_REQUIRED' || resolved.confidence === 'UNRESOLVED',
+            sourceSheet: sheet.sheetName,
+            sourceRowIndex: table.headerRowIndex + 1 + r,
+          };
+
+          const validation = validateHoldingRow(holdingObj);
+          holdingObj.isValid = validation.isValid;
+          if (validation.requiresReview) holdingObj.requiresReview = true;
+          if (validation.warnings.length > 0) {
+            holdingObj.reviewReasons = [...(holdingObj.reviewReasons || []), ...validation.warnings];
+          }
+
+          holdings.push(holdingObj);
         }
       }
-    } else {
-      // Positional Scan fallback
-      const TX_MARKERS = /^(purchase|redemption|switch|sip|dividend|stp|swp|systematic|allotment|bonus|split|merger|transaction|nav|price|amount|balance|units)$/i;
+    }
+
+    // 2. Fallback for Headerless Statements (e.g. 2-column or 3-column simple lists without header row)
+    if (!sheetParsedAny) {
       for (let r = 0; r < safeMatrix.length; r++) {
         const row = safeMatrix[r];
         if (!row || row.length < 2) continue;
 
         const stringCell = row.find(
-          (c: any) => typeof c === 'string' && isValidHoldingName(c) && !TX_MARKERS.test(c) && !isPersonalInfo(c)
+          (c: any) => typeof c === 'string' && isValidHoldingName(c) && !isPersonalInfo(c)
         );
         if (!stringCell) continue;
 
-        const parsedNums: { val: number; colIdx: number }[] = [];
-        row.forEach((cell: any, cIdx: number) => {
-          const num = parseCleanNumber(cell);
-          if (num > 0 && num < 500000000) {
-            parsedNums.push({ val: num, colIdx: cIdx });
-          }
+        const nums: number[] = [];
+        row.forEach((cell: any) => {
+          const n = parseCleanNumber(cell);
+          if (n > 0 && n < 500000000) nums.push(n);
         });
 
-        if (parsedNums.length >= 1) {
-          let units: number | undefined = undefined;
-          let currentPrice: number | undefined = undefined;
-          let invested = 0;
-          let current = 0;
+        if (nums.length >= 2) {
+          const invested = nums[0];
+          const current = nums[1];
+          const resolved = resolveSecurityIdentity(String(stringCell).trim());
 
-          if (parsedNums.length >= 3) {
-            const [n1, n2, n3] = parsedNums.map((p) => p.val);
-            // Case A: Qty * Price ≈ Total Value
-            if (Math.abs(n1 * n2 - n3) < Math.max(1, n3 * 0.05)) {
-              units = n1;
-              currentPrice = n2;
-              invested = n3;
-              current = n3;
-            } else if (parsedNums.length >= 4) {
-              // Case B: Qty, Buy Price, Invested, Current Value
-              const n4 = parsedNums[3].val;
-              units = n1;
-              currentPrice = n2;
-              invested = n3;
-              current = n4;
-            } else {
-              // Units, Invested, Current
-              units = n1 < 100000 ? n1 : undefined;
-              invested = n2;
-              current = n3;
-            }
-          } else if (parsedNums.length === 2) {
-            const [n1, n2] = parsedNums.map((p) => p.val);
-            if (n1 < 10000 && n2 >= 100) {
-              units = n1;
-              invested = n2;
-              current = n2;
-            } else {
-              invested = n1;
-              current = n2;
-            }
-          } else {
-            invested = parsedNums[0].val;
-            current = parsedNums[0].val;
-          }
-
-          if (invested > 0 || current > 0) {
-            const detailed = detectDetailedAssetType(String(stringCell));
-            const detectedAmc = detailed.assetType === 'mutual_fund' ? detectAmcFromText(String(stringCell))?.name : undefined;
-            holdings.push({
-              id: `pos_${sheet.sheetName}_${r}_${Date.now()}`,
-              name: String(stringCell).trim(),
-              assetType: detailed.assetType,
-              subType: detailed.subType,
-              sector: undefined,
-              amc: detectedAmc,
-              units: units ? cleanUnits(units) : undefined,
-              currentPrice: currentPrice ? cleanNavPrice(currentPrice, detailed.assetType === 'mutual_fund') : undefined,
-              investedAmount: cleanCurrency(Math.abs(invested)),
-              currentValue: cleanCurrency(Math.abs(current)),
-              selected: true,
-              isValid: true,
-            });
-          }
+          holdings.push({
+            id: `hdrless_${sheet.sheetName}_${r}_${Date.now()}`,
+            name: String(stringCell).trim(),
+            assetType: resolved.assetType,
+            subType: resolved.subType,
+            investedAmount: cleanCurrency(invested),
+            currentValue: cleanCurrency(current),
+            selected: true,
+            isValid: true,
+            resolutionStatus: 'REVIEW_REQUIRED',
+            reviewReasons: ['Statement is missing table headers; values require user confirmation.'],
+            requiresReview: true,
+            sourceSheet: sheet.sheetName,
+            sourceRowIndex: r,
+          });
         }
       }
     }
   }
 
-  // Deduplicate by composite key so different schemes under the same AMC are both preserved
+  // Deduplicate by composite key (ISIN preferred, else name + subType + folio)
   const seen = new Set<string>();
   return holdings.filter((h) => {
-    const key = `${h.name.toLowerCase()}_${h.subType || ''}_${h.folioNo || ''}`.substring(0, 60);
+    const key = h.isin ? `isin_${h.isin}` : `${h.name.toLowerCase()}_${h.subType || ''}_${h.folioNo || ''}`.substring(0, 60);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -1107,6 +942,8 @@ export async function parseInvestmentFile(
 ): Promise<{
   holdings: ParsedHolding[];
   rawGrid: RawFileContent;
+  detectedTable?: DetectedTable;
+  columnMapping?: CanonicalColumnMapping;
 }> {
   const ext = file.name.split('.').pop()?.toLowerCase();
 
@@ -1122,10 +959,24 @@ export async function parseInvestmentFile(
     return { holdings: gridHoldings, rawGrid };
   }
 
-  // Excel / CSV / TSV
+  // Excel / CSV / TSV / DOCX
   const rawGrid = await extractRawGrid(file);
   const holdings = autoExtractHoldings(rawGrid);
-  return { holdings, rawGrid };
+
+  let primaryTable: DetectedTable | undefined;
+  let primaryMapping: CanonicalColumnMapping | undefined;
+
+  for (const sheet of rawGrid.sheets) {
+    const tables = detectTablesInSheet(sheet.sheetName, sheet.rows);
+    const best = selectPrimaryTable(tables);
+    if (best) {
+      primaryTable = best;
+      primaryMapping = mapHeadersToCanonical(best.headers, best.rawRows.slice(0, 5));
+      break;
+    }
+  }
+
+  return { holdings, rawGrid, detectedTable: primaryTable, columnMapping: primaryMapping };
 }
 
 // ──────────────────────────────────────────

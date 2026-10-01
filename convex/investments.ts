@@ -1413,6 +1413,16 @@ async function fetchStockQuote(
               change = Math.round(change * usdInr * 100) / 100;
             }
           }
+
+          // Price plausibility validation against statement baseline
+          if (statementPrice && statementPrice > 0) {
+            const ratio = price / statementPrice;
+            if (ratio > 5.0 || ratio < 0.15) {
+              // Plausibility check failed: price drift is too extreme for a matched stock
+              continue;
+            }
+          }
+
           const prevClose =
             change !== undefined
               ? price - change
@@ -2208,31 +2218,32 @@ export function scoreMfCandidate(
     score += 40;
   }
 
-  // Direct vs Regular intent (Default to Direct)
+  // Direct vs Regular intent (Strict matching without defaulting)
   const wantsDirect = /\b(direct|dir)\b/i.test(stripped);
   const wantsRegular = /\b(regular|reg)\b/i.test(stripped);
   const isDirect = /\bdirect\b/i.test(sFull);
   const isRegular = /\bregular\b/i.test(sFull);
 
   if (wantsRegular) {
-    if (isRegular) score += 30;
-    if (isDirect) score -= 30;
-  } else {
-    if (isDirect) score += 30;
-    if (isRegular) score += 5;
+    if (isRegular) score += 40;
+    if (isDirect) return -100; // Reject Direct scheme when Regular is requested
+  } else if (wantsDirect) {
+    if (isDirect) score += 40;
+    if (isRegular) return -100; // Reject Regular scheme when Direct is requested
   }
 
-  // Growth vs IDCW intent (Default to Growth, heavily penalize IDCW if not requested)
+  // Growth vs IDCW intent (Strict matching without defaulting)
   const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(stripped);
+  const wantsGrowth = /\b(growth|gr)\b/i.test(stripped);
   const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sFull);
   const isGrowth = /\bgrowth\b/i.test(sFull);
 
   if (wantsIdcw) {
-    if (isIdcw) score += 30;
-    if (isGrowth) score -= 30;
-  } else {
+    if (isIdcw) score += 40;
+    if (isGrowth) return -100; // Reject Growth when IDCW is requested
+  } else if (wantsGrowth) {
     if (isGrowth) score += 40;
-    if (isIdcw) score -= 60;
+    if (isIdcw) return -100; // Reject IDCW when Growth is requested
   }
 
   // Statement Price proximity bonus (high confidence for mutual fund NAV matching)
