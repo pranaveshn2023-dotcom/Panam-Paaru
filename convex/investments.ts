@@ -501,12 +501,14 @@ export const add = mutation({
       (inv) => areHoldingsEquivalent(inv, { name: args.name, notes: args.notes, isin: autoIsin, schemeCode: autoSchemeCode })
     );
 
+    const safeCurrentValue = args.currentValue > 0 ? args.currentValue : (args.investedAmount > 0 ? args.investedAmount : 0);
+
     if (matched) {
       const existingUnits = matched.units || 0;
       const addedUnits = args.units || 0;
       const combinedUnits = existingUnits + addedUnits > 0 ? existingUnits + addedUnits : undefined;
       const combinedInvested = matched.investedAmount + Math.max(0, args.investedAmount);
-      const combinedValue = matched.currentValue + Math.max(0, args.currentValue);
+      const combinedValue = matched.currentValue + safeCurrentValue;
       const newAvgBuyPrice =
         combinedUnits && combinedUnits > 0
           ? isMf
@@ -537,7 +539,7 @@ export const add = mutation({
       name: args.name.trim(),
       assetType: args.assetType,
       investedAmount: Math.max(0, args.investedAmount),
-      currentValue: Math.max(0, args.currentValue),
+      currentValue: safeCurrentValue,
       units: args.units,
       buyPrice: derivedBuyPrice,
       currentPrice: derivedCurrentPrice,
@@ -682,11 +684,13 @@ export const batchAdd = mutation({
           (autoSchemeCode && existing.schemeCode !== autoSchemeCode) ||
           (item.ticker && existing.ticker !== item.ticker);
 
+        const safeItemVal = item.currentValue > 0 ? item.currentValue : (item.investedAmount > 0 ? item.investedAmount : (existing.currentValue || 0));
+
         if (hasChanges) {
           // Overwrite existing holding with new values from updated statement
           await ctx.db.patch(existing._id, {
             name: item.name.trim(),
-            currentValue: Math.max(0, item.currentValue),
+            currentValue: safeItemVal,
             investedAmount: item.investedAmount > 0 ? item.investedAmount : existing.investedAmount,
             units: item.units !== undefined ? item.units : existing.units,
             currentPrice: derivedCurrentPrice !== undefined ? derivedCurrentPrice : existing.currentPrice,
@@ -708,7 +712,7 @@ export const batchAdd = mutation({
           existingHoldings[matchIndex] = {
             ...existing,
             name: item.name.trim(),
-            currentValue: Math.max(0, item.currentValue),
+            currentValue: safeItemVal,
             investedAmount: item.investedAmount > 0 ? item.investedAmount : existing.investedAmount,
             units: item.units !== undefined ? item.units : existing.units,
             currentPrice: derivedCurrentPrice !== undefined ? derivedCurrentPrice : existing.currentPrice,
@@ -727,6 +731,7 @@ export const batchAdd = mutation({
         }
       } else {
         // Genuine new asset: insert
+        const safeNewVal = item.currentValue > 0 ? item.currentValue : (item.investedAmount > 0 ? item.investedAmount : 0);
         const id = await ctx.db.insert("investments", {
           userId,
           name: item.name.trim(),
@@ -736,7 +741,7 @@ export const batchAdd = mutation({
           broker: item.broker || args.broker,
           importBatchId: batchId,
           investedAmount: Math.max(0, item.investedAmount),
-          currentValue: Math.max(0, item.currentValue),
+          currentValue: safeNewVal,
           units: item.units,
           buyPrice: derivedBuyPrice,
           currentPrice: derivedCurrentPrice,

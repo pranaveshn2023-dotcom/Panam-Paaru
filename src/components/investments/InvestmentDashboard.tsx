@@ -419,10 +419,25 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
       {/* KPI Cards Grid - 2x2 on Mobile, 4 on Desktop */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
         <div className="p-2.5 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
-          <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
-            <span className="text-xs font-black">{currencySymbol}</span> VALUE
-          </span>
-          <span className="text-base min-[400px]:text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
+              <span className="text-xs font-black">{currencySymbol}</span> VALUE
+            </span>
+            <button
+              type="button"
+              onClick={togglePrivacyMode}
+              title={isPrivacyMode ? 'Show Balances' : 'Hide Balances'}
+              className="p-0.5 hover:bg-neutral-100 border border-transparent hover:border-[#121212] transition-colors cursor-pointer"
+              aria-label={isPrivacyMode ? 'Show Balances' : 'Hide Balances'}
+              data-testid="privacy-toggle-investments"
+            >
+              {isPrivacyMode ? <EyeOff size={13} className="text-neutral-500" /> : <Eye size={13} className="text-neutral-500" />}
+            </button>
+          </div>
+          <span
+            data-testid="portfolio-value"
+            className="text-base min-[400px]:text-lg sm:text-2xl font-mono font-black text-[#121212] truncate"
+          >
             {isPrivacyMode ? '••••••' : formatPrivateAmount(totalCurrentValue, currencySymbol)}
           </span>
           <span className="text-[9px] sm:text-[10px] font-bold text-neutral-500 truncate">{totalHoldings} holdings</span>
@@ -432,7 +447,10 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
           <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
             <Target size={12} /> INVESTED
           </span>
-          <span className="text-base min-[400px]:text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
+          <span
+            data-testid="portfolio-invested"
+            className="text-base min-[400px]:text-lg sm:text-2xl font-mono font-black text-[#121212] truncate"
+          >
             {isPrivacyMode ? '••••••' : formatPrivateAmount(totalInvested, currencySymbol)}
           </span>
           <span className="text-[9px] sm:text-[10px] font-bold text-neutral-500 truncate">Principal basis</span>
@@ -443,12 +461,18 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
             {isPositiveReturns ? <TrendingUp size={12} className="text-[#05DF72]" /> : <TrendingDown size={12} className="text-[#FF4343]" />} RETURNS
           </span>
           <div className="flex items-baseline gap-1 sm:gap-2 flex-wrap">
-            <span className={`text-base min-[400px]:text-lg sm:text-2xl font-mono font-black truncate ${isPositiveReturns ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
+            <span
+              data-testid="portfolio-returns"
+              className={`text-base min-[400px]:text-lg sm:text-2xl font-mono font-black truncate ${isPositiveReturns ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}
+            >
               {isPositiveReturns ? '+' : ''}
               {isPrivacyMode ? '••••' : formatPrivateAmount(totalReturns, currencySymbol)}
             </span>
-            <span className={`text-[9px] sm:text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.5 border border-[#121212] shrink-0 ${isPositiveReturns ? 'bg-[#05DF72] text-[#121212]' : 'bg-[#FF4343] text-white'
-              }`}>
+            <span
+              data-testid="portfolio-gain-percent"
+              className={`text-[9px] sm:text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.5 border border-[#121212] shrink-0 ${isPositiveReturns ? 'bg-[#05DF72] text-[#121212]' : 'bg-[#FF4343] text-white'
+              }`}
+            >
               {isPositiveReturns ? '+' : ''}{portfolioGainPercent}%
             </span>
           </div>
