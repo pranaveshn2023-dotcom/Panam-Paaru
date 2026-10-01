@@ -567,11 +567,11 @@ export const BudgetModal: React.FC<BudgetModalProps> = ({
           </div>
         )}
 
-        <div className="flex justify-end gap-2.5 pt-2">
-          <NeoButton type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-2.5 pt-2">
+          <NeoButton type="button" variant="outline" onClick={onClose} disabled={isSubmitting} className="w-full sm:w-auto">
             Cancel
           </NeoButton>
-          <NeoButton type="submit" variant="secondary" disabled={isSubmitting}>
+          <NeoButton type="submit" variant="secondary" disabled={isSubmitting} className="w-full sm:w-auto">
             {isSubmitting
               ? 'Saving...'
               : initialData

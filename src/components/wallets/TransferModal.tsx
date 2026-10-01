@@ -248,11 +248,11 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-2 pt-2 border-t-2 border-[#121212]">
-          <NeoButton type="button" variant="outline" size="md" onClick={onClose}>
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t-2 border-[#121212]">
+          <NeoButton type="button" variant="outline" size="md" onClick={onClose} className="w-full sm:w-auto">
             Cancel
           </NeoButton>
-          <NeoButton type="submit" variant="primary" size="md" disabled={isSubmitting}>
+          <NeoButton type="submit" variant="primary" size="md" disabled={isSubmitting} className="w-full sm:w-auto">
             {isSubmitting ? 'Transferring...' : 'Execute Transfer'}
           </NeoButton>
         </div>

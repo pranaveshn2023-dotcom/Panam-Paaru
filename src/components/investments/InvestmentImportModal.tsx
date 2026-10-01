@@ -1358,21 +1358,21 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-mono">
-                <div>
-                  <span className="text-neutral-500 font-bold uppercase text-[10px]">Invested: </span>
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3 text-xs font-mono w-full sm:w-auto">
+                <div className="bg-neutral-50 sm:bg-transparent p-1.5 sm:p-0 border border-neutral-200 sm:border-0">
+                  <span className="text-neutral-500 font-bold uppercase text-[10px] block sm:inline">Invested: </span>
                   <span className="font-black text-[#121212]">
                     ₹{totalSelectedInvested.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
-                <div>
-                  <span className="text-neutral-500 font-bold uppercase text-[10px]">Current: </span>
+                <div className="bg-neutral-50 sm:bg-transparent p-1.5 sm:p-0 border border-neutral-200 sm:border-0">
+                  <span className="text-neutral-500 font-bold uppercase text-[10px] block sm:inline">Current: </span>
                   <span className="font-black text-[#121212]">
                     ₹{totalSelectedCurrent.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
-                <div>
-                  <span className="text-neutral-500 font-bold uppercase text-[10px]">P&L: </span>
+                <div className="bg-neutral-50 sm:bg-transparent p-1.5 sm:p-0 border border-neutral-200 sm:border-0">
+                  <span className="text-neutral-500 font-bold uppercase text-[10px] block sm:inline">P&L: </span>
                   <span
                     className={`font-black ${
                       totalSelectedCurrent >= totalSelectedInvested ? 'text-[#0B6B38]' : 'text-[#DC2626]'
@@ -1385,7 +1385,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     })}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 pl-2 sm:border-l sm:border-neutral-300">
+                <div className="flex items-center gap-1.5 p-1.5 sm:p-0 sm:pl-2 sm:border-l sm:border-neutral-300 col-span-2 sm:col-span-1 justify-between sm:justify-start bg-neutral-50 sm:bg-transparent border border-neutral-200 sm:border-0">
                   <span className="text-neutral-500 font-bold uppercase text-[10px]">Broker:</span>
                   <BrokerSelectDropdown
                     value={selectedBroker}
@@ -1496,7 +1496,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             )}
 
             {/* Table Header & Rows */}
-            <div className="border-2 border-[#121212] bg-white overflow-x-auto max-h-[380px] overflow-y-auto overscroll-x-contain">
+            <div className="md:hidden flex items-center justify-between text-[10px] font-mono font-bold text-neutral-500 px-1">
+              <span>← Swipe table for Live Rates & P&L →</span>
+              <span>{parsedHoldings.length} holdings</span>
+            </div>
+            <div className="border-2 border-[#121212] bg-white overflow-x-auto max-h-[380px] overflow-y-auto overscroll-x-contain touch-scroll">
               <table className="min-w-[700px] w-full text-left text-xs font-bold border-collapse">
                 <thead className="bg-[#121212] text-white sticky top-0 z-10 text-[11px] font-black uppercase tracking-wider">
                   <tr>
@@ -1974,11 +1978,16 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                   type="button"
                   onClick={handleImportCommit}
                   disabled={isImporting || selectedCount === 0}
-                  className="px-5 py-2.5 bg-[#05DF72] hover:bg-[#04C966] text-[#121212] text-xs font-black uppercase border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="px-4 sm:px-5 py-2.5 bg-[#05DF72] hover:bg-[#04C966] text-[#121212] text-xs font-black uppercase border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 min-h-[42px]"
                 >
                   <Check size={16} strokeWidth={3} />
                   <span>
-                    {isImporting ? 'Importing...' : `Update & Import ${selectedCount} assets`}
+                    {isImporting ? 'Importing...' : (
+                      <>
+                        <span className="hidden sm:inline">Update & Import {selectedCount} assets</span>
+                        <span className="sm:hidden">Import {selectedCount} Assets</span>
+                      </>
+                    )}
                   </span>
                 </button>
               </div>

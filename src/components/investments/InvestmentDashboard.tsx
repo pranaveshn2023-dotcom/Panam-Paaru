@@ -367,9 +367,9 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
           </div>
 
           {/* Real-time indices: NIFTY 50 & SENSEX */}
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full sm:w-auto py-0.5">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar touch-scroll overscroll-x-contain w-full sm:w-auto py-0.5">
             {marketIndices.map((idx) => (
-              <div key={idx.symbol} className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-700 px-2.5 py-1 text-xs font-mono shrink-0">
+              <div key={idx.symbol} className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-700 px-2 sm:px-2.5 py-1 text-xs font-mono shrink-0">
                 <span className="font-bold text-neutral-400">{idx.name}:</span>
                 <span className="font-black text-white">{idx.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 <span className={`text-[10px] font-black flex items-center ${idx.isPositive ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
@@ -386,66 +386,68 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
           )}
         </div>
 
-        <div className="flex items-center justify-between sm:justify-end gap-2.5 text-xs font-mono w-full md:w-auto">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 text-xs font-mono w-full md:w-auto">
           {lastSyncedAt && (
             <span className="text-[10px] text-neutral-400">
-              Synced: {lastSyncedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              Synced: {lastSyncedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
-          <button
-            onClick={() => setIsAutoSyncEnabled(!isAutoSyncEnabled)}
-            className={`px-2 py-0.5 text-[10px] font-black uppercase border transition-all cursor-pointer ${isAutoSyncEnabled
-                ? 'bg-[#05DF72] text-[#121212] border-[#05DF72]'
-                : 'bg-neutral-800 text-neutral-400 border-neutral-700'
-              }`}
-            title="Toggle real-time auto sync every 45 seconds"
-          >
-            Auto: {isAutoSyncEnabled ? 'ON (45s)' : 'OFF'}
-          </button>
-          <button
-            onClick={() => handleSyncLiveMarket(false)}
-            disabled={isSyncingNav}
-            className="px-2.5 py-1 bg-[#FFE600] hover:bg-[#FFD700] text-[#121212] font-black text-[11px] uppercase border border-[#121212] flex items-center gap-1 cursor-pointer disabled:opacity-50 shrink-0"
-            title="Fetch real-time quotes for all stocks and mutual funds"
-          >
-            <RefreshCw size={12} strokeWidth={3} className={isSyncingNav ? 'animate-spin' : ''} />
-            <span>{isSyncingNav ? 'Syncing...' : 'Live Sync'}</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setIsAutoSyncEnabled(!isAutoSyncEnabled)}
+              className={`px-2 py-0.5 text-[10px] font-black uppercase border transition-all cursor-pointer ${isAutoSyncEnabled
+                  ? 'bg-[#05DF72] text-[#121212] border-[#05DF72]'
+                  : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                }`}
+              title="Toggle real-time auto sync every 45 seconds"
+            >
+              Auto: {isAutoSyncEnabled ? 'ON' : 'OFF'}
+            </button>
+            <button
+              onClick={() => handleSyncLiveMarket(false)}
+              disabled={isSyncingNav}
+              className="px-2.5 py-1 bg-[#FFE600] hover:bg-[#FFD700] text-[#121212] font-black text-[11px] uppercase border border-[#121212] flex items-center gap-1 cursor-pointer disabled:opacity-50 shrink-0"
+              title="Fetch real-time quotes for all stocks and mutual funds"
+            >
+              <RefreshCw size={12} strokeWidth={3} className={isSyncingNav ? 'animate-spin' : ''} />
+              <span>{isSyncingNav ? 'Syncing...' : 'Live Sync'}</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* KPI Cards Grid - 2x2 on Mobile, 4 on Desktop */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
-        <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        <div className="p-2.5 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
           <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
             <span className="text-xs font-black">{currencySymbol}</span> VALUE
           </span>
-          <span className="text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
+          <span className="text-base min-[400px]:text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
             {isPrivacyMode ? '••••••' : formatPrivateAmount(totalCurrentValue, currencySymbol)}
           </span>
           <span className="text-[9px] sm:text-[10px] font-bold text-neutral-500 truncate">{totalHoldings} holdings</span>
         </div>
 
-        <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
+        <div className="p-2.5 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
           <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
             <Target size={12} /> INVESTED
           </span>
-          <span className="text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
+          <span className="text-base min-[400px]:text-lg sm:text-2xl font-mono font-black text-[#121212] truncate">
             {isPrivacyMode ? '••••••' : formatPrivateAmount(totalInvested, currencySymbol)}
           </span>
           <span className="text-[9px] sm:text-[10px] font-bold text-neutral-500 truncate">Principal basis</span>
         </div>
 
-        <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
+        <div className="p-2.5 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
           <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
             {isPositiveReturns ? <TrendingUp size={12} className="text-[#05DF72]" /> : <TrendingDown size={12} className="text-[#FF4343]" />} RETURNS
           </span>
           <div className="flex items-baseline gap-1 sm:gap-2 flex-wrap">
-            <span className={`text-lg sm:text-2xl font-mono font-black truncate ${isPositiveReturns ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
+            <span className={`text-base min-[400px]:text-lg sm:text-2xl font-mono font-black truncate ${isPositiveReturns ? 'text-[#05DF72]' : 'text-[#FF4343]'}`}>
               {isPositiveReturns ? '+' : ''}
               {isPrivacyMode ? '••••' : formatPrivateAmount(totalReturns, currencySymbol)}
             </span>
-            <span className={`text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.5 border border-[#121212] shrink-0 ${isPositiveReturns ? 'bg-[#05DF72] text-[#121212]' : 'bg-[#FF4343] text-white'
+            <span className={`text-[9px] sm:text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.5 border border-[#121212] shrink-0 ${isPositiveReturns ? 'bg-[#05DF72] text-[#121212]' : 'bg-[#FF4343] text-white'
               }`}>
               {isPositiveReturns ? '+' : ''}{portfolioGainPercent}%
             </span>
@@ -453,11 +455,11 @@ export const InvestmentDashboard: React.FC<InvestmentDashboardProps> = ({
           <span className="text-[9px] sm:text-[10px] font-bold text-neutral-500 truncate">Unrealized growth</span>
         </div>
 
-        <div className="p-3 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
+        <div className="p-2.5 sm:p-4 bg-white border-[3px] border-[#121212] shadow-neo flex flex-col gap-1 hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-neo-lg transition-all">
           <span className="text-[9px] sm:text-[10px] font-black uppercase text-neutral-500 flex items-center gap-1 truncate">
-            <Clock size={12} /> SIPs
+            <Clock size={12} /> SIPS
           </span>
-          <span className="text-lg sm:text-2xl font-mono font-black text-[#00F0FF] truncate">
+          <span className="text-base min-[400px]:text-lg sm:text-2xl font-mono font-black text-[#00F0FF] truncate">
             {isPrivacyMode ? '••••' : formatPrivateAmount(totalSip, currencySymbol)}
             <span className="text-[10px] sm:text-xs font-bold text-neutral-600">/mo</span>
           </span>
