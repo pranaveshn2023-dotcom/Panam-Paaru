@@ -243,10 +243,14 @@ export const update = mutation({
 
     const isRecurring = args.isRecurring !== undefined ? args.isRecurring : (args.recurrence !== 'one_time');
 
+    const newInitialLoadedAmount = args.initialLoadedAmount ?? budget.initialLoadedAmount;
+
     await ctx.db.patch(args.id, {
       name: args.name.trim(),
       amount: args.amount,
-      initialLoadedAmount: args.initialLoadedAmount ?? budget.initialLoadedAmount,
+      initialLoadedAmount: newInitialLoadedAmount,
+      // Keep currentLoadedAmount in sync so the displayed pool reflects the new budget limit
+      currentLoadedAmount: newInitialLoadedAmount,
       category: args.category,
       recurrence: args.recurrence,
       isRecurring,
