@@ -363,8 +363,8 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         {/* Left Column: Donut & Category Breakdown List (Screenshot 1) */}
-        <div className="lg:col-span-6 flex flex-col gap-6">
-          <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 sm:p-6 flex flex-col gap-6">
+        <div className="lg:col-span-6 flex flex-col gap-6 min-w-0">
+          <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-6 flex flex-col gap-6 min-w-0">
             
             <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3">
               <div className="flex items-center gap-2">
@@ -482,10 +482,10 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
         </div>
 
         {/* Right Column: Daily Flow Curve + 7-Day Calendar Matrix (Screenshot 5) */}
-        <div className="lg:col-span-6 flex flex-col gap-6">
+        <div className="lg:col-span-6 flex flex-col gap-6 min-w-0">
 
           {/* Daily Expense Flow Line Graph */}
-          <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 sm:p-6 flex flex-col gap-4">
+          <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-6 flex flex-col gap-4 min-w-0">
             <div className="flex flex-wrap items-center justify-between border-b-2 border-[#121212] pb-3 gap-2">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 bg-[#00F0FF] border-2 border-[#121212] flex items-center justify-center font-black shadow-neo-sm">
@@ -500,12 +500,12 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] sm:text-[11px] font-mono font-bold bg-[#FFF1F1] text-[#FF4343] px-2.5 py-1 border-2 border-[#121212] shadow-neo-sm">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <span className="text-[10px] sm:text-[11px] font-mono font-bold bg-[#FFF1F1] text-[#FF4343] px-2 sm:px-2.5 py-1 border-2 border-[#121212] shadow-neo-sm">
                   Peak: {formatPrivateAmount(flowCurvePoints.maxAmount, currencySymbol)}
                 </span>
                 {flowCurvePoints.average > 0 && (
-                  <span className="text-[10px] sm:text-[11px] font-mono font-bold bg-[#FFE600] text-[#121212] px-2.5 py-1 border-2 border-[#121212] shadow-neo-sm hidden sm:inline-block">
+                  <span className="text-[10px] sm:text-[11px] font-mono font-bold bg-[#FFE600] text-[#121212] px-2 sm:px-2.5 py-1 border-2 border-[#121212] shadow-neo-sm">
                     Avg: {formatPrivateAmount(Math.round(flowCurvePoints.average), currencySymbol)}/day
                   </span>
                 )}
@@ -513,7 +513,7 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
             </div>
 
             {/* Professional Recharts Line Graph with Neo-Brutalist styling */}
-            <div className="h-48 sm:h-56 w-full pt-2">
+            <div className="h-48 sm:h-56 w-full pt-2 min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
                   data={flowChartData}
@@ -598,6 +598,10 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
                             stroke="#121212"
                             strokeWidth={isSelected ? 2.5 : 1.5}
                             className="cursor-pointer transition-all hover:scale-125"
+                            onClick={(e: any) => {
+                              if (e && e.stopPropagation) e.stopPropagation();
+                              setSelectedDay(selectedDay === payload.day ? null : payload.day);
+                            }}
                           />
                         );
                       }
@@ -611,7 +615,7 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
             <div className="flex items-center justify-between text-[10px] font-mono font-bold text-neutral-500 border-t-2 border-[#121212] pt-2">
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-[#FF4343] inline-block" />
-                <span>Click any point or day to inspect specific day</span>
+                <span>Daily Outflow Trend</span>
               </span>
               <span>
                 {flowCurvePoints.activeDays} of {daysInMonth} days active
@@ -620,7 +624,7 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
           </div>
 
           {/* 7-Day Weekday Calendar Matrix (Screenshot 5 Bottom) */}
-          <div className="bg-white border-[3px] border-[#121212] shadow-neo p-5 sm:p-6 flex flex-col gap-4">
+          <div className="bg-white border-[3px] border-[#121212] shadow-neo p-3.5 sm:p-6 flex flex-col gap-4 min-w-0">
             <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 bg-[#05DF72] border-2 border-[#121212] flex items-center justify-center font-black">
@@ -630,20 +634,20 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
                   Spending Calendar Matrix
                 </h3>
               </div>
-              <span className="text-[10px] font-bold text-neutral-500">
-                Click any day to inspect
+              <span className="text-[10px] font-mono font-bold text-neutral-500">
+                Tap day to view details
               </span>
             </div>
 
             {/* Responsive Calendar Matrix Wrapper */}
-            <div className="overflow-x-auto no-scrollbar touch-scroll">
-              <div className="min-w-[280px] flex flex-col gap-1">
+            <div className="overflow-x-auto no-scrollbar touch-scroll w-full">
+              <div className="min-w-[260px] sm:min-w-0 w-full flex flex-col gap-1">
                 {/* Weekday headers: Sun, Mon, Tue, Wed, Thu, Fri, Sat */}
                 <div className="grid grid-cols-7 gap-1 text-center">
                   {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
                     <div
                       key={d}
-                      className={`py-1 text-[10px] sm:text-[11px] font-black uppercase border border-[#121212] ${
+                      className={`py-0.5 sm:py-1 text-[9px] sm:text-[11px] font-black uppercase border border-[#121212] ${
                         i === 0 || i === 6 ? 'bg-neutral-100 text-neutral-600' : 'bg-[#121212] text-white'
                       }`}
                     >
@@ -661,7 +665,7 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
                           return (
                             <div
                               key={`empty-${cIdx}`}
-                              className="min-h-[46px] sm:min-h-[52px] bg-neutral-50/50 border border-neutral-200"
+                              className="min-h-[38px] sm:min-h-[50px] bg-neutral-50/50 border border-neutral-200"
                             />
                           );
                         }
@@ -674,7 +678,7 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
                           <button
                             key={`day-${cell.day}`}
                             onClick={() => setSelectedDay(selectedDay === cell.day ? null : cell.day)}
-                            className={`min-h-[46px] sm:min-h-[52px] p-1 border text-left flex flex-col justify-between transition-all cursor-pointer ${
+                            className={`min-h-[38px] sm:min-h-[50px] p-0.5 sm:p-1 border text-left flex flex-col justify-between transition-all cursor-pointer ${
                               isSelected
                                 ? 'bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm scale-[1.03] z-10'
                                 : isToday

@@ -687,7 +687,7 @@ export function AppContent() {
           currencySymbol={currencySymbol}
         />
 
-        <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto min-w-0">
+        <main className="flex-1 p-2.5 sm:p-6 lg:p-8 overflow-y-auto min-w-0">
           {activeTab === 'overview' && (
             <OverviewPage
               stats={stats} transactions={transactions} budgets={budgets}
