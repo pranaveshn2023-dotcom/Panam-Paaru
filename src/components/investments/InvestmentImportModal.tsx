@@ -131,20 +131,7 @@ function validateLivePriceAgainstHolding(
     }
   }
 
-  // If response has a valid AMFI scheme code or verified ISIN, the price is guaranteed authentic — skip drift check.
-  const hasVerifiedIsin =
-    (holding.isin && (holding.isin.startsWith('INF') || holding.isin.startsWith('INE'))) ||
-    (resIsin && (resIsin.startsWith('INF') || resIsin.startsWith('INE')));
-
-  if (
-    (schemeCode && schemeCode > 0 && schemeCode !== 102957) ||
-    hasVerifiedIsin
-  ) {
-    return { valid: true };
-  }
-
-  // Guard 2: Statement Baseline Drift Check (only for non-depository-verified responses)
-  // Determine baseline unit price from statement closing price first
+  // Determine baseline unit price from statement closing price or invested basis
   let baseline = 0;
   if (holding.statementPrice && holding.statementPrice > 0) {
     baseline = holding.statementPrice;
@@ -154,22 +141,24 @@ function validateLivePriceAgainstHolding(
     baseline = holding.statementValue / holding.units;
   } else if (holding.units && holding.units > 0 && holding.currentValue && holding.currentValue > 0) {
     baseline = holding.currentValue / holding.units;
+  } else if (holding.units && holding.units > 0 && holding.investedAmount && holding.investedAmount > 0) {
+    baseline = holding.investedAmount / holding.units;
   }
 
+  // Strict Baseline Drift Guard:
+  // For mutual funds, NAV never drops by > 45% or triples overnight — any such drift indicates a wrong scheme match!
   if (baseline > 0) {
     const ratio = price / baseline;
-    // For mutual funds, statement price vs live NAV changes by fractions of a percent.
-    // For stocks, statement closing price vs live LTP is usually within reasonable drift.
-    const maxRatio = holding.assetType === 'mutual_fund' ? 2.5 : 8.0;
-    const minRatio = holding.assetType === 'mutual_fund' ? 0.4 : 0.10;
+    const maxRatio = holding.assetType === 'mutual_fund' ? 1.75 : 6.0;
+    const minRatio = holding.assetType === 'mutual_fund' ? 0.55 : 0.15;
 
     if (ratio > maxRatio || ratio < minRatio) {
       console.warn(
-        `[PriceGuard] Anomaly drift detected for "${holding.name}". Baseline: ${baseline}, API Price: ${price} (Ratio: ${ratio.toFixed(2)}x). Rejecting update.`
+        `[PriceGuard] Anomaly drift detected for "${holding.name}". Baseline: ${baseline}, API Price: ${price} (Ratio: ${ratio.toFixed(2)}x). Rejecting update to protect portfolio value.`
       );
       return {
         valid: false,
-        reason: `Price anomaly (${ratio.toFixed(1)}x drift from baseline ${baseline})`,
+        reason: `Price anomaly (${ratio.toFixed(2)}x drift from baseline ${baseline.toFixed(2)})`,
       };
     }
   }
@@ -331,7 +320,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               h.currentValue = cleanCurrency(h.units * res.price);
               if (h.buyPrice && h.buyPrice > 0) {
                 const computedInv = cleanCurrency(h.units * h.buyPrice);
-                if (!h.investedAmount || h.investedAmount === 0 || (oldPrice > 0 && Math.abs(h.investedAmount - (h.statementValue || 0)) < 1)) {
+                if (!h.investedAmount || h.investedAmount === 0) {
                   h.investedAmount = computedInv;
                 }
               } else if (h.investedAmount > 0) {
@@ -470,7 +459,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 h.currentValue = cleanCurrency(h.units * livePrice);
                 if (h.buyPrice && h.buyPrice > 0) {
                   const computedInv = cleanCurrency(h.units * h.buyPrice);
-                  if (!h.investedAmount || h.investedAmount === 0 || (oldPrice > 0 && Math.abs(h.investedAmount - (h.statementValue || 0)) < 1)) {
+                  if (!h.investedAmount || h.investedAmount === 0) {
                     h.investedAmount = computedInv;
                   }
                 } else if (h.investedAmount > 0) {
@@ -694,14 +683,14 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
       // Intelligent Universal Broker Detection across brokers & depositories
       const autoDetected = parsedHoldingBroker || detectBrokerFromFile(file.name, result.rawGrid);
-      const chosenBroker = autoDetected || 'Others';
+      const chosenBroker = autoDetected || 'Auto-Detect Broker';
       setSelectedBroker(chosenBroker);
-      setDetectedBrokerTag(chosenBroker);
+      setDetectedBrokerTag(autoDetected || undefined);
 
       if (result.holdings.length > 0) {
         const taggedHoldings = result.holdings.map((h) => ({
           ...h,
-          broker: h.broker || chosenBroker,
+          broker: h.broker || autoDetected || undefined,
         }));
         setParsedHoldings(taggedHoldings);
         setIsParsing(false);
@@ -831,14 +820,14 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         (h) => h.broker && h.broker.trim().length > 0 && h.broker.toLowerCase() !== 'others'
       )?.broker;
       const autoDetected = parsedHoldingBroker || detectBrokerFromFile(pendingFile.name, result.rawGrid);
-      const chosenBroker = autoDetected || 'Others';
+      const chosenBroker = autoDetected || 'Auto-Detect Broker';
       setSelectedBroker(chosenBroker);
-      setDetectedBrokerTag(chosenBroker);
+      setDetectedBrokerTag(autoDetected || undefined);
 
       if (result.holdings.length > 0) {
         const taggedHoldings = result.holdings.map((h) => ({
           ...h,
-          broker: h.broker || chosenBroker,
+          broker: h.broker || autoDetected || undefined,
         }));
         setParsedHoldings(taggedHoldings);
         setIsPasswordPrompt(false);
@@ -884,13 +873,13 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         (h) => h.broker && h.broker.trim().length > 0 && h.broker.toLowerCase() !== 'others'
       )?.broker;
       const autoDetected = parsedHoldingBroker || detectBrokerFromFile(undefined, undefined, pastedText);
-      const chosenBroker = autoDetected || 'Others';
+      const chosenBroker = autoDetected || 'Auto-Detect Broker';
       setSelectedBroker(chosenBroker);
-      setDetectedBrokerTag(chosenBroker);
+      setDetectedBrokerTag(autoDetected || undefined);
 
       const taggedHoldings = extracted.map((h) => ({
         ...h,
-        broker: h.broker || chosenBroker,
+        broker: h.broker || autoDetected || undefined,
       }));
 
       setParsedHoldings(taggedHoldings);

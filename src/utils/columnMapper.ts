@@ -124,8 +124,8 @@ const ALIASES = {
     /\b(folio|folio\s*no|folio\s*number|dp\s*id|demat)\b/i,
   ],
   broker: [
-    /^\s*(broker|platform|depository|source)\s*$/i,
-    /\b(broker|platform|depository|source)\b/i,
+    /^\s*(broker|platform|depository|source|dp\s*name|broker\s*name|dp\s*id|trading\s*account|participant|depository\s*participant)\s*$/i,
+    /\b(broker|platform|depository|source|dp\s*name|broker\s*name|trading\s*account|participant)\b/i,
   ],
   xirr: [
     /^\s*(xirr|irr|cagr|annualized\s*returns?|annualised\s*returns?|annualized|annualised)\s*$/i,
@@ -283,6 +283,15 @@ export function mapHeadersToCanonical(
     }
   });
 
+  // Match Broker / DP Name / Depository
+  normalized.forEach((cell, idx) => {
+    if (usedCols.has(idx)) return;
+    if (ALIASES.broker[0].test(cell) || ALIASES.broker[1].test(cell)) {
+      brokerCol = idx;
+      usedCols.add(idx);
+    }
+  });
+
   // Match Asset Type & SubType
   normalized.forEach((cell, idx) => {
     if (usedCols.has(idx)) return;
@@ -294,9 +303,6 @@ export function mapHeadersToCanonical(
       usedCols.add(idx);
     } else if (ALIASES.sector[0].test(cell)) {
       sectorCol = idx;
-      usedCols.add(idx);
-    } else if (ALIASES.broker[0].test(cell)) {
-      brokerCol = idx;
       usedCols.add(idx);
     }
   });

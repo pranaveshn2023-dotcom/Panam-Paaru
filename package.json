@@ -18,7 +18,7 @@
     "@convex-dev/auth": "^0.0.95",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
-    "convex": "^1.45.0",
+    "convex": "^1.46.0",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.38.0",
     "mammoth": "^1.12.2",

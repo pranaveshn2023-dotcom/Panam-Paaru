@@ -7,6 +7,7 @@ import { detectTablesInSheet, selectPrimaryTable, DetectedTable } from './tableD
 import { mapHeadersToCanonical, CanonicalColumnMapping } from './columnMapper';
 import { resolveSecurityIdentity, ResolutionConfidence } from './securityResolver';
 import { validateHoldingRow } from './importValidator';
+import { detectBrokerFromFile } from './brokerDirectory';
 
 // PDF Worker Initialization
 function initPdfWorker() {
@@ -581,14 +582,30 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         resolvedTicker && !resolvedTicker.endsWith('.BO') ? `Ticker: ${resolvedTicker}` : '',
       ].filter(Boolean);
 
+      // Extract DP Name / Depository Participant from surrounding Demat header
+      let blockBroker: string | undefined = undefined;
+      for (let backK = startIdx; backK >= Math.max(0, startIdx - 40); backK--) {
+        const prevLine = sortedLines[backK];
+        if (/(?:dp\s*name|depository\s*participant|broker)\s*[:=.]?\s*([A-Za-z0-9\s.,&-]+)/i.test(prevLine)) {
+          const m = prevLine.match(/(?:dp\s*name|depository\s*participant|broker)\s*[:=.]?\s*([A-Za-z0-9\s.,&-]+)/i);
+          if (m) {
+            const detected = detectBrokerFromFile(undefined, undefined, m[1]);
+            blockBroker = detected || m[1].trim();
+            break;
+          }
+        }
+      }
+
       holdings.push({
         id: `cas_${idCounter++}`,
         name: schemeName,
         assetType: detailed.assetType,
         subType: detailed.subType,
         sector: detailed.sector,
+        broker: blockBroker || undefined,
         investedAmount: cleanCurrency(costValue),
         currentValue: cleanCurrency(marketValue),
+        returns: cleanCurrency(marketValue - costValue),
         units: cleanUnits(closingUnits),
         buyPrice,
         currentPrice: navValue > 0 ? cleanNavPrice(navValue, isMf) : undefined,
@@ -946,6 +963,20 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
           const finalAssetType = isMfIdentity || finalSchemeCode ? 'mutual_fund' : (isStockIdentity || finalBseCode) ? 'stocks' : resolved.assetType;
           const finalSubType = finalAssetType === 'mutual_fund' ? (resolved.subType || 'Mutual Fund') : finalAssetType === 'stocks' ? (resolved.subType || 'Stock / Equity') : (rawSubCat || rawType || resolved.subType);
           const isMf = finalAssetType === 'mutual_fund';
+          const mathReturns = cleanCurrency(current - invested);
+          let finalReturns = mathReturns;
+          if (pnl !== undefined && !pnlIsPercent) {
+            if (invested === 0 || current === 0 || Math.abs(pnl - mathReturns) < 1.0) {
+              finalReturns = cleanCurrency(pnl);
+            }
+          }
+
+          let cleanBroker = rawBroker;
+          if (cleanBroker) {
+            const detectedFromCell = detectBrokerFromFile(undefined, undefined, cleanBroker);
+            if (detectedFromCell) cleanBroker = detectedFromCell;
+          }
+
           const holdingObj: ParsedHolding = {
             id: `tbl_${sheet.sheetName}_${table.headerRowIndex + 1 + r}_${Date.now()}`,
             name: fullName,
@@ -953,7 +984,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             subType: finalSubType,
             sector: rawSector || undefined,
             amc: resolved.amc,
-            broker: rawBroker || undefined,
+            broker: cleanBroker || undefined,
             folioNo: rawFolio || undefined,
             isin: rawIsin || resolved.isin || undefined,
             schemeCode: finalSchemeCode,
@@ -961,7 +992,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             ticker: finalTicker,
             investedAmount: cleanCurrency(Math.abs(invested)),
             currentValue: cleanCurrency(Math.abs(current)),
-            returns: pnl !== undefined ? cleanCurrency(pnl) : cleanCurrency(current - invested),
+            returns: finalReturns,
             units: cleanUnits(units),
             buyPrice: buyPrice && buyPrice > 0 ? cleanNavPrice(buyPrice, isMf) : undefined,
             currentPrice: currentPrice && currentPrice > 0 ? cleanNavPrice(currentPrice, isMf) : undefined,

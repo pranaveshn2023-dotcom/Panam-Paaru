@@ -29,9 +29,19 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Discount Brokers',
     iconBg: '#387ED1',
     iconText: 'Z',
-    keywords: ['zerodha', 'kite', 'console.zerodha', 'zerodha broking'],
-    filePatterns: [/zerodha/i, /kite/i, /console.*holdings/i],
-    contentPatterns: [/zerodha/i, /kite/i, /console\.zerodha\.com/i, /equity_holdings/i],
+    keywords: ['zerodha', 'kite', 'console.zerodha', 'zerodha broking', 'inz000031633', '12081600', '12081601', 'in304300'],
+    filePatterns: [/zerodha/i, /kite/i, /console.*holdings/i, /^holdings(?:[-_][a-z0-9]+)?\.(?:xlsx?|csv)$/i],
+    contentPatterns: [
+      /zerodha/i,
+      /kite/i,
+      /console\.zerodha\.com/i,
+      /equity_holdings/i,
+      /inz000031633/i,
+      /12081600/i,
+      /12081601/i,
+      /in304300/i,
+      /quantity\s*available.*quantity\s*discrepant/i,
+    ],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://zerodha.com',
     exportSteps: [
@@ -50,13 +60,16 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Discount Brokers',
     iconBg: '#00D09C',
     iconText: 'G',
-    keywords: ['groww', 'nextbillion', 'groww invest tech', 'groww.in'],
-    filePatterns: [/groww[_\-\s]?(?:holdings?|statement|portfolio|tradebook|report|user|export|mf|stock|mutual)/i, /nextbillion/i, /^groww[_\-\.]/i, /groww/i],
+    keywords: ['groww', 'nextbillion', 'groww invest tech', 'groww.in', 'inz000301838', '12088800', '12088801'],
+    filePatterns: [/groww[_\-\s]?(?:holdings?|statement|portfolio|tradebook|report|user|export|mf|stock|mutual)/i, /nextbillion/i, /^groww[_\-\.]/i, /groww/i, /^stocks[_\-\s]?holdings/i],
     contentPatterns: [
       /nextbillion technology/i,
       /groww invest tech/i,
       /groww\.in/i,
       /\bgroww\b/i,
+      /inz000301838/i,
+      /12088800/i,
+      /12088801/i,
     ],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://groww.in/user/profile/report',
@@ -96,9 +109,9 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Discount Brokers',
     iconBg: '#5A2E8A',
     iconText: 'U',
-    keywords: ['upstox', 'rksv'],
+    keywords: ['upstox', 'rksv', 'inz000006031', '12081800', '12081801'],
     filePatterns: [/upstox/i, /rksv/i],
-    contentPatterns: [/upstox/i, /rksv securities/i],
+    contentPatterns: [/upstox/i, /rksv securities/i, /inz000006031/i, /12081800/i, /12081801/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://upstox.com',
     exportSteps: [
@@ -116,9 +129,9 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Full-Service & Banking',
     iconBg: '#F37021',
     iconText: 'IC',
-    keywords: ['icicidirect', 'icici direct', 'icici securities', 'icicisecurities'],
-    filePatterns: [/icici[_\-\s]?direct/i, /icicidirect/i, /icici[_\-\s]?sec/i],
-    contentPatterns: [/icici direct/i, /icici securities/i, /icicidirect\.com/i],
+    keywords: ['icicidirect', 'icici direct', 'icici securities', 'icicisecurities', 'inz000183631', '12010900', '12010919', 'in300183'],
+    filePatterns: [/icici[_\-\s]?direct/i, /icicidirect/i, /icici[_\-\s]?sec/i, /equityportfolio/i],
+    contentPatterns: [/icici direct/i, /icici securities/i, /icicidirect\.com/i, /inz000183631/i, /12010900/i, /in300183/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.icicidirect.com',
     exportSteps: [
@@ -155,9 +168,9 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Discount Brokers',
     iconBg: '#D8232A',
     iconText: 'A',
-    keywords: ['angelone', 'angel one', 'angel broking'],
+    keywords: ['angelone', 'angel one', 'angel broking', 'inz000161534', '12033200'],
     filePatterns: [/angel[_\-\s]?one/i, /angelone/i, /angel[_\-\s]?broking/i],
-    contentPatterns: [/angel one/i, /angel broking/i],
+    contentPatterns: [/angel one/i, /angel broking/i, /inz000161534/i, /12033200/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://www.angelone.in',
     exportSteps: [
@@ -174,9 +187,9 @@ export const BROKER_DIRECTORY: BrokerGuide[] = [
     category: 'Discount Brokers',
     iconBg: '#13B156',
     iconText: 'D',
-    keywords: ['dhan', 'raise financial'],
-    filePatterns: [/dhan/i],
-    contentPatterns: [/dhan/i, /raise financial services/i],
+    keywords: ['dhan', 'raise financial', 'inz000005835', '12053400'],
+    filePatterns: [/dhan/i, /raise[_\-\s]?financial/i],
+    contentPatterns: [/dhan/i, /raise financial services/i, /inz000005835/i, /12053400/i],
     supportedFormats: ['.xlsx', '.csv', '.pdf'],
     portalUrl: 'https://dhan.co',
     exportSteps: [
@@ -682,6 +695,47 @@ export function detectBrokerFromFile(
               return broker.shortName;
             }
           }
+        }
+      }
+    }
+  }
+
+  // 2.6. Column Header Structural Fingerprints (Deterministic stock statement identification)
+  if (rawContent?.sheets) {
+    for (const sheet of rawContent.sheets) {
+      for (const row of (sheet.rows || []).slice(0, 15)) {
+        const rowStr = row.map((c) => String(c || '').toLowerCase()).join(' ');
+        // Zerodha Console / Kite signature
+        if (
+          (rowStr.includes('quantity available') && rowStr.includes('quantity discrepant')) ||
+          (rowStr.includes('quantity available') && rowStr.includes('quantity pledged')) ||
+          (rowStr.includes('instrument') && rowStr.includes('avg cost') && rowStr.includes('cur value'))
+        ) {
+          return 'Zerodha';
+        }
+        // Groww Stocks signature
+        if (rowStr.includes('company name') && rowStr.includes('invested value') && rowStr.includes('total returns')) {
+          return 'Groww';
+        }
+        // Upstox signature
+        if (rowStr.includes('scrip name') && (rowStr.includes('buy avg price') || rowStr.includes('rksv'))) {
+          return 'Upstox';
+        }
+        // Angel One signature
+        if (rowStr.includes('stock name') && (rowStr.includes('unrealized gain') || rowStr.includes('avg rate'))) {
+          return 'Angel One';
+        }
+        // Dhan signature
+        if (rowStr.includes('trading symbol') && rowStr.includes('holdings qty')) {
+          return 'Dhan';
+        }
+        // ICICI Direct signature
+        if (rowStr.includes('stock symbol') && rowStr.includes('average cost price')) {
+          return 'ICICI Direct';
+        }
+        // Kotak Neo signature
+        if (rowStr.includes('scrip / company name') && rowStr.includes('qty available')) {
+          return 'Kotak Securities';
         }
       }
     }

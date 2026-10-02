@@ -355,25 +355,30 @@ export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: str
   const isDirect = /\bdirect\b/i.test(sClean);
   const isRegular = /\bregular\b/i.test(sClean);
 
-  if (wantsRegular) {
-    if (isRegular) score += 30;
-    if (isDirect) score -= 30;
-  } else {
-    if (isDirect) score += 30;
-    if (isRegular) score += 5;
-  }
+  // 3. Strict Differentiator Token Guard:
+  // If candidate contains major distinguishing strategies, numbers, or sub-asset types that are NOT in query,
+  // penalize or reject them to prevent drift (e.g. "Nifty 50" matching "Nifty 500 Momentum 50" or "Nifty Next 50")
+  const DIFFERENTIATOR_PATTERNS = [
+    { key: 'momentum', regex: /\bmomentum\b/i },
+    { key: 'lowvol', regex: /\b(low\s*vol(?:atility)?|alpha)\b/i },
+    { key: 'equalweight', regex: /\bequal\s*weight\b/i },
+    { key: 'quality', regex: /\bquality\b/i },
+    { key: 'next50', regex: /\bnext\s*50\b/i },
+    { key: '500', regex: /\b500\b/ },
+    { key: '150', regex: /\b150\b/ },
+    { key: '250', regex: /\b250\b/ },
+    { key: '100', regex: /\b100\b/ },
+    { key: 'etf', regex: /\b(etf|fund\s*of\s*funds|fof)\b/i },
+  ];
 
-  // Growth vs IDCW intent (Default to Growth, heavily penalize IDCW if not requested)
-  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(stripped);
-  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sClean);
-  const isGrowth = /\bgrowth\b/i.test(sClean);
-
-  if (wantsIdcw) {
-    if (isIdcw) score += 30;
-    if (isGrowth) score -= 30;
-  } else {
-    if (isGrowth) score += 40;
-    if (isIdcw) score -= 60;
+  for (const diff of DIFFERENTIATOR_PATTERNS) {
+    const inCand = diff.regex.test(sClean);
+    const inQuery = diff.regex.test(qClean);
+    if (inCand && !inQuery) {
+      score -= 250; // Candidate has a specific differentiator/strategy NOT in query: massive penalty
+    } else if (!inCand && inQuery) {
+      score -= 150; // Candidate lacks the specific differentiator requested
+    }
   }
 
   return score;
@@ -392,8 +397,9 @@ export async function fetchAmfiNav(
   fundName: string,
   notes?: string,
   knownSchemeCode?: number,
-  knownIsin?: string
-): Promise<{ nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number } | null> {
+  knownIsin?: string,
+  statementPrice?: number
+): Promise<{ nav: number; date: string; schemeName: string; schemeCode?: number; prevNav?: number; isin?: string } | null> {
   const normKey = fundName.toLowerCase().trim();
 
   // 1. Check in-memory cache (valid for 10 minutes)
@@ -409,11 +415,47 @@ export async function fetchAmfiNav(
 
   try {
     const combined = `${fundName} ${notes || ''}`;
+    const isin = knownIsin || (combined.match(/\b(INF[A-Z0-9]{9})\b/i)?.[1]?.toUpperCase());
+
+    // 0. ISIN Direct Search Fast-Path (Highest Accuracy: 1:1 security identity)
+    if (isin) {
+      try {
+        const isinRes = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(isin)}`, {
+          signal: AbortSignal.timeout(3500),
+        });
+        if (isinRes.ok) {
+          const list: { schemeCode: number; schemeName: string }[] = await isinRes.json();
+          if (Array.isArray(list) && list.length > 0) {
+            const code = list[0].schemeCode;
+            const latestRes = await fetch(`https://api.mfapi.in/mf/${code}/latest`, { signal: AbortSignal.timeout(3000) });
+            if (latestRes.ok) {
+              const details = await latestRes.json();
+              const latest = details?.data?.[0];
+              if (latest && latest.nav) {
+                const navNum = parseFloat(latest.nav);
+                if (!isNaN(navNum) && navNum > 0) {
+                  const res = {
+                    nav: navNum,
+                    date: latest.date || '',
+                    schemeName: details.meta?.scheme_name || list[0].schemeName,
+                    schemeCode: code,
+                    isin: details.meta?.isin_growth || isin,
+                  };
+                  navCache.set(normKey, res);
+                  savePersistentCache(normKey, res);
+                  return res;
+                }
+              }
+            }
+          }
+        }
+      } catch {}
+    }
 
     // 1. Direct scheme code check (Explicitly stripping out any Folio numbers!)
     const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, '');
-    const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
-    const code = (knownSchemeCode && knownSchemeCode > 0) ? String(knownSchemeCode) : (explicitSchemeMatch ? (explicitSchemeMatch[1] || explicitSchemeMatch[0]) : null);
+    const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi)\s*[:#-]?\s*(\d{5,6})\b/i);
+    const code = (knownSchemeCode && knownSchemeCode > 0) ? String(knownSchemeCode) : (explicitSchemeMatch ? explicitSchemeMatch[1] : null);
     if (code) {
       try {
         const latestRes = await fetch(`https://api.mfapi.in/mf/${code}/latest`, { signal: AbortSignal.timeout(3000) });
@@ -550,8 +592,12 @@ export async function fetchAmfiNav(
 
         // Date validation: reject only truly dead schemes (> 60 days inactive)
         const navDate = parseNavDate(latest.date);
-        if (navDate && now - navDate.getTime() > 60 * 24 * 60 * 60 * 1000) {
-          continue; // Discontinued scheme, skip to next candidate
+        // Strict sanity check against statement price to prevent candidate drift / wrong fund selection
+        if (statementPrice && statementPrice > 0) {
+          const ratio = navNum / statementPrice;
+          if (ratio < 0.6 || ratio > 1.6) {
+            continue; // Candidate NAV drifts > 40% from statement price, skip to next candidate
+          }
         }
 
         // Skip candidates whose resolved name diverges sharply from the searched fund

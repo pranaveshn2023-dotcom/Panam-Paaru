@@ -2359,15 +2359,41 @@ export function scoreMfCandidate(
     if (isIdcw) return -100; // Reject IDCW when Growth is requested
   }
 
-  // Statement Price proximity bonus (exact mutual fund NAV matching)
+  // 3. Strict Differentiator Token Guard:
+  // If candidate contains major distinguishing strategies, numbers, or sub-asset types that are NOT in query,
+  // penalize or reject them to prevent drift (e.g. "Nifty 50" matching "Nifty 500 Momentum 50" or "Nifty Next 50")
+  const DIFFERENTIATOR_PATTERNS = [
+    { key: 'momentum', regex: /\bmomentum\b/i },
+    { key: 'lowvol', regex: /\b(low\s*vol(?:atility)?|alpha)\b/i },
+    { key: 'equalweight', regex: /\bequal\s*weight\b/i },
+    { key: 'quality', regex: /\bquality\b/i },
+    { key: 'next50', regex: /\bnext\s*50\b/i },
+    { key: '500', regex: /\b500\b/ },
+    { key: '150', regex: /\b150\b/ },
+    { key: '250', regex: /\b250\b/ },
+    { key: '100', regex: /\b100\b/ },
+    { key: 'etf', regex: /\b(etf|fund\s*of\s*funds|fof)\b/i },
+  ];
+
+  for (const diff of DIFFERENTIATOR_PATTERNS) {
+    const inCand = diff.regex.test(sFull);
+    const inQuery = diff.regex.test(qClean);
+    if (inCand && !inQuery) {
+      score -= 250; // Candidate has a specific differentiator/strategy NOT in query: massive penalty
+    } else if (!inCand && inQuery) {
+      score -= 150; // Candidate lacks the specific differentiator requested
+    }
+  }
+
+  // Statement Price proximity bonus / penalty (exact mutual fund NAV matching)
   if (statementPrice && statementPrice > 0 && item.nav && item.nav > 0) {
     const ratio = item.nav / statementPrice;
     if (ratio >= 0.88 && ratio <= 1.12) {
       score += 150;
     } else if (ratio >= 0.75 && ratio <= 1.25) {
       score += 70;
-    } else if (ratio > 2.5 || ratio < 0.4) {
-      score -= 150;
+    } else if (ratio > 1.6 || ratio < 0.6) {
+      score -= 300; // Drastic price mismatch: reject completely
     }
   }
 
@@ -2571,10 +2597,10 @@ export async function fetchMfNav(
   const combined = `${name} ${notes || ""}`;
   const isin = knownIsin || (combined.match(/\b(INF[A-Z0-9]{9})\b/i)?.[1]?.toUpperCase());
 
-  // Extract any explicit scheme code from notes or name (avoiding personal folio numbers)
+  // Extract explicit scheme code only with clear AMFI prefix (avoiding personal folio numbers or dates)
   const withoutFolio = combined.replace(/\b(?:folio|folio\s*no|folio\s*number|ac\s*no|account|acc)\s*[:#-]?\s*[\w\/-]+/gi, "");
-  const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi|code)\s*[:#-]?\s*(\d{6})\b/i) || withoutFolio.match(/\b\d{6}\b/);
-  const codeNum = knownSchemeCode && knownSchemeCode > 0 ? knownSchemeCode : explicitSchemeMatch ? parseInt(explicitSchemeMatch[1] || explicitSchemeMatch[0], 10) : undefined;
+  const explicitSchemeMatch = withoutFolio.match(/\b(?:scheme\s*code|amfi\s*code|amfi)\s*[:#-]?\s*(\d{5,6})\b/i);
+  const codeNum = knownSchemeCode && knownSchemeCode > 0 ? knownSchemeCode : explicitSchemeMatch ? parseInt(explicitSchemeMatch[1], 10) : undefined;
   const now = Date.now();
 
   // 1. Instant Fast-Path: If scheme code is known, query high-speed mirror first (<200ms).
@@ -2625,19 +2651,57 @@ export async function fetchMfNav(
     } catch {}
   }
 
-  // 1.5. ISIN Fast-Path: If ISIN is known (e.g. INF109K014O9), lookup directly in AMFI table
+  // 1.5. ISIN Fast-Path: If ISIN is known (e.g. INF204KC1D65), lookup directly in AMFI table OR mfapi.in ISIN search
   if (isin) {
-    const amfiTable = await getAmfiOfficialNavTable();
-    const amfiMatch = amfiTable?.isinMap.get(isin.toUpperCase()) || null;
-    if (amfiMatch) {
-      return {
-        nav: amfiMatch.nav,
-        date: amfiMatch.date,
-        schemeName: amfiMatch.name,
-        schemeCode: amfiMatch.code,
-        isin: amfiMatch.isin || isin,
-      };
-    }
+    try {
+      const amfiTable = await getAmfiOfficialNavTable();
+      const amfiMatch = amfiTable?.isinMap.get(isin.toUpperCase()) || null;
+      if (amfiMatch) {
+        return {
+          nav: amfiMatch.nav,
+          date: amfiMatch.date,
+          schemeName: amfiMatch.name,
+          schemeCode: amfiMatch.code,
+          isin: amfiMatch.isin || isin,
+        };
+      }
+    } catch {}
+
+    // Direct ISIN search on api.mfapi.in (exact ISIN to scheme mapping)
+    try {
+      const isinSearchRes = await fetch(
+        `https://api.mfapi.in/mf/search?q=${encodeURIComponent(isin.trim().toUpperCase())}`,
+        { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(4000) }
+      );
+      if (isinSearchRes.ok) {
+        const isinList: any[] = await isinSearchRes.json();
+        if (Array.isArray(isinList) && isinList.length > 0) {
+          const exactCand = isinList[0];
+          if (exactCand.schemeCode && exactCand.schemeCode > 0 && exactCand.schemeCode !== 102957) {
+            const latestRes = await fetch(`https://api.mfapi.in/mf/${exactCand.schemeCode}/latest`, {
+              headers: AMFI_CLEAN_HEADERS,
+              signal: AbortSignal.timeout(3500),
+            });
+            if (latestRes.ok) {
+              const details: any = await latestRes.json();
+              const latest = details?.data?.[0];
+              if (latest && latest.nav) {
+                const navNum = parseFloat(latest.nav);
+                if (!isNaN(navNum) && navNum > 0) {
+                  return {
+                    nav: navNum,
+                    date: latest.date || "",
+                    schemeName: details.meta?.scheme_name || exactCand.schemeName,
+                    schemeCode: exactCand.schemeCode,
+                    isin: details.meta?.isin_growth || isin,
+                  };
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch {}
   }
 
   const strippedName = sanitizeTruncatedSchemeName(name);
@@ -2740,8 +2804,8 @@ export async function fetchMfNav(
           .filter((item) => item.score >= 40)
           .sort((a, b) => b.score - a.score);
 
-        // Check top candidates in order and pick the highest scoring ACTIVE candidate
-        for (const cand of sorted.slice(0, 4)) {
+        // Check top candidates in order and pick the highest scoring ACTIVE candidate that passes drift sanity
+        for (const cand of sorted.slice(0, 5)) {
           try {
             const latestRes = await fetch(
               `https://api.mfapi.in/mf/${cand.schemeCode}/latest`,
@@ -2754,6 +2818,16 @@ export async function fetchMfNav(
                 const navNum = parseFloat(latest.nav);
                 const dateMs = parseNavDateToMs(latest.date);
                 const isDead = dateMs > 0 && (now - dateMs) > 45 * 24 * 60 * 60 * 1000;
+
+                // STRICT DRIFT CHECK: Reject candidates whose NAV is > 40% different from statementPrice!
+                if (statementPrice && statementPrice > 0 && navNum > 0) {
+                  const ratio = navNum / statementPrice;
+                  if (ratio < 0.6 || ratio > 1.6) {
+                    console.warn(`[fetchMfNav] Candidate ${cand.schemeCode} (${cand.schemeName}) NAV ${navNum} differs drastically from statement price ${statementPrice} (ratio ${ratio.toFixed(2)}). Skipping candidate.`);
+                    continue;
+                  }
+                }
+
                 if (!isNaN(navNum) && navNum > 0 && !isDead) {
                   return {
                     nav: navNum,
