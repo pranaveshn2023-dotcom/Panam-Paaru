@@ -606,12 +606,17 @@ export async function fetchAmfiNav(
 async function fetchYahooChart(symbol: string): Promise<any | null> {
   const directUrl1 = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
   const directUrl2 = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+  const directUrl3 = `https://query3.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
   try {
     const res = await fetch(directUrl1, { signal: AbortSignal.timeout(4000) });
     if (res.ok) return await res.json();
   } catch {}
   try {
     const res = await fetch(directUrl2, { signal: AbortSignal.timeout(4000) });
+    if (res.ok) return await res.json();
+  } catch {}
+  try {
+    const res = await fetch(directUrl3, { signal: AbortSignal.timeout(4000) });
     if (res.ok) return await res.json();
   } catch {}
   try {
@@ -623,20 +628,36 @@ async function fetchYahooChart(symbol: string): Promise<any | null> {
 }
 
 /**
- * Fetch Yahoo Finance search results — direct first, corsproxy.io fallback.
+ * Fetch Yahoo Finance search results — direct first (query2/query1/query3), corsproxy.io fallback.
  */
 async function fetchYahooSearch(query: string, quotesCount = 5): Promise<any[] | null> {
-  const directUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=${quotesCount}`;
+  const directUrl2 = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=${quotesCount}`;
+  const directUrl1 = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=${quotesCount}`;
+  const directUrl3 = `https://query3.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=${quotesCount}`;
   try {
-    const res = await fetch(directUrl, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(directUrl2, { signal: AbortSignal.timeout(3000) });
     if (res.ok) {
       const data: any = await res.json();
       return data?.quotes || null;
     }
   } catch {}
   try {
-    const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
-    const res = await fetch(proxiedUrl, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(directUrl1, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data: any = await res.json();
+      return data?.quotes || null;
+    }
+  } catch {}
+  try {
+    const res = await fetch(directUrl3, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data: any = await res.json();
+      return data?.quotes || null;
+    }
+  } catch {}
+  try {
+    const proxiedUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl2)}`;
+    const res = await fetch(proxiedUrl, { signal: AbortSignal.timeout(3500) });
     if (res.ok) {
       const data: any = await res.json();
       return data?.quotes || null;
@@ -858,13 +879,32 @@ export async function fetchLiveStockPrice(
     if (!candidates.includes(s)) candidates.push(s);
   };
 
-  // If explicit ticker known (e.g. TATAMOTORS.NS, RELIANCE.NS), prioritize it immediately
+  // If explicit ticker or BSE scrip code known (e.g. TATAMOTORS, RELIANCE.NS, 500325), prioritize it immediately
   if (knownTicker) {
     const kt = knownTicker.trim().toUpperCase();
     if (kt.endsWith('.BO')) {
-      addCandidate(kt.replace(/\.BO$/, '.NS'), true);
+      addCandidate(kt, true);
+      const base = kt.replace(/\.BO$/, '');
+      if (!/^\d+$/.test(base)) {
+        addCandidate(`${base}.NS`, true);
+      }
+    } else if (kt.endsWith('.NS')) {
+      addCandidate(kt, true);
+      addCandidate(kt.replace(/\.NS$/, '.BO'), true);
+    } else if (/^\d{5,6}$/.test(kt)) {
+      // 5 or 6 digit BSE Scrip Code (e.g. 500325) -> .BO on Yahoo Finance
+      addCandidate(`${kt}.BO`, true);
+    } else {
+      addCandidate(`${kt}.NS`, true);
+      addCandidate(`${kt}.BO`, true);
     }
-    addCandidate(kt, true);
+  }
+
+  // Extract BSE Scrip Code from combined notes or name (e.g. "BSE: 500325" or "500325")
+  const bseMatch = combined.match(/\b(?:bse|scrip|security|bse\s*code|scrip\s*code)?\s*[:#-]?\s*(5\d{5})\b/i);
+  if (bseMatch) {
+    const bseCode = bseMatch[1];
+    addCandidate(`${bseCode}.BO`, true);
   }
 
   // Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
@@ -875,9 +915,12 @@ export async function fetchLiveStockPrice(
       if (nse?.symbol) addCandidate(nse.symbol.toUpperCase(), true);
       const bse = isinQuotes.find((q) => q.symbol && q.symbol.toUpperCase().endsWith('.BO'));
       if (bse?.symbol) {
-        const nseFromBse = bse.symbol.toUpperCase().replace(/\.BO$/, '.NS');
-        addCandidate(nseFromBse, true);
-        addCandidate(bse.symbol.toUpperCase(), true);
+        const symUpper = bse.symbol.toUpperCase();
+        const base = symUpper.replace(/\.BO$/, '');
+        if (!/^\d+$/.test(base)) {
+          addCandidate(`${base}.NS`, true);
+        }
+        addCandidate(symUpper, true);
       }
       if (candidates.length === 0 && isinQuotes[0]?.symbol) {
         addCandidate(isinQuotes[0].symbol.toUpperCase(), true);

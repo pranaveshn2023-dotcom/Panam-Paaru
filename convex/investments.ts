@@ -151,10 +151,22 @@ export async function fetchBatchYahooQuotes(symbols: string[]): Promise<Map<stri
       await Promise.all(
         missingSymbols.map(async (sym) => {
           try {
-            const chartRes = await fetch(
+            let chartRes = await fetch(
               `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
               { headers: { "User-Agent": DESKTOP_USER_AGENT, "Accept": "application/json" }, signal: AbortSignal.timeout(4500) }
             );
+            if (!chartRes.ok) {
+              chartRes = await fetch(
+                `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+                { headers: { "User-Agent": DESKTOP_USER_AGENT, "Accept": "application/json" }, signal: AbortSignal.timeout(4500) }
+              );
+            }
+            if (!chartRes.ok) {
+              chartRes = await fetch(
+                `https://query3.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+                { headers: { "User-Agent": DESKTOP_USER_AGENT, "Accept": "application/json" }, signal: AbortSignal.timeout(4500) }
+              );
+            }
             if (chartRes.ok) {
               const data: any = await chartRes.json();
               const meta = data?.chart?.result?.[0]?.meta;
@@ -1181,7 +1193,14 @@ export async function resolveTickerFromIsin(isin: string): Promise<string | null
           `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(upper)}&quotesCount=6`,
           { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
         );
-      } catch {}
+      } catch {
+        try {
+          res = await fetch(
+            `https://query3.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(upper)}&quotesCount=6`,
+            { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
+          );
+        } catch {}
+      }
     }
     if (res && res.ok) {
       const data: any = await res.json();
@@ -1190,10 +1209,15 @@ export async function resolveTickerFromIsin(isin: string): Promise<string | null
       const nse = quotes.find((q) => q.symbol && q.symbol.toUpperCase().endsWith(".NS"));
       if (nse?.symbol) return nse.symbol.toUpperCase();
 
-      // 2. If BSE (.BO) returned, the dual-listed equity on NSE is TICKER.NS
+      // 2. If BSE (.BO) returned:
       const bse = quotes.find((q) => q.symbol && q.symbol.toUpperCase().endsWith(".BO"));
       if (bse?.symbol) {
-        const base = bse.symbol.toUpperCase().replace(/\.BO$/, "");
+        const symUpper = bse.symbol.toUpperCase();
+        const base = symUpper.replace(/\.BO$/, "");
+        if (/^\d+$/.test(base)) {
+          // Pure BSE Scrip Code (e.g. 500325.BO) -> return BSE quote directly
+          return symUpper;
+        }
         return `${base}.NS`;
       }
 
@@ -1315,7 +1339,7 @@ async function fetchStockQuote(
     if (!candidates.includes(s)) candidates.push(s);
   };
 
-  // 1. If explicit ticker known from holding or notes, prioritize NSE version
+  // 1. If explicit ticker or BSE scrip code known from holding or notes
   if (knownTicker) {
     const kt = knownTicker
       .trim()
@@ -1325,13 +1349,28 @@ async function fetchStockQuote(
       .replace(/[\[\(]?(?:EQ|BE|SM|ST|BL|BZ)[\]\)]?$/i, "")
       .trim();
     if (kt.endsWith(".BO")) {
-      addCandidate(kt.replace(/\.BO$/, ".NS"), true);
-    }
-    addCandidate(kt, true);
-    if (!kt.endsWith(".NS") && !kt.endsWith(".BO")) {
+      addCandidate(kt, true);
+      const base = kt.replace(/\.BO$/, "");
+      if (!/^\d+$/.test(base)) {
+        addCandidate(`${base}.NS`, true);
+      }
+    } else if (kt.endsWith(".NS")) {
+      addCandidate(kt, true);
+      addCandidate(kt.replace(/\.NS$/, ".BO"), true);
+    } else if (/^\d{5,6}$/.test(kt)) {
+      // BSE 5/6-digit Scrip Code (e.g. 500325 for Reliance) -> .BO on Yahoo Finance
+      addCandidate(`${kt}.BO`, true);
+    } else {
       addCandidate(`${kt}.NS`, true);
       addCandidate(`${kt}.BO`, true);
     }
+  }
+
+  // 2. Extract BSE Scrip Code from combined notes or name (e.g. "BSE: 500325" or "500325")
+  const bseMatch = combined.match(/\b(?:bse|scrip|security|bse\s*code|scrip\s*code)?\s*[:#-]?\s*(5\d{5})\b/i);
+  if (bseMatch) {
+    const bseCode = bseMatch[1];
+    addCandidate(`${bseCode}.BO`, true);
   }
 
   // 3. Address stock based on unique ISIN: dynamically resolve to Ticker.NS or Ticker.BO via Yahoo Finance search
@@ -1339,7 +1378,10 @@ async function fetchStockQuote(
     const resolvedTicker = await resolveTickerFromIsin(isin);
     if (resolvedTicker) {
       if (resolvedTicker.endsWith(".BO")) {
-        addCandidate(resolvedTicker.replace(/\.BO$/, ".NS"), true);
+        const base = resolvedTicker.replace(/\.BO$/, "");
+        if (!/^\d+$/.test(base)) {
+          addCandidate(`${base}.NS`, true);
+        }
       }
       addCandidate(resolvedTicker, true);
     }
@@ -1391,7 +1433,14 @@ async function fetchStockQuote(
             `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
             { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
           );
-        } catch {}
+        } catch {
+          try {
+            searchRes = await fetch(
+              `https://query3.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sq)}&quotesCount=8`,
+              { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(3500) }
+            );
+          } catch {}
+        }
       }
       if (searchRes && searchRes.ok) {
         const data: any = await searchRes.json();
@@ -1510,6 +1559,12 @@ async function fetchStockQuote(
       if (!chartRes.ok) {
         chartRes = await fetch(
           `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
+          { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4500) }
+        );
+      }
+      if (!chartRes.ok) {
+        chartRes = await fetch(
+          `https://query3.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`,
           { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4500) }
         );
       }
@@ -2389,7 +2444,7 @@ export async function getAmfiOfficialNavTable(): Promise<{
       try {
         res = await fetch("https://portal.amfiindia.com/spages/NAVAll.txt", {
           headers: AMFI_CLEAN_HEADERS,
-          signal: AbortSignal.timeout(2500),
+          signal: AbortSignal.timeout(10000),
         });
       } catch (e1) {
         console.warn("[AMFI] portal.amfiindia.com failed, trying amfiindia.com fallback:", e1);
@@ -2398,7 +2453,7 @@ export async function getAmfiOfficialNavTable(): Promise<{
       if (!res || !res.ok) {
         res = await fetch("https://www.amfiindia.com/spages/NAVAll.txt", {
           headers: AMFI_CLEAN_HEADERS,
-          signal: AbortSignal.timeout(2500),
+          signal: AbortSignal.timeout(10000),
         });
       }
       if (!res || !res.ok) return amfiTableCache;
@@ -2663,7 +2718,7 @@ export async function fetchMfNav(
         try {
           const searchRes = await fetch(
             `https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`,
-            { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(2000) }
+            { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(4500) }
           );
           if (searchRes.ok) {
             const list: any[] = await searchRes.json();
@@ -2690,7 +2745,7 @@ export async function fetchMfNav(
           try {
             const latestRes = await fetch(
               `https://api.mfapi.in/mf/${cand.schemeCode}/latest`,
-              { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(2000) }
+              { headers: AMFI_CLEAN_HEADERS, signal: AbortSignal.timeout(4500) }
             );
             if (latestRes.ok) {
               const details: any = await latestRes.json();
@@ -4519,7 +4574,7 @@ export const fetchLivePrice = action({
     if (!name || name.trim().length < 2) return null;
 
     if (assetType === "mutual_fund") {
-      const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker });
+      const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker, statementPrice });
       if (mf && mf.nav > 0) {
         return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
       }
@@ -4538,7 +4593,7 @@ export const fetchLivePrice = action({
         if (stk && stk.price > 0) return stk;
 
         // 2. Try AMFI Cache DB for Gold/Silver mutual funds
-        const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker });
+        const mf = await getOrFetchMfNavWithCache(ctx, name, notes, { force, knownSchemeCode: schemeCode, knownIsin: isin, knownTicker: ticker, statementPrice });
         if (mf && mf.nav > 0) {
           return { price: mf.nav, symbol: mf.schemeName, date: mf.date, prevClose: mf.prevNav, schemeCode: mf.schemeCode, isin: mf.isin };
         }

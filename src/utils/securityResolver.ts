@@ -66,6 +66,8 @@ export interface ResolvedSecurityIdentity {
   sector?: string;
   amc?: string;
   isin?: string;
+  schemeCode?: number;
+  bseCode?: string;
   symbol?: string;
   exchange?: 'NSE' | 'BSE';
   plan?: 'Direct' | 'Regular' | 'Unknown';
@@ -268,7 +270,9 @@ export function resolveSecurityIdentity(
   symbolValue?: string,
   hintType?: string,
   hintSubCat?: string,
-  folioValue?: string
+  folioValue?: string,
+  schemeCodeValue?: number,
+  bseCodeValue?: string
 ): ResolvedSecurityIdentity {
   const normName = normalizeSecurityName(rawName);
   const isin = extractValidIsin(isinValue) || extractValidIsin(folioValue) || extractValidIsin(rawName);
@@ -278,6 +282,8 @@ export function resolveSecurityIdentity(
   let option: 'Growth' | 'IDCW' | 'Dividend' | 'Unknown' = 'Unknown';
   let amc: string | undefined;
   let resolvedSymbol = symbolValue;
+  const resolvedSchemeCode = schemeCodeValue && schemeCodeValue > 0 ? schemeCodeValue : undefined;
+  const resolvedBseCode = bseCodeValue && /^\d{5,6}$/.test(bseCodeValue.trim()) ? bseCodeValue.trim() : undefined;
 
   if (assetType === 'mutual_fund') {
     plan = detectMfPlan(normName);
@@ -303,9 +309,15 @@ export function resolveSecurityIdentity(
   let confidenceScore = 30;
   const reviewReasons: string[] = [];
 
-  if (isin) {
+  if (resolvedSchemeCode) {
+    confidence = 'MATCHED_BY_SCHEME_CODE';
+    confidenceScore = 98;
+  } else if (isin) {
     confidence = 'MATCHED_BY_ISIN';
     confidenceScore = 95;
+  } else if (resolvedBseCode) {
+    confidence = 'MATCHED_BY_SYMBOL';
+    confidenceScore = 92;
   } else if (resolvedSymbol && /^[A-Z0-9\-]+$/i.test(resolvedSymbol)) {
     confidence = 'MATCHED_BY_SYMBOL';
     confidenceScore = 80;
@@ -332,6 +344,8 @@ export function resolveSecurityIdentity(
     subType,
     amc,
     isin,
+    schemeCode: resolvedSchemeCode,
+    bseCode: resolvedBseCode,
     symbol: resolvedSymbol,
     plan,
     option,

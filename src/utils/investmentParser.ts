@@ -59,6 +59,7 @@ export interface ParsedHolding {
   folioNo?: string;
   isin?: string;
   schemeCode?: number;
+  bseCode?: string;
   ticker?: string;
   xirr?: string;
   selected: boolean;
@@ -246,9 +247,12 @@ export function cleanSchemeName(line: string): string {
 
 const LABEL_TOKENS = [
   'market value', 'current value', 'present value', 'latest value',
-  'total market value', 'cost value', 'total cost value',
+  'total market value', 'cost value', 'total cost value', 'total cost',
+  'cost of investment', 'cost of acquisition', 'acquisition cost',
+  'amount invested', 'invested amount', 'total investment', 'investment',
+  'purchase value', 'purchase cost', 'purchase price', 'book value', 'book cost', 'cost',
   'valuation on', 'closing unit balance', 'unit balance', 'balance units',
-  'closing balance', 'nav',
+  'closing balance', 'nav', 'avg nav', 'avg cost', 'purchase nav', 'buy price',
 ];
 
 function extractLabeledValue(line: string, labelRegex: RegExp): number {
@@ -416,10 +420,14 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
     let marketValue = 0;
     let closingUnits = 0;
     let navValue = 0;
+    let avgBuyPrice = 0;
     let xirrValue: string | undefined = undefined;
     let isin = '';
+    let schemeCode: number | undefined = undefined;
+    let bseCode: string | undefined = undefined;
+    let ticker: string | undefined = undefined;
 
-    // 2. Scan block for Units, Cost Value, Market Value, NAV, and ISIN
+    // 2. Scan block for Units, Cost Value, Market Value, NAV, ISIN, AMFI Code, BSE Code, and Ticker
     for (let k = startIdx; k < endIdx; k++) {
       const line = sortedLines[k];
       if (isPersonalInfo(line)) continue;
@@ -427,10 +435,24 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
       // Stop if hitting a grand total or summary section
       if (/^(grand\s*total|portfolio\s*valuation|sub\s*total\s*[:：])/i.test(line)) break;
 
-      // Extract Cost Value
-      if (/(?:total\s*)?cost\s*(?:value)?/i.test(line)) {
-        const val = extractLabeledValue(line, /(?:total\s*)?cost\s*(?:value)?/i);
+      // Extract Cost Value / Invested Amount
+      if (
+        /(?:total\s*)?(?:cost\s*(?:value|basis|of\s*investment)?|amount\s*invested|invested\s*(?:amount|value|val)?|investment|purchase\s*(?:value|cost|amount)|acquisition\s*cost|book\s*(?:value|cost))/i.test(line)
+      ) {
+        const val = extractLabeledValue(
+          line,
+          /(?:total\s*)?(?:cost\s*(?:value|basis|of\s*investment)?|amount\s*invested|invested\s*(?:amount|value|val)?|investment|purchase\s*(?:value|cost|amount)|acquisition\s*cost|book\s*(?:value|cost))\s*[:=]?/i
+        );
         if (val > 0) costValue = val;
+      }
+
+      // Extract Average Cost / Purchase NAV / Buy Price per unit
+      if (/(?:purchase\s*nav|avg\s*(?:nav|cost|price|rate)|average\s*(?:nav|cost|price|rate)|buy\s*(?:price|avg|rate))\s*[:=]?/i.test(line)) {
+        const val = extractLabeledValue(
+          line,
+          /(?:purchase\s*nav|avg\s*(?:nav|cost|price|rate)|average\s*(?:nav|cost|price|rate)|buy\s*(?:price|avg|rate))\s*[:=]?/i
+        );
+        if (val > 0) avgBuyPrice = val;
       }
 
       // Extract Market Value / Present Value / Valuation
@@ -473,10 +495,28 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         }
       }
 
-      // Extract ISIN (12-character Indian security identifier, e.g. INF200K01QV8)
+      // Extract ISIN (12-character Indian security identifier, e.g. INF200K01QV8, INE002A01018)
       if (/\bisin\s*[:.]\s*IN[A-Z0-9]{9,11}\b/i.test(line)) {
         const im = line.match(/\bisin\s*[:.]\s*(IN[A-Z0-9]{9,11})\b/i);
         if (im) isin = im[1].toUpperCase();
+      }
+
+      // Extract AMFI Scheme Code (5 or 6 digits)
+      if (/(?:scheme\s*code|amfi\s*code|amfi\s*scheme\s*code|fund\s*code|amfi\s*id|amfi\s*no)\s*[:=.]?\s*(\d{5,6})\b/i.test(line)) {
+        const sm = line.match(/(?:scheme\s*code|amfi\s*code|amfi\s*scheme\s*code|fund\s*code|amfi\s*id|amfi\s*no)\s*[:=.]?\s*(\d{5,6})\b/i);
+        if (sm) schemeCode = parseInt(sm[1], 10);
+      }
+
+      // Extract BSE Scrip Code (6-digit number, e.g. 500325)
+      if (/(?:bse\s*code|bse\s*scrip\s*code|scrip\s*code|security\s*code|bse\s*id)\s*[:=.]?\s*(5\d{5})\b/i.test(line)) {
+        const bm = line.match(/(?:bse\s*code|bse\s*scrip\s*code|scrip\s*code|security\s*code|bse\s*id)\s*[:=.]?\s*(5\d{5})\b/i);
+        if (bm) bseCode = bm[1];
+      }
+
+      // Extract Ticker / Trading Symbol
+      if (/(?:ticker|symbol|trading\s*symbol|nse\s*symbol|stock\s*symbol)\s*[:=.]?\s*([A-Z0-9_\-&]{2,14})\b/i.test(line)) {
+        const tm = line.match(/(?:ticker|symbol|trading\s*symbol|nse\s*symbol|stock\s*symbol)\s*[:=.]?\s*([A-Z0-9_\-&]{2,14})\b/i);
+        if (tm && !/(?:INF|INE)/i.test(tm[1])) ticker = tm[1].toUpperCase();
       }
 
       // Extract XIRR / IRR / CAGR
@@ -486,12 +526,31 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
       }
     }
 
-    // Infer missing values if possible
+    // Infer missing values mathematically
     if (marketValue === 0 && closingUnits > 0 && navValue > 0) {
-      marketValue = closingUnits * navValue;
+      marketValue = cleanCurrency(closingUnits * navValue);
     }
-    if (marketValue > 0 && costValue === 0) {
-      costValue = marketValue;
+    if (costValue === 0 && closingUnits > 0 && avgBuyPrice > 0) {
+      costValue = cleanCurrency(closingUnits * avgBuyPrice);
+    }
+    if (costValue === 0 && marketValue > 0) {
+      // Check for transaction rows inside the block to sum purchases
+      let txSum = 0;
+      for (let txK = startIdx; txK < endIdx; txK++) {
+        const txLine = sortedLines[txK];
+        if (/\b(purchase|sip|switch\s*in|allotment)\b/i.test(txLine) && !/redemption|switch\s*out/i.test(txLine)) {
+          const nums = txLine.match(/[\d,]+(?:\.\d+)?/g);
+          if (nums && nums.length >= 2) {
+            const parsed = nums.map(parseCleanNumber).filter((n) => n > 10 && n < 10000000);
+            if (parsed.length > 0) txSum += parsed[0];
+          }
+        }
+      }
+      if (txSum > 0) {
+        costValue = cleanCurrency(txSum);
+      } else {
+        costValue = marketValue;
+      }
     }
     if (costValue > 0 && marketValue === 0) {
       marketValue = costValue;
@@ -499,16 +558,29 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
 
     // Average cost per unit (buy price) from statement cost basis
     let buyPrice: number | undefined;
-    if (costValue > 0 && closingUnits > 0) {
-      buyPrice = cleanCurrency(costValue / closingUnits);
+    if (avgBuyPrice > 0) {
+      buyPrice = cleanNavPrice(avgBuyPrice, true);
+    } else if (costValue > 0 && closingUnits > 0) {
+      buyPrice = cleanNavPrice(costValue / closingUnits, true);
     }
 
     if (costValue > 0 || marketValue > 0) {
       const detailed = detectDetailedAssetType(schemeName, 'Mutual Fund');
+      const isMf = detailed.assetType === 'mutual_fund';
+      const resolvedTicker = ticker
+        ? (ticker.endsWith('.NS') || ticker.endsWith('.BO') ? ticker : `${ticker}.NS`)
+        : bseCode
+        ? `${bseCode}.BO`
+        : undefined;
+
       const notesParts = [
         folioNo ? `Folio: ${folioNo}` : '',
         isin ? `ISIN: ${isin}` : '',
+        schemeCode ? `AMFI: ${schemeCode}` : '',
+        bseCode ? `BSE: ${bseCode}` : '',
+        resolvedTicker && !resolvedTicker.endsWith('.BO') ? `Ticker: ${resolvedTicker}` : '',
       ].filter(Boolean);
+
       holdings.push({
         id: `cas_${idCounter++}`,
         name: schemeName,
@@ -519,11 +591,14 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         currentValue: cleanCurrency(marketValue),
         units: cleanUnits(closingUnits),
         buyPrice,
-        currentPrice: navValue > 0 ? cleanNavPrice(navValue, true) : undefined,
-        statementPrice: navValue > 0 ? cleanNavPrice(navValue, true) : undefined,
+        currentPrice: navValue > 0 ? cleanNavPrice(navValue, isMf) : undefined,
+        statementPrice: navValue > 0 ? cleanNavPrice(navValue, isMf) : undefined,
         statementValue: cleanCurrency(marketValue),
         folioNo: folioNo || undefined,
         isin: isin || undefined,
+        schemeCode,
+        bseCode,
+        ticker: resolvedTicker,
         xirr: xirrValue,
         notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
         selected: true,
@@ -719,6 +794,8 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
       const {
         securityNameCol,
         isinCol,
+        schemeCodeCol,
+        bseCodeCol,
         symbolCol,
         unitsCol,
         buyPriceCol,
@@ -756,6 +833,8 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         const rawBroker = brokerCol !== undefined ? String(row[brokerCol] || '').trim() : undefined;
         const rawXirr = xirrCol !== undefined ? cleanXirr(row[xirrCol]) : undefined;
         const symbolVal = symbolCol !== undefined ? String(row[symbolCol] || '').trim() : undefined;
+        const schemeCodeVal = schemeCodeCol !== undefined ? String(row[schemeCodeCol] || '').trim() : undefined;
+        const bseCodeVal = bseCodeCol !== undefined ? String(row[bseCodeCol] || '').trim() : undefined;
 
         // Extract and clean ISIN
         let rawIsin = isinVal || '';
@@ -768,6 +847,28 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
           rawFolio = rawFolio.replace(/\bIN[A-Z0-9]{9,11}\b/i, '').replace(/[\/\s|,]+/g, ' ').trim() || undefined;
         }
         rawIsin = rawIsin.toUpperCase();
+
+        const isMfIdentity = Boolean(
+          (rawIsin && rawIsin.startsWith('INF')) ||
+          /\b(fund|funds|scheme|direct\s*growth|direct\s*plan|regular\s*growth|regular\s*plan|flexi\s*cap|mid\s*cap|small\s*cap|large\s*cap|elss|arbitrage|liquid|index\s*fund)\b/i.test(rawName)
+        );
+        const isStockIdentity = Boolean(rawIsin && rawIsin.startsWith('INE'));
+
+        // Extract AMFI Scheme Code (5 or 6 digits) & BSE Scrip Code (6 digits)
+        let rawSchemeCode = schemeCodeVal && /^\d{5,6}$/.test(schemeCodeVal) ? parseInt(schemeCodeVal, 10) : undefined;
+        let rawBseCode = bseCodeVal && /^\d{5,6}$/.test(bseCodeVal) ? bseCodeVal : undefined;
+
+        if (!rawSchemeCode && symbolVal && /^\d{5,6}$/.test(symbolVal) && isMfIdentity) {
+          rawSchemeCode = parseInt(symbolVal, 10);
+        }
+        if (!rawBseCode && symbolVal && /^5\d{5}$/.test(symbolVal)) {
+          rawBseCode = symbolVal;
+        }
+
+        let rawTicker = symbolVal && !/^\d+$/.test(symbolVal) && !symbolVal.startsWith('IN') ? symbolVal.toUpperCase() : undefined;
+        if (!rawTicker && rawBseCode) {
+          rawTicker = `${rawBseCode}.BO`;
+        }
 
         // Use exact clean scheme / asset name from statement
         const fullName = rawName;
@@ -808,10 +909,10 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         if (current === 0 && invested > 0 && currentValueCol === undefined && currentPriceCol === undefined) current = invested;
 
         if ((!currentPrice || currentPrice <= 0) && units && units > 0 && current > 0) {
-          currentPrice = cleanCurrency(current / units);
+          currentPrice = cleanNavPrice(current / units, isMfIdentity);
         }
         if ((!buyPrice || buyPrice <= 0) && units && units > 0 && invested > 0) {
-          buyPrice = cleanCurrency(invested / units);
+          buyPrice = cleanNavPrice(invested / units, isMfIdentity);
         }
 
         if (invested > 500000000 || current > 500000000) continue;
@@ -820,36 +921,49 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
           const resolved = resolveSecurityIdentity(
             fullName,
             rawIsin,
-            symbolVal,
+            rawTicker || symbolVal,
             rawType,
             rawSubCat,
-            rawFolio
+            rawFolio,
+            rawSchemeCode,
+            rawBseCode
           );
+
+          const finalSchemeCode = rawSchemeCode || resolved.schemeCode;
+          const finalBseCode = rawBseCode || resolved.bseCode;
+          const finalTicker = rawTicker || resolved.symbol || (finalBseCode ? `${finalBseCode}.BO` : undefined);
 
           const notesParts = [
             rawFolio ? `Folio: ${rawFolio}` : '',
             rawIsin ? `ISIN: ${rawIsin}` : '',
+            finalSchemeCode ? `AMFI: ${finalSchemeCode}` : '',
+            finalBseCode ? `BSE: ${finalBseCode}` : '',
+            finalTicker && !finalTicker.endsWith('.BO') ? `Ticker: ${finalTicker}` : '',
             rawXirr ? `XIRR: ${rawXirr}` : '',
             table.tableType === 'TRANSACTIONS' ? 'Type: Transaction Statement' : '',
           ].filter(Boolean);
 
-          const isMf = resolved.assetType === 'mutual_fund';
+          const finalAssetType = isMfIdentity || finalSchemeCode ? 'mutual_fund' : (isStockIdentity || finalBseCode) ? 'stocks' : resolved.assetType;
+          const finalSubType = finalAssetType === 'mutual_fund' ? (resolved.subType || 'Mutual Fund') : finalAssetType === 'stocks' ? (resolved.subType || 'Stock / Equity') : (rawSubCat || rawType || resolved.subType);
+          const isMf = finalAssetType === 'mutual_fund';
           const holdingObj: ParsedHolding = {
             id: `tbl_${sheet.sheetName}_${table.headerRowIndex + 1 + r}_${Date.now()}`,
             name: fullName,
-            assetType: resolved.assetType,
-            subType: rawSubCat || rawType || resolved.subType,
+            assetType: finalAssetType,
+            subType: finalSubType,
             sector: rawSector || undefined,
             amc: resolved.amc,
             broker: rawBroker || undefined,
             folioNo: rawFolio || undefined,
             isin: rawIsin || resolved.isin || undefined,
-            ticker: resolved.symbol || symbolVal || undefined,
+            schemeCode: finalSchemeCode,
+            bseCode: finalBseCode,
+            ticker: finalTicker,
             investedAmount: cleanCurrency(Math.abs(invested)),
             currentValue: cleanCurrency(Math.abs(current)),
             returns: pnl !== undefined ? cleanCurrency(pnl) : cleanCurrency(current - invested),
             units: cleanUnits(units),
-            buyPrice: buyPrice && buyPrice > 0 ? cleanCurrency(buyPrice) : undefined,
+            buyPrice: buyPrice && buyPrice > 0 ? cleanNavPrice(buyPrice, isMf) : undefined,
             currentPrice: currentPrice && currentPrice > 0 ? cleanNavPrice(currentPrice, isMf) : undefined,
             statementPrice: currentPrice && currentPrice > 0 ? cleanNavPrice(currentPrice, isMf) : undefined,
             statementValue: cleanCurrency(Math.abs(current)),
@@ -857,9 +971,9 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
             selected: true,
             isValid: true,
-            resolutionStatus: resolved.confidence,
-            marketProvider: isMf ? 'AMFI' : resolved.assetType === 'stocks' ? 'YAHOO_FINANCE' : 'IMPORTED',
-            marketIdentifier: rawIsin || resolved.isin || symbolVal || fullName,
+            resolutionStatus: (finalSchemeCode ? 'MATCHED_BY_SCHEME_CODE' : (isMfIdentity && rawIsin ? 'MATCHED_BY_ISIN' : resolved.confidence)),
+            marketProvider: isMf ? 'AMFI' : finalAssetType === 'stocks' ? 'YAHOO_FINANCE' : 'IMPORTED',
+            marketIdentifier: (finalSchemeCode ? String(finalSchemeCode) : (rawIsin || resolved.isin || finalTicker || fullName)),
             reviewReasons: resolved.reviewReasons,
             requiresReview: resolved.confidence === 'REVIEW_REQUIRED' || resolved.confidence === 'UNRESOLVED',
             sourceSheet: sheet.sheetName,

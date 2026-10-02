@@ -18,6 +18,7 @@ import { CanonicalColumnMapping } from '../../utils/columnMapper';
 import {
   detectDetailedAssetType,
   fetchAmfiNav,
+  fetchLiveStockPrice,
   fetchLiveCryptoPrice,
 } from '../../utils/liveMarketService';
 import { AssetType, ImportBatch } from '../../types';
@@ -67,6 +68,9 @@ interface InvestmentImportModalProps {
       units?: number;
       buyPrice?: number;
       currentPrice?: number;
+      schemeCode?: number;
+      isin?: string;
+      ticker?: string;
       xirr?: string;
       notes?: string;
     }[],
@@ -103,9 +107,8 @@ const BROKER_OPTIONS = ALL_BROKER_OPTIONS;
  * Prevents cross-asset contamination (e.g. stock ₹1,226 assigned to mutual fund NAV ₹28)
  * and rejects wild price discrepancies compared to statement baseline prices.
  *
- * When the response includes a valid AMFI schemeCode (> 0), the price is considered
- * authentic and the drift guard is bypassed — AMFI scheme codes are only assigned by
- * the official AMFI registry and guarantee the price is a genuine mutual fund NAV.
+ * When the response includes a valid AMFI schemeCode (> 0) or verified ISIN, the price is considered
+ * authentic and the drift guard is bypassed.
  */
 function validateLivePriceAgainstHolding(
   holding: ParsedHolding,
@@ -114,6 +117,7 @@ function validateLivePriceAgainstHolding(
   const price = typeof res === 'number' ? res : res.price;
   const symbol = typeof res === 'number' ? undefined : res.symbol;
   const schemeCode = typeof res === 'number' ? undefined : res.schemeCode;
+  const resIsin = typeof res === 'number' ? undefined : res.isin;
 
   if (!price || price <= 0 || isNaN(price)) {
     return { valid: false, reason: 'Invalid or zero price' };
@@ -128,10 +132,13 @@ function validateLivePriceAgainstHolding(
   }
 
   // If response has a valid AMFI scheme code or verified ISIN, the price is guaranteed authentic — skip drift check.
-  // AMFI codes and ISINs (INF for MF, INE for Equities) are assigned by official depositories and prove this is the genuine asset.
+  const hasVerifiedIsin =
+    (holding.isin && (holding.isin.startsWith('INF') || holding.isin.startsWith('INE'))) ||
+    (resIsin && (resIsin.startsWith('INF') || resIsin.startsWith('INE')));
+
   if (
     (schemeCode && schemeCode > 0 && schemeCode !== 102957) ||
-    (holding.isin && (holding.isin.startsWith('INF') || holding.isin.startsWith('INE')))
+    hasVerifiedIsin
   ) {
     return { valid: true };
   }
@@ -281,19 +288,22 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
     // 1. Primary: High-speed server-side batch enrichment via Convex (unblocked by browser CORS)
     try {
       const serverBatchRes = await fetchBatchLivePricesAction({
-        items: eligibleHoldings.map((h) => ({
-          id: h.id,
-          name: h.name,
-          assetType: h.assetType,
-          notes: h.notes,
-          isin: h.isin,
-          schemeCode: h.schemeCode,
-          ticker: h.ticker,
-          statementPrice:
-            h.statementPrice ||
-            (h.currentPrice && h.currentPrice > 0 ? h.currentPrice : undefined) ||
-            (h.units && h.units > 0 && h.currentValue > 0 ? cleanCurrency(h.currentValue / h.units) : undefined),
-        })),
+        items: eligibleHoldings.map((h) => {
+          const sPrice =
+            (typeof h.statementPrice === 'number' && !isNaN(h.statementPrice) && h.statementPrice > 0 ? h.statementPrice : undefined) ||
+            (typeof h.currentPrice === 'number' && !isNaN(h.currentPrice) && h.currentPrice > 0 ? h.currentPrice : undefined) ||
+            (h.units && h.units > 0 && h.currentValue > 0 ? cleanCurrency(h.currentValue / h.units) : undefined);
+          return {
+            id: h.id,
+            name: h.name,
+            assetType: h.assetType,
+            notes: h.notes,
+            isin: h.isin,
+            schemeCode: typeof h.schemeCode === 'number' && !isNaN(h.schemeCode) && h.schemeCode > 0 ? Math.round(h.schemeCode) : undefined,
+            ticker: h.ticker,
+            statementPrice: sPrice,
+          };
+        }),
         force: true,
       });
 
@@ -319,16 +329,33 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
             if (h.units && h.units > 0) {
               h.currentValue = cleanCurrency(h.units * res.price);
+              if (h.buyPrice && h.buyPrice > 0) {
+                const computedInv = cleanCurrency(h.units * h.buyPrice);
+                if (!h.investedAmount || h.investedAmount === 0 || (oldPrice > 0 && Math.abs(h.investedAmount - (h.statementValue || 0)) < 1)) {
+                  h.investedAmount = computedInv;
+                }
+              } else if (h.investedAmount > 0) {
+                h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(h.investedAmount / h.units, true) : cleanCurrency(h.investedAmount / h.units);
+              }
             } else if (h.investedAmount > 0 && h.buyPrice && h.buyPrice > 0) {
               const derivedUnits = cleanUnits(h.investedAmount / h.buyPrice);
               h.units = derivedUnits;
-              h.currentValue = cleanCurrency(derivedUnits * res.price);
+              if (derivedUnits && derivedUnits > 0) {
+                h.currentValue = cleanCurrency(derivedUnits * res.price);
+              }
             } else if (oldPrice && oldPrice > 0 && h.currentValue > 0) {
               const derivedUnits = cleanUnits(h.currentValue / oldPrice);
               h.units = derivedUnits;
-              h.currentValue = cleanCurrency(derivedUnits * res.price);
+              if (derivedUnits && derivedUnits > 0) {
+                h.currentValue = cleanCurrency(derivedUnits * res.price);
+                if (!h.buyPrice || h.buyPrice === 0) {
+                  h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(oldPrice, true) : cleanCurrency(oldPrice);
+                }
+                if (!h.investedAmount || h.investedAmount === 0) {
+                  h.investedAmount = cleanCurrency(h.currentValue);
+                }
+              }
             } else {
-              // Never derive units by dividing historical invested amount by today's live price
               h.requiresReview = true;
               h.reviewReasons = [...(h.reviewReasons || []), 'Units / Quantity missing in statement; please confirm holding units.'];
             }
@@ -379,12 +406,18 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           try {
             // First try single-item Convex server action
             try {
+              const sPrice =
+                (typeof holding.statementPrice === 'number' && !isNaN(holding.statementPrice) && holding.statementPrice > 0 ? holding.statementPrice : undefined) ||
+                (typeof holding.currentPrice === 'number' && !isNaN(holding.currentPrice) && holding.currentPrice > 0 ? holding.currentPrice : undefined) ||
+                (holding.units && holding.units > 0 && holding.currentValue > 0 ? cleanCurrency(holding.currentValue / holding.units) : undefined);
+
               const sRes = await fetchLivePriceAction({
                 name: holding.name,
                 assetType: holding.assetType,
                 notes: holding.notes,
                 isin: holding.isin,
-                statementPrice: holding.statementPrice || holding.currentPrice,
+                schemeCode: typeof holding.schemeCode === 'number' && !isNaN(holding.schemeCode) && holding.schemeCode > 0 ? Math.round(holding.schemeCode) : undefined,
+                statementPrice: sPrice,
                 force: true,
               });
               if (sRes && sRes.price > 0) {
@@ -396,10 +429,21 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             // Then try direct AMFI client query if mutual fund
             if (!livePrice && holding.assetType === 'mutual_fund') {
               const isinLookup = holding.isin ? `ISIN: ${holding.isin}` : undefined;
-              const live = await fetchAmfiNav(holding.name, holding.notes || isinLookup);
+              const live = await fetchAmfiNav(holding.name, holding.notes || isinLookup, holding.schemeCode, holding.isin);
               if (live && live.nav > 0) {
                 livePrice = live.nav;
                 liveDate = live.date;
+              }
+            } else if (!livePrice && (holding.assetType === 'stocks' || holding.assetType === 'gold')) {
+              const live = await fetchLiveStockPrice(
+                holding.name,
+                holding.notes,
+                holding.isin,
+                holding.ticker,
+                holding.statementPrice || holding.currentPrice
+              );
+              if (live && live.price > 0) {
+                livePrice = live.price;
               }
             } else if (!livePrice && holding.assetType === 'crypto') {
               const live = await fetchLiveCryptoPrice(holding.name);
@@ -411,7 +455,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             const idx = updatedHoldings.findIndex((h) => h.id === holding.id);
             if (idx !== -1) {
               const h = { ...updatedHoldings[idx] };
-              const validation = validateLivePriceAgainstHolding(h, livePrice);
+              const validation = validateLivePriceAgainstHolding(h, { price: livePrice, isin: h.isin, schemeCode: h.schemeCode });
               if (!validation.valid) {
                 console.warn(`[Enrichment Fallback] Skipping price for "${h.name}": ${validation.reason}`);
                 return;
@@ -424,16 +468,33 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
               if (h.units && h.units > 0) {
                 h.currentValue = cleanCurrency(h.units * livePrice);
+                if (h.buyPrice && h.buyPrice > 0) {
+                  const computedInv = cleanCurrency(h.units * h.buyPrice);
+                  if (!h.investedAmount || h.investedAmount === 0 || (oldPrice > 0 && Math.abs(h.investedAmount - (h.statementValue || 0)) < 1)) {
+                    h.investedAmount = computedInv;
+                  }
+                } else if (h.investedAmount > 0) {
+                  h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(h.investedAmount / h.units, true) : cleanCurrency(h.investedAmount / h.units);
+                }
               } else if (h.investedAmount > 0 && h.buyPrice && h.buyPrice > 0) {
                 const derivedUnits = cleanUnits(h.investedAmount / h.buyPrice);
                 h.units = derivedUnits;
-                h.currentValue = cleanCurrency(derivedUnits * livePrice);
+                if (derivedUnits && derivedUnits > 0) {
+                  h.currentValue = cleanCurrency(derivedUnits * livePrice);
+                }
               } else if (oldPrice && oldPrice > 0 && h.currentValue > 0) {
                 const derivedUnits = cleanUnits(h.currentValue / oldPrice);
                 h.units = derivedUnits;
-                h.currentValue = cleanCurrency(derivedUnits * livePrice);
+                if (derivedUnits && derivedUnits > 0) {
+                  h.currentValue = cleanCurrency(derivedUnits * livePrice);
+                  if (!h.buyPrice || h.buyPrice === 0) {
+                    h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(oldPrice, true) : cleanCurrency(oldPrice);
+                  }
+                  if (!h.investedAmount || h.investedAmount === 0) {
+                    h.investedAmount = cleanCurrency(h.currentValue);
+                  }
+                }
               } else {
-                // Never derive units by dividing historical invested amount by today's live price
                 h.requiresReview = true;
                 h.reviewReasons = [...(h.reviewReasons || []), 'Units / Quantity missing in statement; please confirm holding units.'];
               }
@@ -528,6 +589,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             livePrice = live.nav;
             liveDate = live.date;
           }
+        } else if (targetType === 'stocks' || targetType === 'gold') {
+          const live = await fetchLiveStockPrice(assetName, notesOrIsin);
+          if (live && live.price > 0) {
+            livePrice = live.price;
+          }
         } else if (targetType === 'crypto') {
           const live = await fetchLiveCryptoPrice(assetName);
           if (live && live.price > 0) livePrice = live.price;
@@ -547,7 +613,11 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
       setParsedHoldings((prev) =>
         prev.map((h) => {
           if (h.id !== id) return h;
-          const validation = validateLivePriceAgainstHolding(h, livePrice!);
+          const validation = validateLivePriceAgainstHolding(h, {
+            price: livePrice!,
+            isin: h.isin,
+            schemeCode: h.schemeCode,
+          });
           if (!validation.valid) {
             console.warn(`[RowPrice] Skipping price for "${h.name}": ${validation.reason}`);
             return h;
@@ -898,24 +968,53 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           }
         }
 
+        const isMf = updated.assetType === 'mutual_fund';
+
         if (field === 'units') {
           const unitsNum = val !== undefined && val !== '' ? parseFloat(val) : undefined;
-          updated.units = unitsNum;
-          if (unitsNum !== undefined && unitsNum > 0 && updated.currentPrice && updated.currentPrice > 0) {
-            updated.currentValue = cleanCurrency(unitsNum * updated.currentPrice);
+          updated.units = unitsNum !== undefined && !isNaN(unitsNum) ? cleanUnits(unitsNum) : undefined;
+          if (updated.units !== undefined && updated.units > 0) {
+            if (updated.currentPrice && updated.currentPrice > 0) {
+              updated.currentValue = cleanCurrency(updated.units * updated.currentPrice);
+            }
+            if (updated.buyPrice && updated.buyPrice > 0 && (!updated.investedAmount || updated.investedAmount === 0)) {
+              updated.investedAmount = cleanCurrency(updated.units * updated.buyPrice);
+            }
+          }
+        }
+        if (field === 'buyPrice') {
+          const buyPriceNum = val !== undefined && val !== '' ? parseFloat(val) : undefined;
+          updated.buyPrice = buyPriceNum !== undefined && !isNaN(buyPriceNum) ? cleanNavPrice(buyPriceNum, isMf) : undefined;
+          if (updated.buyPrice !== undefined && updated.buyPrice > 0 && updated.units && updated.units > 0) {
+            updated.investedAmount = cleanCurrency(updated.units * updated.buyPrice);
+          }
+        }
+        if (field === 'investedAmount') {
+          const invNum = val !== undefined && val !== '' ? parseFloat(val) : 0;
+          updated.investedAmount = isNaN(invNum) ? 0 : cleanCurrency(invNum);
+          if (updated.investedAmount > 0 && updated.units && updated.units > 0 && (!updated.buyPrice || updated.buyPrice === 0)) {
+            updated.buyPrice = cleanNavPrice(updated.investedAmount / updated.units, isMf);
           }
         }
         if (field === 'currentPrice') {
           const priceNum = val !== undefined && val !== '' ? parseFloat(val) : undefined;
-          updated.currentPrice = priceNum;
-          if (priceNum !== undefined && priceNum > 0 && updated.units && updated.units > 0) {
-            updated.currentValue = cleanCurrency(updated.units * priceNum);
+          updated.currentPrice = priceNum !== undefined && !isNaN(priceNum) ? cleanNavPrice(priceNum, isMf) : undefined;
+          if (updated.currentPrice !== undefined && updated.currentPrice > 0 && updated.units && updated.units > 0) {
+            updated.currentValue = cleanCurrency(updated.units * updated.currentPrice);
+          }
+        }
+        if (field === 'currentValue') {
+          const valNum = val !== undefined && val !== '' ? parseFloat(val) : 0;
+          updated.currentValue = isNaN(valNum) ? 0 : cleanCurrency(valNum);
+          if (updated.currentValue > 0 && updated.units && updated.units > 0 && (!updated.currentPrice || updated.currentPrice === 0)) {
+            updated.currentPrice = cleanNavPrice(updated.currentValue / updated.units, isMf);
           }
         }
         if (
           field === 'investedAmount' ||
           field === 'currentValue' ||
           field === 'units' ||
+          field === 'buyPrice' ||
           field === 'currentPrice'
         ) {
           updated.returns = cleanCurrency(updated.currentValue - updated.investedAmount);
@@ -996,19 +1095,30 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           subType: h.subType,
           sector: h.sector,
           broker: h.broker || brokerTag,
-          investedAmount: cleanCurrency(h.investedAmount),
-          currentValue: cleanCurrency(h.currentValue),
+          investedAmount: cleanCurrency(h.investedAmount || 0),
+          currentValue: cleanCurrency(h.currentValue || 0),
           units: cleanUnits(h.units),
-          buyPrice: h.buyPrice ? cleanCurrency(h.buyPrice) : undefined,
-          currentPrice: h.currentPrice ? cleanNavPrice(h.currentPrice, h.assetType === 'mutual_fund') : undefined,
-          schemeCode: h.schemeCode,
-          isin: h.isin,
-          ticker: h.ticker,
+          buyPrice:
+            h.buyPrice !== undefined && !isNaN(h.buyPrice) && h.buyPrice > 0
+              ? h.assetType === 'mutual_fund'
+                ? cleanNavPrice(h.buyPrice, true)
+                : cleanCurrency(h.buyPrice)
+              : undefined,
+          currentPrice:
+            h.currentPrice !== undefined && !isNaN(h.currentPrice) && h.currentPrice > 0
+              ? cleanNavPrice(h.currentPrice, h.assetType === 'mutual_fund')
+              : undefined,
+          schemeCode: typeof h.schemeCode === 'number' && !isNaN(h.schemeCode) && h.schemeCode > 0 ? h.schemeCode : undefined,
+          isin: h.isin && h.isin.trim() ? h.isin.trim() : undefined,
+          ticker: h.ticker && h.ticker.trim() ? h.ticker.trim() : undefined,
           xirr: h.xirr,
           notes: [
             h.notes || '',
             h.folioNo && !(h.notes || '').includes(h.folioNo) ? `Folio: ${h.folioNo}` : '',
             h.isin && !(h.notes || '').includes(h.isin) ? `ISIN: ${h.isin}` : '',
+            h.schemeCode && !(h.notes || '').includes(String(h.schemeCode)) ? `AMFI: ${h.schemeCode}` : '',
+            h.bseCode && !(h.notes || '').includes(h.bseCode) ? `BSE: ${h.bseCode}` : '',
+            h.ticker && !h.ticker.endsWith('.BO') && !(h.notes || '').includes(h.ticker) ? `Ticker: ${h.ticker}` : '',
           ]
             .filter(Boolean)
             .join(' | ') || 'Statement Import',
@@ -1598,6 +1708,21 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                               className="w-full p-1 bg-transparent hover:bg-neutral-100 focus:bg-white border border-transparent hover:border-neutral-300 focus:border-[#121212] font-black text-xs text-[#121212]"
                             />
                             <div className="flex items-center flex-wrap gap-1.5 mt-0.5">
+                              {h.schemeCode && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                  AMFI: {h.schemeCode}
+                                </span>
+                              )}
+                              {h.bseCode && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                                  BSE: {h.bseCode}
+                                </span>
+                              )}
+                              {h.ticker && !h.ticker.endsWith('.BO') && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                                  {h.ticker.endsWith('.NS') ? `NSE: ${h.ticker.replace(/\.NS$/, '')}` : `Ticker: ${h.ticker}`}
+                                </span>
+                              )}
                               {h.isin ? (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                   ISIN: {h.isin}

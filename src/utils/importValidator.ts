@@ -60,17 +60,26 @@ export function validateHoldingRow(
     }
   }
 
-  // 4. Asset Type & Identifier Consistency
-  if (holding.assetType === 'mutual_fund') {
+  // 4. Asset Type & Identifier Consistency (Self-healing)
+  if (holding.isin && holding.isin.startsWith('INF')) {
+    if (holding.assetType !== 'mutual_fund') {
+      holding.assetType = 'mutual_fund';
+      holding.subType = holding.subType || 'Mutual Fund';
+    }
     if (holding.ticker && (holding.ticker.endsWith('.NS') || holding.ticker.endsWith('.BO'))) {
-      errors.push(`Stock exchange ticker (${holding.ticker}) assigned to mutual fund.`);
+      holding.ticker = undefined; // clear accidental stock ticker on mutual fund
+    }
+  } else if (holding.isin && holding.isin.startsWith('INE')) {
+    if (holding.assetType === 'mutual_fund') {
+      holding.assetType = 'stocks';
+      holding.subType = 'Stock / Equity';
+    }
+  } else if (holding.assetType === 'mutual_fund') {
+    if (holding.ticker && (holding.ticker.endsWith('.NS') || holding.ticker.endsWith('.BO'))) {
+      holding.ticker = undefined;
     }
     if (holding.isin && !holding.isin.startsWith('INF')) {
       warnings.push(`Mutual fund has non-INF ISIN: ${holding.isin}`);
-    }
-  } else if (holding.assetType === 'stocks') {
-    if (holding.isin && holding.isin.startsWith('INF')) {
-      errors.push(`Mutual fund ISIN (${holding.isin}) assigned to stock.`);
     }
   }
 

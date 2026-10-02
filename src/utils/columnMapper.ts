@@ -13,6 +13,8 @@ export interface CanonicalColumnMapping {
   securityNameCol: number;
   isinCol?: number;
   symbolCol?: number;
+  schemeCodeCol?: number;
+  bseCodeCol?: number;
   exchangeCol?: number;
   unitsCol?: number;
   buyPriceCol?: number;
@@ -38,6 +40,8 @@ export interface CanonicalHoldingRecord {
   rawName: string;
   isin?: string;
   symbol?: string;
+  schemeCode?: number;
+  bseCode?: string;
   exchange?: string;
   units?: number;
   buyPrice?: number;
@@ -67,9 +71,17 @@ const ALIASES = {
     /^\s*isin\s*$/i,
     /\b(isin\s*code|isin\s*no|isin\s*number|\bisin\b)\b/i,
   ],
+  schemeCode: [
+    /^\s*(scheme\s*code|amfi\s*code|amfi\s*scheme\s*code|fund\s*code|amfi\s*no|amfi\s*id|scheme\s*no)\s*$/i,
+    /\b(scheme\s*code|amfi\s*code|amfi\s*scheme\s*code|fund\s*code|amfi\s*no|amfi\s*id)\b/i,
+  ],
+  bseCode: [
+    /^\s*(bse\s*code|bse\s*scrip\s*code|scrip\s*code|bse\s*security\s*code|security\s*code|bse\s*id|bse\s*scrip)\s*$/i,
+    /\b(bse\s*code|bse\s*scrip\s*code|scrip\s*code|bse\s*security\s*code|security\s*code)\b/i,
+  ],
   symbol: [
-    /^\s*(symbol|ticker|trading\s*symbol|tradingsymbol|scrip\s*code|nse\s*symbol|bse\s*code)\s*$/i,
-    /\b(symbol|ticker|trading\s*symbol|tradingsymbol)\b/i,
+    /^\s*(symbol|ticker|trading\s*symbol|tradingsymbol|nse\s*symbol|stock\s*symbol)\s*$/i,
+    /\b(symbol|ticker|trading\s*symbol|tradingsymbol|nse\s*symbol|stock\s*symbol)\b/i,
   ],
   units: [
     /^\s*(quantity|qty|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|units?\s*invested|invested\s*units?|total\s*qty|total\s*quantity|net\s*qty)\s*$/i,
@@ -84,8 +96,8 @@ const ALIASES = {
     /\b(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|\bnav\b|closing\s*price|close\s*price|last\s*price|last\s*traded\s*price)\b/i,
   ],
   investedValue: [
-    /^\s*(invested\s*val\w*|invested\s*amount|cost\s*val\w*|cost|invested|investment|purchase\s*val\w*|purchase\s*cost|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost|total\s*cost)\s*$/i,
-    /\b(invested\s*val\w*|invested\s*amount|cost\s*val\w*|cost|invested|investment|purchase\s*val\w*|purchase\s*cost|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost)\b/i,
+    /^\s*(invested\s*val\w*|invested\s*amount|amount\s*invested|total\s*amount\s*invested|total\s*invested|cost\s*val\w*|cost|invested|investment|investment\s*amount|total\s*investment|cost\s*of\s*investment|cost\s*of\s*acquisition|acquisition\s*cost|purchase\s*val\w*|purchase\s*cost|purchase\s*amount|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost|total\s*cost|total\s*cost\s*basis)\s*$/i,
+    /\b(invested\s*val\w*|invested\s*amount|amount\s*invested|total\s*amount\s*invested|total\s*invested|cost\s*val\w*|cost|invested|investment|investment\s*amount|total\s*investment|cost\s*of\s*investment|cost\s*of\s*acquisition|acquisition\s*cost|purchase\s*val\w*|purchase\s*cost|purchase\s*amount|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost)\b/i,
   ],
   currentValue: [
     /^\s*(current\s*val\w*|market\s*val\w*|present\s*val\w*|latest\s*val\w*|today\s*val\w*|portfolio\s*val\w*|total\s*val\w*|cur\s*val\w*|mkt\s*val\w*|valuation|current\s*amount|cur\s*amount|current|value)\s*$/i,
@@ -143,6 +155,8 @@ export function mapHeadersToCanonical(
 
   let nameCol = -1;
   let isinCol: number | undefined;
+  let schemeCodeCol: number | undefined;
+  let bseCodeCol: number | undefined;
   let symbolCol: number | undefined;
   let unitsCol: number | undefined;
   let buyPriceCol: number | undefined;
@@ -163,6 +177,33 @@ export function mapHeadersToCanonical(
   normalized.forEach((cell, idx) => {
     if (ALIASES.isin[0].test(cell) || ALIASES.isin[1].test(cell)) {
       isinCol = idx;
+      usedCols.add(idx);
+    }
+  });
+
+  // Match AMFI Scheme Code for mutual funds
+  normalized.forEach((cell, idx) => {
+    if (usedCols.has(idx)) return;
+    if (ALIASES.schemeCode[0].test(cell) || ALIASES.schemeCode[1].test(cell)) {
+      schemeCodeCol = idx;
+      usedCols.add(idx);
+    }
+  });
+
+  // Match BSE Scrip Code for stocks
+  normalized.forEach((cell, idx) => {
+    if (usedCols.has(idx)) return;
+    if (ALIASES.bseCode[0].test(cell) || ALIASES.bseCode[1].test(cell)) {
+      bseCodeCol = idx;
+      usedCols.add(idx);
+    }
+  });
+
+  // Match Trading Symbol / Ticker (NSE / BSE symbol)
+  normalized.forEach((cell, idx) => {
+    if (usedCols.has(idx)) return;
+    if (ALIASES.symbol[0].test(cell) || ALIASES.symbol[1].test(cell)) {
+      symbolCol = idx;
       usedCols.add(idx);
     }
   });
@@ -288,6 +329,9 @@ export function mapHeadersToCanonical(
   if (currentPriceCol !== undefined) confidenceScore += 10;
   if (buyPriceCol !== undefined) confidenceScore += 5;
   if (isinCol !== undefined) confidenceScore += 10;
+  if (schemeCodeCol !== undefined) confidenceScore += 10;
+  if (bseCodeCol !== undefined) confidenceScore += 10;
+  if (symbolCol !== undefined) confidenceScore += 5;
 
   // Essential fields requirement: Must have Security Name AND at least one financial value column
   const hasFinancialCol =
@@ -317,6 +361,8 @@ export function mapHeadersToCanonical(
   const mappedFieldsCount = [
     nameCol,
     isinCol,
+    schemeCodeCol,
+    bseCodeCol,
     symbolCol,
     unitsCol,
     buyPriceCol,
@@ -335,6 +381,8 @@ export function mapHeadersToCanonical(
   return {
     securityNameCol: nameCol,
     isinCol,
+    schemeCodeCol,
+    bseCodeCol,
     symbolCol,
     unitsCol,
     buyPriceCol,
