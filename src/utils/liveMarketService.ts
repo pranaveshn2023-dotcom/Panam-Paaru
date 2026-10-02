@@ -276,6 +276,81 @@ export const ALL_MF_CATEGORIES = [
   { key: 'silver', match: /\bsilver\b/i },
 ];
 
+export const MF_CATEGORY_EXCLUSIVE_WORDS = [
+  { key: 'emerging', regex: /\bemerging\b|emerging/i },
+  { key: 'balanced', regex: /\b(balanced|advantage|baf)\b|balanced|advantage/i },
+  { key: 'arbitrage', regex: /\barbitrage\b|arbitrage/i },
+  { key: 'liquid', regex: /\bliquid\b|liquid/i },
+  { key: 'overnight', regex: /\bovernight\b|overnight/i },
+  { key: 'gilt', regex: /\bgilt\b|gilt/i },
+  { key: 'smallcap', regex: /\bsmall[\s-]?cap\b|smallcap/i },
+  { key: 'midcap', regex: /\bmid[\s-]?cap\b|midcap/i },
+  { key: 'largecap', regex: /\b(large[\s-]?cap|bluechip)\b|largecap|bluechip/i },
+  { key: 'flexicap', regex: /\bflexi[\s-]?cap\b|flexicap/i },
+  { key: 'multicap', regex: /\bmulti[\s-]?cap\b|multicap/i },
+  { key: 'elss', regex: /\b(elss|tax[\s-]?saver)\b|elss|taxsaver/i },
+  { key: 'pharma', regex: /\b(pharma|healthcare)\b|pharma|healthcare/i },
+  { key: 'tech', regex: /\b(tech|technology|digital)\b|tech|technology|digital/i },
+  { key: 'defence', regex: /\b(defence|defense)\b|defence|defense/i },
+  { key: 'banking', regex: /\b(banking|bank|financial)\b|banking|financial/i },
+  { key: 'infra', regex: /\b(infra|infrastructure)\b|infra|infrastructure/i },
+  { key: 'gold', regex: /\bgold\b|gold/i },
+  { key: 'silver', regex: /\bsilver\b|silver/i },
+  { key: 'focused', regex: /\bfocused\b|focused/i },
+  { key: 'contra', regex: /\b(contra|value)\b|contra|value/i }
+];
+
+export function isMfCandidateCompatible(candName: string, queryName: string): boolean {
+  if (!candName || !queryName) return true;
+  const c = candName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const q = queryName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+  // 1. Differentiator patterns: major strategies, indices, numbers
+  const DIFFERENTIATOR_PATTERNS = [
+    { key: 'momentum', regex: /\bmomentum\b|momentum/i },
+    { key: 'lowvol', regex: /\b(low\s*vol(?:atility)?|alpha)\b|lowvol|alpha/i },
+    { key: 'equalweight', regex: /\bequal\s*weight\b|equalweight/i },
+    { key: 'quality', regex: /\bquality\b|quality/i },
+    { key: 'next50', regex: /\bnext\s*50\b|next50/i },
+    { key: '500', regex: /\b500\b|500/ },
+    { key: '150', regex: /\b150\b|150/ },
+    { key: '250', regex: /\b250\b|250/ },
+    { key: '100', regex: /\b100\b|100/ },
+    { key: 'etf', regex: /\b(etf|exchange\s*traded)\b/i },
+  ];
+
+  for (const diff of DIFFERENTIATOR_PATTERNS) {
+    const inCand = diff.regex.test(c);
+    const inQuery = diff.regex.test(q);
+    if (inCand !== inQuery) return false;
+  }
+
+  // 2. Category exclusive words (cannot confuse Balanced Advantage with Emerging Markets, Liquid, etc.)
+  for (const cat of MF_CATEGORY_EXCLUSIVE_WORDS) {
+    const inCand = cat.regex.test(c);
+    const inQuery = cat.regex.test(q);
+    if (inCand !== inQuery) return false;
+  }
+
+  // 3. Direct vs Regular Plan
+  const wantsDirect = /\b(direct|dir)\b|direct/i.test(q);
+  const wantsRegular = /\b(regular|reg)\b|regular/i.test(q);
+  const isDirect = /\bdirect\b|direct/i.test(c);
+  const isRegular = /\bregular\b|regular/i.test(c);
+  if (wantsDirect && isRegular) return false;
+  if (wantsRegular && isDirect) return false;
+
+  // 4. Growth vs IDCW
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b|idcw|dividend/i.test(q);
+  const wantsGrowth = /\b(growth|gr)\b|growth/i.test(q);
+  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b|idcw|dividend/i.test(c);
+  const isGrowth = /\bgrowth\b|growth/i.test(c);
+  if (wantsIdcw && isGrowth) return false;
+  if (wantsGrowth && isIdcw) return false;
+
+  return true;
+}
+
 export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
   const stripped = sanitizeTruncatedSchemeName(rawQuery);
   const qClean = stripped.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -283,6 +358,7 @@ export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: str
   const sClean = sName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
   if (!qClean || !sClean) return 0;
+  if (!isMfCandidateCompatible(sClean, stripped)) return -400;
   if (sClean === qClean) return 400;
 
   // 1. Strict Brand / AMC Matching across all 53 AMCs
@@ -356,8 +432,8 @@ export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: str
   const isRegular = /\bregular\b/i.test(sClean);
 
   // 3. Strict Differentiator Token Guard:
-  // If candidate contains major distinguishing strategies, numbers, or sub-asset types that are NOT in query,
-  // penalize or reject them to prevent drift (e.g. "Nifty 50" matching "Nifty 500 Momentum 50" or "Nifty Next 50")
+  // Evaluated ONLY against scheme name (sClean) so AMFI's category name like "FoF Overseas"
+  // does not falsely trigger etf/fof penalties on normal mutual funds!
   const DIFFERENTIATOR_PATTERNS = [
     { key: 'momentum', regex: /\bmomentum\b/i },
     { key: 'lowvol', regex: /\b(low\s*vol(?:atility)?|alpha)\b/i },
@@ -368,7 +444,7 @@ export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: str
     { key: '150', regex: /\b150\b/ },
     { key: '250', regex: /\b250\b/ },
     { key: '100', regex: /\b100\b/ },
-    { key: 'etf', regex: /\b(etf|fund\s*of\s*funds|fof)\b/i },
+    { key: 'etf', regex: /\b(etf|exchange\s*traded)\b/i },
   ];
 
   for (const diff of DIFFERENTIATOR_PATTERNS) {
@@ -462,13 +538,16 @@ export async function fetchAmfiNav(
         if (latestRes.ok) {
           const details = await latestRes.json();
           const latest = details?.data?.[0];
+          const candSchemeName = details.meta?.scheme_name || fundName;
           if (latest && latest.nav) {
             const navNum = parseFloat(latest.nav);
-            if (!isNaN(navNum) && navNum > 0) {
+            const isCompatible = isMfCandidateCompatible(candSchemeName, fundName);
+            const priceDriftOk = !statementPrice || statementPrice <= 0 || (navNum / statementPrice >= 0.6 && navNum / statementPrice <= 1.6);
+            if (!isNaN(navNum) && navNum > 0 && isCompatible && priceDriftOk) {
               const res = {
                 nav: navNum,
                 date: latest.date || '',
-                schemeName: details.meta?.scheme_name || fundName,
+                schemeName: candSchemeName,
                 schemeCode: parseInt(code, 10),
               };
               navCache.set(normKey, res);
@@ -488,12 +567,13 @@ export async function fetchAmfiNav(
           if (latest && latest.nav) {
             const navNum = parseFloat(latest.nav);
             const resolvedName = String(details.meta?.scheme_name || '');
-            const sim = resolvedName ? schemeNameSimilarity(fundName, resolvedName) : 0;
-            if (!isNaN(navNum) && navNum > 0 && sim >= 0.45) {
+            const isCompatible = isMfCandidateCompatible(resolvedName, fundName);
+            const priceDriftOk = !statementPrice || statementPrice <= 0 || (navNum / statementPrice >= 0.6 && navNum / statementPrice <= 1.6);
+            if (!isNaN(navNum) && navNum > 0 && isCompatible && priceDriftOk) {
               const res = {
                 nav: navNum,
                 date: latest.date || '',
-                schemeName: details.meta?.scheme_name || fundName,
+                schemeName: resolvedName || fundName,
                 schemeCode: parseInt(code, 10),
                 prevNav: prev?.nav ? parseFloat(prev.nav) : undefined,
               };
@@ -1670,14 +1750,14 @@ export function detectDetailedAssetType(
       return { assetType: 'mutual_fund', subType, sector: explicitSector };
     }
 
-    // 2. Stocks & Equities (Standardizing explicit file inputs like Stock, Equity, Shares, EQ, CNC, etc.)
+    // 2. Stocks & Equities (Standardizing explicit file inputs like Stock, Equity, Shares, EQ, CNC, Delivery, CM, etc.)
     if (
-      /^(stock|stocks|equity|equities|shares?|eq|cnc|nse|bse|scrip|cash|etf)$/i.test(lowerType) ||
-      /\b(stock|stocks|equity|equities|shares?|\beq\b|listed\s*shares?)\b/i.test(lowerType)
+      /^(stock|stocks|equity|equities|shares?|eq|cnc|delivery|delv|cm|cash|nse|bse|scrip|security|etf|normal|demat|holding|holdings)$/i.test(lowerType) ||
+      /\b(stock|stocks|equity|equities|shares?|\beq\b|listed\s*shares?|cnc|delivery|cash\s*market|\bcm\b|ordinary\s*shares?|trading\s*account)\b/i.test(lowerType)
     ) {
       return {
         assetType: 'stocks',
-        subType: normType,
+        subType: 'Stock / Equity',
         sector: explicitSector || detectStockSector(cleanName) || undefined,
       };
     }
@@ -1722,9 +1802,9 @@ export function detectDetailedAssetType(
       return { assetType: 'real_estate', subType: normType, sector: explicitSector };
     }
 
-    // 8. Other Assets (Preserve user's exact custom file category label if not a generic placeholder)
-    if (!/^(other|other\s*asset|asset|holding|investments?)$/i.test(lowerType)) {
-      return { assetType: 'other', subType: normType, sector: explicitSector };
+    // 8. Explicit "Other" / Alternative assets (Only when explicitly specified as alternative/misc)
+    if (/^(other|other\s*asset|alternative|unlisted|collectible|p2p|private\s*equity|misc|miscellaneous)$/i.test(lowerType)) {
+      return { assetType: 'other', subType: normType || 'Other Asset', sector: explicitSector };
     }
   }
 
@@ -1868,20 +1948,13 @@ export function detectDetailedAssetType(
   }
 
   // 8. Stocks & Corporate Equities (Universal — any listed/unlisted company, ticker, or exchange security)
-  const isStock =
-    /\b(ltd|limited|pvt|inc|corp|corporation|co|holdings|exchange|equity|equities|stock|shares?)\b/i.test(lowerName) ||
-    /^[A-Z0-9_\-&]{2,20}(\.(NS|BO|NSE|BSE))?$/i.test(cleanName) ||
-    /\s*[-–—:]\s*(eq|cnc|be|sm|st|t2t|bz)$/i.test(cleanName);
-
-  if (isStock) {
-    return {
-      assetType: 'stocks',
-      subType: 'Stock / Equity',
-      sector: explicitSector || detectStockSector(cleanName) || undefined,
-    };
-  }
-
-  return { assetType: 'other', subType: normType || 'Other Asset', sector: explicitSector };
+  // In any investment statement or portfolio, any asset that is not gold/sgb, fixed deposit, crypto,
+  // retirement, real estate, or mutual fund is an Equity Stock.
+  return {
+    assetType: 'stocks',
+    subType: normType || 'Stock / Equity',
+    sector: explicitSector || detectStockSector(cleanName) || undefined,
+  };
 }
 
 /**
@@ -2006,16 +2079,10 @@ export async function searchIndianStocks(
       top.slice(0, 2).map(async (stk) => {
         try {
           const sym = stk.symbol;
-          const cRes = await fetch(
-            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
-            { signal: AbortSignal.timeout(2500) }
-          );
-          if (cRes.ok) {
-            const cData = await cRes.json();
-            const meta = cData?.chart?.result?.[0]?.meta;
-            if (meta && typeof meta.regularMarketPrice === 'number') {
-              stk.price = meta.regularMarketPrice;
-            }
+          const cData = await fetchYahooChart(sym);
+          const meta = cData?.chart?.result?.[0]?.meta;
+          if (meta && typeof meta.regularMarketPrice === 'number') {
+            stk.price = meta.regularMarketPrice;
           }
         } catch {}
       })

@@ -236,7 +236,7 @@ export function classifyAsset(
   }
 
   // 10. Hint-based Equity check (Only if not a Mutual Fund!)
-  if (/\b(stock|stocks|equity|equities|shares?|scrip|holdings?)\b/i.test(cleanHints)) {
+  if (/\b(stock|stocks|equity|equities|shares?|scrip|holdings?|cnc|delivery|delv|cm|cash|demat|normal|series|segment|bse|nse)\b/i.test(cleanHints)) {
     return { assetType: 'stocks', subType: hintSubCat || 'Equity Share' };
   }
 

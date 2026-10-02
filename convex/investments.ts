@@ -2254,6 +2254,81 @@ export const ALL_MF_CATEGORIES = [
   { key: 'silver', match: /\bsilver\b/i },
 ];
 
+export const MF_CATEGORY_EXCLUSIVE_WORDS = [
+  { key: 'emerging', regex: /\bemerging\b|emerging/i },
+  { key: 'balanced', regex: /\b(balanced|advantage|baf)\b|balanced|advantage/i },
+  { key: 'arbitrage', regex: /\barbitrage\b|arbitrage/i },
+  { key: 'liquid', regex: /\bliquid\b|liquid/i },
+  { key: 'overnight', regex: /\bovernight\b|overnight/i },
+  { key: 'gilt', regex: /\bgilt\b|gilt/i },
+  { key: 'smallcap', regex: /\bsmall[\s-]?cap\b|smallcap/i },
+  { key: 'midcap', regex: /\bmid[\s-]?cap\b|midcap/i },
+  { key: 'largecap', regex: /\b(large[\s-]?cap|bluechip)\b|largecap|bluechip/i },
+  { key: 'flexicap', regex: /\bflexi[\s-]?cap\b|flexicap/i },
+  { key: 'multicap', regex: /\bmulti[\s-]?cap\b|multicap/i },
+  { key: 'elss', regex: /\b(elss|tax[\s-]?saver)\b|elss|taxsaver/i },
+  { key: 'pharma', regex: /\b(pharma|healthcare)\b|pharma|healthcare/i },
+  { key: 'tech', regex: /\b(tech|technology|digital)\b|tech|technology|digital/i },
+  { key: 'defence', regex: /\b(defence|defense)\b|defence|defense/i },
+  { key: 'banking', regex: /\b(banking|bank|financial)\b|banking|financial/i },
+  { key: 'infra', regex: /\b(infra|infrastructure)\b|infra|infrastructure/i },
+  { key: 'gold', regex: /\bgold\b|gold/i },
+  { key: 'silver', regex: /\bsilver\b|silver/i },
+  { key: 'focused', regex: /\bfocused\b|focused/i },
+  { key: 'contra', regex: /\b(contra|value)\b|contra|value/i }
+];
+
+export function isMfCandidateCompatible(candName: string, queryName: string): boolean {
+  if (!candName || !queryName) return true;
+  const c = candName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const q = queryName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+  // 1. Differentiator patterns: major strategies, indices, numbers
+  const DIFFERENTIATOR_PATTERNS = [
+    { key: 'momentum', regex: /\bmomentum\b|momentum/i },
+    { key: 'lowvol', regex: /\b(low\s*vol(?:atility)?|alpha)\b|lowvol|alpha/i },
+    { key: 'equalweight', regex: /\bequal\s*weight\b|equalweight/i },
+    { key: 'quality', regex: /\bquality\b|quality/i },
+    { key: 'next50', regex: /\bnext\s*50\b|next50/i },
+    { key: '500', regex: /\b500\b|500/ },
+    { key: '150', regex: /\b150\b|150/ },
+    { key: '250', regex: /\b250\b|250/ },
+    { key: '100', regex: /\b100\b|100/ },
+    { key: 'etf', regex: /\b(etf|exchange\s*traded)\b/i },
+  ];
+
+  for (const diff of DIFFERENTIATOR_PATTERNS) {
+    const inCand = diff.regex.test(c);
+    const inQuery = diff.regex.test(q);
+    if (inCand !== inQuery) return false;
+  }
+
+  // 2. Category exclusive words (cannot confuse Balanced Advantage with Emerging Markets, Liquid, etc.)
+  for (const cat of MF_CATEGORY_EXCLUSIVE_WORDS) {
+    const inCand = cat.regex.test(c);
+    const inQuery = cat.regex.test(q);
+    if (inCand !== inQuery) return false;
+  }
+
+  // 3. Direct vs Regular Plan
+  const wantsDirect = /\b(direct|dir)\b|direct/i.test(q);
+  const wantsRegular = /\b(regular|reg)\b|regular/i.test(q);
+  const isDirect = /\bdirect\b|direct/i.test(c);
+  const isRegular = /\bregular\b|regular/i.test(c);
+  if (wantsDirect && isRegular) return false;
+  if (wantsRegular && isDirect) return false;
+
+  // 4. Growth vs IDCW
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b|idcw|dividend/i.test(q);
+  const wantsGrowth = /\b(growth|gr)\b|growth/i.test(q);
+  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b|idcw|dividend/i.test(c);
+  const isGrowth = /\bgrowth\b|growth/i.test(c);
+  if (wantsIdcw && isGrowth) return false;
+  if (wantsGrowth && isIdcw) return false;
+
+  return true;
+}
+
 export function scoreMfCandidate(
   item: { schemeCode: number; schemeName: string; amc?: string; category?: string; nav?: number },
   rawQuery: string,
@@ -2265,6 +2340,7 @@ export function scoreMfCandidate(
   const sFull = `${sName} ${item.amc || ''} ${item.category || ''}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
   if (!qClean || !sFull) return 0;
+  if (!isMfCandidateCompatible(sName, stripped)) return -400;
   if (sName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === qClean) return 400;
 
   // 1. Strict Brand / AMC Matching: Check against all 53 AMCs in India
@@ -2360,8 +2436,8 @@ export function scoreMfCandidate(
   }
 
   // 3. Strict Differentiator Token Guard:
-  // If candidate contains major distinguishing strategies, numbers, or sub-asset types that are NOT in query,
-  // penalize or reject them to prevent drift (e.g. "Nifty 50" matching "Nifty 500 Momentum 50" or "Nifty Next 50")
+  // Evaluated ONLY against scheme name (sName) so AMFI's category name like "FoF Overseas"
+  // does not falsely trigger etf/fof penalties on normal mutual funds!
   const DIFFERENTIATOR_PATTERNS = [
     { key: 'momentum', regex: /\bmomentum\b/i },
     { key: 'lowvol', regex: /\b(low\s*vol(?:atility)?|alpha)\b/i },
@@ -2372,11 +2448,11 @@ export function scoreMfCandidate(
     { key: '150', regex: /\b150\b/ },
     { key: '250', regex: /\b250\b/ },
     { key: '100', regex: /\b100\b/ },
-    { key: 'etf', regex: /\b(etf|fund\s*of\s*funds|fof)\b/i },
+    { key: 'etf', regex: /\b(etf|exchange\s*traded)\b/i },
   ];
 
   for (const diff of DIFFERENTIATOR_PATTERNS) {
-    const inCand = diff.regex.test(sFull);
+    const inCand = diff.regex.test(sName);
     const inQuery = diff.regex.test(qClean);
     if (inCand && !inQuery) {
       score -= 250; // Candidate has a specific differentiator/strategy NOT in query: massive penalty
@@ -2604,7 +2680,8 @@ export async function fetchMfNav(
   const now = Date.now();
 
   // 1. Instant Fast-Path: If scheme code is known, query high-speed mirror first (<200ms).
-  // IMPORTANT: Reject defunct / discontinued schemes whose latest NAV is older than 45 days!
+  // IMPORTANT: Reject defunct / discontinued schemes whose latest NAV is older than 45 days,
+  // or schemes whose name or NAV drastically mismatches the query!
   if (codeNum && codeNum > 0 && codeNum !== 102957) {
     try {
       const latestRes = await fetch(`https://api.mfapi.in/mf/${codeNum}/latest`, {
@@ -2614,18 +2691,24 @@ export async function fetchMfNav(
       if (latestRes.ok) {
         const details: any = await latestRes.json();
         const latest = details?.data?.[0];
+        const candSchemeName = details.meta?.scheme_name || name;
         if (latest && latest.nav) {
           const navNum = parseFloat(latest.nav);
           const dateMs = parseNavDateToMs(latest.date);
           const isDead = dateMs > 0 && (now - dateMs) > 45 * 24 * 60 * 60 * 1000;
-          if (!isNaN(navNum) && navNum > 0 && !isDead) {
+          const isCompatible = isMfCandidateCompatible(candSchemeName, name);
+          const priceDriftOk = !statementPrice || statementPrice <= 0 || (navNum / statementPrice >= 0.6 && navNum / statementPrice <= 1.6);
+
+          if (!isNaN(navNum) && navNum > 0 && !isDead && isCompatible && priceDriftOk) {
             return {
               nav: navNum,
               date: latest.date || "",
-              schemeName: details.meta?.scheme_name || name,
+              schemeName: candSchemeName,
               schemeCode: codeNum,
               isin: details.meta?.isin_growth || isin,
             };
+          } else {
+            console.warn(`[fetchMfNav] Candidate code ${codeNum} (${candSchemeName}) failed compatibility or price drift check with "${name}". Falling through to table search.`);
           }
         }
       }
@@ -2638,7 +2721,9 @@ export async function fetchMfNav(
       if (amfiMatch) {
         const dateMs = parseNavDateToMs(amfiMatch.date);
         const isDead = dateMs > 0 && (now - dateMs) > 45 * 24 * 60 * 60 * 1000;
-        if (!isDead) {
+        const isCompatible = isMfCandidateCompatible(amfiMatch.name, name);
+        const priceDriftOk = !statementPrice || statementPrice <= 0 || (amfiMatch.nav / statementPrice >= 0.6 && amfiMatch.nav / statementPrice <= 1.6);
+        if (!isDead && isCompatible && priceDriftOk) {
           return {
             nav: amfiMatch.nav,
             date: amfiMatch.date,
@@ -2956,7 +3041,7 @@ export const internalGetCachedMfNav = internalQuery({
         .query("mfNavCache")
         .withIndex("by_isin", (q) => q.eq("isin", args.isin!))
         .first();
-      if (byIsin) return byIsin;
+      if (byIsin && (!args.searchKey || isMfCandidateCompatible(byIsin.schemeName, args.searchKey))) return byIsin;
     }
 
     // 2. Direct index lookup by normalized search key (guarantees fund name fidelity)
@@ -2965,7 +3050,7 @@ export const internalGetCachedMfNav = internalQuery({
         .query("mfNavCache")
         .withIndex("by_search_key", (q) => q.eq("searchKey", args.searchKey))
         .first();
-      if (byKey) return byKey;
+      if (byKey && isMfCandidateCompatible(byKey.schemeName, args.searchKey)) return byKey;
     }
 
     // 3. Lookup by verified AMFI Scheme Code (cross-validated against fund name)
@@ -2975,8 +3060,7 @@ export const internalGetCachedMfNav = internalQuery({
         .withIndex("by_scheme_code", (q) => q.eq("schemeCode", args.schemeCode!))
         .first();
       if (byCode) {
-        // Guard: Prevent non-unique folio collisions from returning an unrelated scheme's cache
-        if (!args.searchKey || schemeNameSimilarity(byCode.schemeName, args.searchKey) >= 0.2) {
+        if (!args.searchKey || isMfCandidateCompatible(byCode.schemeName, args.searchKey)) {
           return byCode;
         }
       }
@@ -3113,13 +3197,21 @@ export const internalPurgeDeadMfCache = mutation({
     let purged = 0;
     for (const item of all) {
       const dateMs = item.navDate ? parseNavDateToMs(item.navDate) : 0;
-      const isDead = item.schemeCode === 102957 || !dateMs || (now - dateMs) > 45 * 24 * 60 * 60 * 1000 || item.nav <= 0;
+      const isIncompatible = item.searchKey && item.schemeName ? !isMfCandidateCompatible(item.schemeName, item.searchKey) : false;
+      const isDead = item.schemeCode === 102957 || !dateMs || (now - dateMs) > 45 * 24 * 60 * 60 * 1000 || item.nav <= 0 || isIncompatible;
       if (isDead) {
         await ctx.db.delete(item._id);
         purged++;
       }
     }
     return { purged, total: all.length };
+  },
+});
+
+export const purgeCorruptMfCache = action({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.runMutation(internal.investments.internalPurgeDeadMfCache, {});
   },
 });
 
@@ -3447,13 +3539,14 @@ async function getOrFetchMfNavWithCache(
   const expectedDate = getLatestExpectedMfNavDate();
   const expectedDateMs = parseNavDateToMs(expectedDate);
   const cachedDateMs = cached?.navDate ? parseNavDateToMs(cached.navDate) : 0;
-  // If the cached entry's navDate is older than 45 days, or scheme is known defunct (102957), reject it completely
-  const isCachedDead = !cachedDateMs || (now - cachedDateMs) > 45 * 24 * 60 * 60 * 1000 || cached?.schemeCode === 102957;
+  const isCachedCompatible = cached ? isMfCandidateCompatible(cached.schemeName, cleanKey) : false;
+  // If the cached entry's navDate is older than 45 days, scheme is known defunct (102957), or fails differentiator check, reject it completely
+  const isCachedDead = !cachedDateMs || (now - cachedDateMs) > 45 * 24 * 60 * 60 * 1000 || cached?.schemeCode === 102957 || !isCachedCompatible;
   // If the cached entry's navDate is earlier than expected latest trade date, it is mathematically stale
   const isDateStale = isCachedDead || !cached?.navDate || cachedDateMs < expectedDateMs;
 
-  // 1. If not forcing refresh, cached is alive, and cached NAV date is already matching or newer than expected trade date:
-  if (!options?.force && cached && !isCachedDead && cached.nav > 0 && !isDateStale) {
+  // 1. If not forcing refresh, cached is alive and compatible, and cached NAV date is already matching or newer than expected trade date:
+  if (!options?.force && cached && isCachedCompatible && !isCachedDead && cached.nav > 0 && !isDateStale) {
     return {
       nav: cached.nav,
       date: cached.navDate,
@@ -3464,8 +3557,8 @@ async function getOrFetchMfNavWithCache(
     };
   }
 
-  // 2. If not forcing refresh, cached is alive, and was updated very recently (< 5 minutes ago)
-  if (!options?.force && cached && !isCachedDead && cached.nav > 0 && !isDateStale && now - (cached.lastFetchedAt || 0) < 5 * 60 * 1000) {
+  // 2. If not forcing refresh, cached is alive and compatible, and was updated very recently (< 5 minutes ago)
+  if (!options?.force && cached && isCachedCompatible && !isCachedDead && cached.nav > 0 && !isDateStale && now - (cached.lastFetchedAt || 0) < 5 * 60 * 1000) {
     return {
       nav: cached.nav,
       date: cached.navDate,
@@ -3476,8 +3569,9 @@ async function getOrFetchMfNavWithCache(
     };
   }
 
-  // 3. Cache miss, force requested, or cached date is stale/dead:
-  const knownCode = (!isCachedDead && cached?.schemeCode && cached.schemeCode > 0) ? cached.schemeCode : explicitCode;
+  // 3. Cache miss, force requested, or cached date is stale/dead/incompatible:
+  // CRITICAL: NEVER pass cached.schemeCode as knownCode! Only explicitCode from user notes or options!
+  const knownCode = explicitCode;
   const amfi = await fetchMfNav(name, notes, knownCode, resolvedIsin, options?.statementPrice);
   if (amfi && amfi.nav > 0) {
     const finalIsin = amfi.isin || resolvedIsin;
@@ -3487,7 +3581,7 @@ async function getOrFetchMfNavWithCache(
       await ctx.runMutation(internal.investments.internalUpsertMfNavCache, {
         isin: finalIsin,
         schemeCode: resolvedCode || 0,
-        schemeName: amfi.schemeName || cached?.schemeName || name,
+        schemeName: amfi.schemeName || name,
         nav: amfi.nav,
         navDate: amfi.date || expectedDate,
         prevNav: amfi.prevNav,
@@ -5263,7 +5357,14 @@ export const searchMarketAssets = action({
                     `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
                     { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2500) }
                   );
-                } catch {}
+                } catch {
+                  try {
+                    cRes = await fetch(
+                      `https://query3.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=1d`,
+                      { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(2500) }
+                    );
+                  } catch {}
+                }
               }
               if (cRes && cRes.ok) {
                 const cData: any = await cRes.json();
@@ -5486,7 +5587,14 @@ export const getMarketIndices = action({
                 `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}?interval=1d&range=1d`,
                 { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
               );
-            } catch {}
+            } catch {
+              try {
+                res = await fetch(
+                  `https://query3.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(idx.symbol)}?interval=1d&range=1d`,
+                  { headers: STANDARD_HEADERS, signal: AbortSignal.timeout(4000) }
+                );
+              } catch {}
+            }
           }
 
           if (res && res.ok) {
