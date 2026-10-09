@@ -7,6 +7,8 @@
  * Zero external AI. 100% deterministic and reproducible.
  */
 
+import { mapHeadersToCanonical } from './columnMapper';
+
 export type TableType = 'HOLDINGS' | 'TRANSACTIONS' | 'ACCOUNT_SUMMARY' | 'UNKNOWN';
 
 export interface DetectedTable {
@@ -91,18 +93,97 @@ export function detectTablesInSheet(
 ): DetectedTable[] {
   if (!matrix || matrix.length < 2) return [];
 
-  const candidateTables: DetectedTable[] = [];
   const maxScanRows = Math.min(matrix.length, 120);
+
+  // ── PASS 1: Strict Verified Table Detection via Canonical Column Mapping ──
+  // Checks every candidate row to see if it maps to a security name AND at least one financial column.
+  // This completely eliminates title rows or metadata rows being falsely treated as tables.
+  const verifiedTables: DetectedTable[] = [];
 
   for (let r = 0; r < maxScanRows; r++) {
     const rawRow = matrix[r];
     if (!rawRow || rawRow.length < 2) continue;
 
-    // Check if this row looks like a header row
+    const nonBlankCount = rawRow.filter((c) => c !== null && c !== undefined && String(c).trim() !== '').length;
+    if (nonBlankCount < 2) continue;
+    if (isMetadataRow(rawRow)) continue;
+
+    const candidateHeaders = rawRow.map((c) => String(c ?? '').trim());
+    const sampleRows = matrix.slice(r + 1, r + 8);
+    const mapping = mapHeadersToCanonical(candidateHeaders, sampleRows);
+
+    if (mapping.confidence !== 'FAILED' && mapping.securityNameCol !== -1) {
+      const hasFinancialCol =
+        mapping.unitsCol !== undefined ||
+        mapping.currentValueCol !== undefined ||
+        mapping.investedValueCol !== undefined ||
+        mapping.currentPriceCol !== undefined ||
+        mapping.buyPriceCol !== undefined;
+
+      if (hasFinancialCol) {
+        // Confirmed real table header row!
+        let dataStart = r + 1;
+        let dataEnd = dataStart;
+        let emptyRowCount = 0;
+
+        for (let dr = dataStart; dr < matrix.length; dr++) {
+          const dRow = matrix[dr];
+          const hasContent = dRow && dRow.some((c) => c !== null && c !== undefined && String(c).trim() !== '');
+
+          if (!hasContent) {
+            emptyRowCount++;
+            if (emptyRowCount >= 3) break;
+            continue;
+          }
+
+          emptyRowCount = 0;
+
+          // Check for summary/footer rows
+          const rowStr = dRow.map(normalizeCellText).join(' ');
+          if (/\b(total|sub\s*total|grand\s*total|summary|disclaimer|notes|net\s*worth)\b/i.test(rowStr) && dr > dataStart + 1) {
+            dataEnd = dr - 1;
+            break;
+          }
+
+          dataEnd = dr;
+        }
+
+        if (dataEnd >= dataStart) {
+          verifiedTables.push({
+            sheetName,
+            tableType: 'HOLDINGS',
+            headerRowIndex: r,
+            dataStartRowIndex: dataStart,
+            dataEndRowIndex: dataEnd,
+            columnCount: rawRow.length,
+            confidenceScore: mapping.confidenceScore,
+            headers: candidateHeaders,
+            rawRows: matrix.slice(dataStart, dataEnd + 1),
+            warnings: [],
+          });
+
+          // Advance r past this table
+          r = dataEnd;
+        }
+      }
+    }
+  }
+
+  if (verifiedTables.length > 0) {
+    return verifiedTables;
+  }
+
+  // ── PASS 2: Signal Density Heuristic Fallback ──
+  // Runs ONLY if Pass 1 found zero verified tables (e.g. non-standard foreign formats)
+  const candidateTables: DetectedTable[] = [];
+
+  for (let r = 0; r < maxScanRows; r++) {
+    const rawRow = matrix[r];
+    if (!rawRow || rawRow.length < 2) continue;
+
     const normalizedCells = rawRow.map(normalizeCellText);
     const nonBlankCount = normalizedCells.filter((c) => c.length > 0).length;
     if (nonBlankCount < 2) continue;
-
     if (isMetadataRow(rawRow)) continue;
 
     let holdingsScore = 0;
@@ -118,7 +199,6 @@ export function detectTablesInSheet(
       }
     }
 
-    // Must have minimum financial signal density (at least two signals) to be a table header
     if (holdingsScore < 20 && txScore < 20) continue;
 
     const tableType: TableType =
@@ -126,7 +206,6 @@ export function detectTablesInSheet(
 
     const confidence = Math.min(100, Math.max(holdingsScore, txScore));
 
-    // Find table end row (look for contiguous data rows)
     let dataStart = r + 1;
     let dataEnd = dataStart;
     let emptyRowCount = 0;
@@ -143,7 +222,6 @@ export function detectTablesInSheet(
 
       emptyRowCount = 0;
 
-      // Check for summary/footer rows
       const rowStr = dRow.map(normalizeCellText).join(' ');
       if (/\b(total|sub\s*total|grand\s*total|summary|disclaimer|notes|net\s*worth)\b/i.test(rowStr) && dr > dataStart + 1) {
         dataEnd = dr - 1;
@@ -167,7 +245,6 @@ export function detectTablesInSheet(
         warnings: tableType === 'TRANSACTIONS' ? ['Detected historical transaction statement rather than point-in-time holdings.'] : [],
       });
 
-      // Advance search index past this table to avoid duplicate sub-matches
       r = dataEnd;
     }
   }

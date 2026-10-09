@@ -1042,8 +1042,42 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         });
 
         if (nums.length >= 2) {
-          const invested = nums[0];
-          const current = nums[1];
+          let units: number | undefined;
+          let buyPrice: number | undefined;
+          let currentPrice: number | undefined;
+          let invested = 0;
+          let current = 0;
+
+          if (nums.length >= 4) {
+            // E.g. [Qty, BuyPrice, LTP, CurVal, InvVal] -> [10, 131.7, 123.76, 1237.60, 1317.00]
+            units = cleanUnits(nums[0]);
+            buyPrice = cleanNavPrice(nums[1]);
+            currentPrice = cleanNavPrice(nums[2]);
+            const calcInvested = cleanCurrency((units || 0) * (buyPrice || 0));
+            const matchingInv = nums.find((n) => Math.abs(n - calcInvested) < 2);
+            invested = matchingInv ? cleanCurrency(matchingInv) : (calcInvested > 0 ? calcInvested : cleanCurrency(nums[nums.length - 1]));
+
+            const calcCurrent = cleanCurrency((units || 0) * (currentPrice || 0));
+            const matchingCur = nums.find((n) => Math.abs(n - calcCurrent) < 2);
+            current = matchingCur ? cleanCurrency(matchingCur) : (calcCurrent > 0 ? calcCurrent : cleanCurrency(nums[nums.length - 2]));
+          } else if (nums.length === 3) {
+            // E.g. [Qty, Price, Value]
+            units = cleanUnits(nums[0]);
+            buyPrice = cleanNavPrice(nums[1]);
+            invested = cleanCurrency(nums[2]);
+            current = invested;
+          } else {
+            // 2 numbers: [Invested, Current] or [Units, Value]
+            if (nums[0] <= 10000 && nums[1] > nums[0] * 5) {
+              units = cleanUnits(nums[0]);
+              current = cleanCurrency(nums[1]);
+              invested = current;
+            } else {
+              invested = cleanCurrency(nums[0]);
+              current = cleanCurrency(nums[1]);
+            }
+          }
+
           const resolved = resolveSecurityIdentity(String(stringCell).trim());
 
           holdings.push({
@@ -1051,8 +1085,13 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             name: String(stringCell).trim(),
             assetType: resolved.assetType,
             subType: resolved.subType,
-            investedAmount: cleanCurrency(invested),
-            currentValue: cleanCurrency(current),
+            investedAmount: invested,
+            currentValue: current,
+            units,
+            buyPrice,
+            currentPrice,
+            statementPrice: currentPrice || buyPrice,
+            statementValue: current,
             selected: true,
             isValid: true,
             resolutionStatus: 'REVIEW_REQUIRED',
