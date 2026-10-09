@@ -63,9 +63,9 @@ export interface CanonicalHoldingRecord {
 // Configurable Alias Dictionary
 const ALIASES = {
   securityName: [
-    /^(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|security\s*name|holding\s*name|instrument\s*name|asset\s*name|amc\s*name|trading\s*symbol|tradingsymbol|symbol\s*name|company|ticker)$/i,
-    /^(scheme|fund|stock|scrip|instrument|security|particulars?|description|asset|amc|symbol|ticker|tradingsymbol|company|equity|holding)$/i,
-    /\b(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|security\s*name|holding\s*name|instrument\s*name|scrip|scheme|tradingsymbol|trading\s*symbol|ticker)\b/i,
+    /^(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|security\s*name|holding\s*name|instrument\s*name|asset\s*name|amc\s*name|trading\s*symbol|tradingsymbol|symbol\s*name|company|ticker|name|scrip|script|holding|holdings|security|scheme|fund|stock|instrument|item|asset)$/i,
+    /^(scheme|fund|stock|scrip|instrument|security|particulars?|description|asset|amc|symbol|ticker|tradingsymbol|company|equity|holding|name|item)$/i,
+    /\b(scheme\s*name|fund\s*name|stock\s*name|scrip\s*name|company\s*name|security\s*name|holding\s*name|instrument\s*name|scrip|scheme|tradingsymbol|trading\s*symbol|ticker|asset\s*name|security|holding|\bname\b)\b/i,
   ],
   isin: [
     /^\s*isin\s*$/i,
@@ -84,24 +84,24 @@ const ALIASES = {
     /\b(symbol|ticker|trading\s*symbol|tradingsymbol|nse\s*symbol|stock\s*symbol)\b/i,
   ],
   units: [
-    /^\s*(quantity|qty|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|units?\s*invested|invested\s*units?|total\s*qty|total\s*quantity|net\s*qty)\s*$/i,
-    /\b(quantity|qty|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|units?\s*invested|invested\s*units?|total\s*qty|total\s*quantity|net\s*qty)\b/i,
+    /^\s*(quantity|qty|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|units?\s*held|units?\s*invested|invested\s*units?|total\s*qty|total\s*quantity|net\s*qty)\s*$/i,
+    /\b(quantity|qty|units?|shares|volume|balance\s*units?|unit\s*balance|holding\s*qty|available\s*qty|units?\s*held|units?\s*invested|invested\s*units?|total\s*qty|total\s*quantity|net\s*qty)\b/i,
   ],
   buyPrice: [
-    /^\s*(buy\s*price|avg\s*price|average\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate|weighted\s*avg|buy\s*rate|avg\s*cost\s*price)\s*$/i,
-    /\b(buy\s*price|avg\s*price|average\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*rate|weighted\s*avg)\b/i,
+    /^\s*(buy\s*price|avg\s*price|average\s*price|avg\s*buy\s*price|average\s*buy\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*nav|average\s*nav|buy\s*nav|avg\s*rate|weighted\s*avg|buy\s*rate|avg\s*cost\s*price|avg\s*purchase\s*(?:price|nav|cost))\s*$/i,
+    /\b(buy\s*price|avg\s*price|average\s*price|avg\s*buy\s*price|average\s*buy\s*price|avg\s*cost|average\s*cost|buy\s*avg|cost\s*price|purchase\s*price|purchase\s*nav|avg\s*nav|average\s*nav|buy\s*nav|avg\s*rate|weighted\s*avg)\b/i,
   ],
   currentPrice: [
-    /^\s*(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|nav|closing\s*price|close\s*price|last\s*price|last\s*traded\s*price|mkt\s*price|prev\s*close|previous\s*close)\s*$/i,
+    /^\s*(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|nav|closing\s*price|close\s*price|last\s*price|last\s*traded\s*price|mkt\s*price|prev\s*close|previous\s*close|nav\s*as\s*on\w*|nav\s*date)\s*$/i,
     /\b(ltp|cmp|current\s*price|market\s*price|latest\s*nav|current\s*nav|\bnav\b|closing\s*price|close\s*price|last\s*price|last\s*traded\s*price)\b/i,
   ],
   investedValue: [
-    /^\s*(invested\s*val\w*|invested\s*amount|amount\s*invested|total\s*amount\s*invested|total\s*invested|cost\s*val\w*|cost|invested|investment|investment\s*amount|total\s*investment|cost\s*of\s*investment|cost\s*of\s*acquisition|acquisition\s*cost|purchase\s*val\w*|purchase\s*cost|purchase\s*amount|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost|total\s*cost|total\s*cost\s*basis)\s*$/i,
+    /^\s*(invested\s*val\w*|invested\s*amount|amount\s*invested|total\s*amount\s*invested|total\s*invested|cost\s*val\w*|cost|invested|investment|investment\s*amount|total\s*investment|cost\s*of\s*investment|cost\s*of\s*acquisition|acquisition\s*cost|purchase\s*val\w*|purchase\s*cost|purchase\s*amount|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost|total\s*cost|total\s*cost\s*basis|amount)\s*$/i,
     /\b(invested\s*val\w*|invested\s*amount|amount\s*invested|total\s*amount\s*invested|total\s*invested|cost\s*val\w*|cost|invested|investment|investment\s*amount|total\s*investment|cost\s*of\s*investment|cost\s*of\s*acquisition|acquisition\s*cost|purchase\s*val\w*|purchase\s*cost|purchase\s*amount|buy\s*val\w*|buy\s*amt|buy\s*amount|inv\s*amt|inv\s*val\w*|inv\s*amount|inv\s*value|principal|book\s*val\w*|book\s*cost)\b/i,
   ],
   currentValue: [
-    /^\s*(current\s*val\w*|market\s*val\w*|present\s*val\w*|latest\s*val\w*|today\s*val\w*|portfolio\s*val\w*|total\s*val\w*|cur\s*val\w*|mkt\s*val\w*|valuation|current\s*amount|cur\s*amount|current|value)\s*$/i,
-    /\b(current\s*val\w*|market\s*val\w*|present\s*val\w*|latest\s*val\w*|today\s*val\w*|portfolio\s*val\w*|total\s*val\w*|cur\s*val\w*|mkt\s*val\w*|valuation|current\s*amount|cur\s*amount|current|value)\b/i,
+    /^\s*(current\s*val\w*|market\s*val\w*|present\s*val\w*|latest\s*val\w*|today\s*val\w*|portfolio\s*val\w*|total\s*val\w*|cur\s*val\w*|mkt\s*val\w*|valuation|current\s*amount|cur\s*amount|current|value|market\s*value|current\s*value|total\s*value)\s*$/i,
+    /\b(current\s*val\w*|market\s*val\w*|present\s*val\w*|latest\s*val\w*|today\s*val\w*|portfolio\s*val\w*|total\s*val\w*|cur\s*val\w*|mkt\s*val\w*|valuation|current\s*amount|cur\s*amount|current|value|market\s*value|current\s*value)\b/i,
   ],
   pnl: [
     /^\s*(p\s*l|profit|loss|gain|returns?|unrealized|unrealised|overall\s*gain|returns?\s*[%]|return\s*[%]|net\s*chg|total\s*p\s*l|unrealized\s*p\s*l|unrealised\s*p\s*l)\s*$/i,
@@ -138,6 +138,7 @@ function cleanHeaderCell(c: any): string {
   return String(c)
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/[\.\(\)₹\$\[\]\/\\&\-]/g, ' ')
+    .replace(/\b(inr|rs|usd|eur|gbp)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
@@ -324,6 +325,89 @@ export function mapHeadersToCanonical(
       nameCol = patternNameIdx;
       usedCols.add(nameCol);
     }
+  }
+
+  // Sample Row Data-Driven Heuristic: Disambiguate or fill missing columns from cell contents
+  if (sampleRows && sampleRows.length > 0) {
+    const numCols = headers.length;
+
+    // 1. If ISIN not identified yet, check if any column contains Indian ISIN format
+    if (isinCol === undefined) {
+      for (let c = 0; c < numCols; c++) {
+        if (usedCols.has(c)) continue;
+        const isinMatchCount = sampleRows.filter((r) => {
+          const val = String(r?.[c] || '').trim();
+          return /^IN[A-Z0-9]{10}$/i.test(val);
+        }).length;
+        if (isinMatchCount >= 1) {
+          isinCol = c;
+          usedCols.add(c);
+          break;
+        }
+      }
+    }
+
+    // 2. If Security Name not identified yet, find column with valid textual scheme/stock names
+    if (nameCol === -1) {
+      let bestNameCol = -1;
+      let maxTextScore = 0;
+      for (let c = 0; c < numCols; c++) {
+        if (usedCols.has(c)) continue;
+        let textScore = 0;
+        for (const row of sampleRows) {
+          const val = String(row?.[c] || '').trim();
+          if (val.length >= 3 && /[a-zA-Z]{2,}/.test(val) && !/^\d{2}[-/]\d{2}[-/]\d{2,4}$/.test(val) && !/^[A-Z]{5}\d{4}[A-Z]$/.test(val)) {
+            textScore++;
+          }
+        }
+        if (textScore > maxTextScore && textScore >= Math.min(2, sampleRows.length)) {
+          maxTextScore = textScore;
+          bestNameCol = c;
+        }
+      }
+      if (bestNameCol !== -1) {
+        nameCol = bestNameCol;
+        usedCols.add(nameCol);
+      }
+    }
+
+    // 3. If no value columns identified yet, inspect numeric columns
+    if (invValCol === undefined && curValCol === undefined && unitsCol === undefined) {
+      const numericCols: { col: number; avgVal: number }[] = [];
+      for (let c = 0; c < numCols; c++) {
+        if (usedCols.has(c)) continue;
+        const nums = sampleRows
+          .map((r) => parseFloat(String(r?.[c] || '').replace(/[₹$,\s]/g, '')))
+          .filter((n) => !isNaN(n) && n > 0);
+        if (nums.length >= Math.min(2, sampleRows.length)) {
+          const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+          numericCols.push({ col: c, avgVal: avg });
+        }
+      }
+      numericCols.sort((a, b) => a.avgVal - b.avgVal);
+      if (numericCols.length === 1) {
+        curValCol = numericCols[0].col;
+        usedCols.add(curValCol);
+      } else if (numericCols.length === 2) {
+        unitsCol = numericCols[0].col;
+        curValCol = numericCols[1].col;
+        usedCols.add(unitsCol);
+        usedCols.add(curValCol);
+      } else if (numericCols.length >= 3) {
+        unitsCol = numericCols[0].col;
+        invValCol = numericCols[1].col;
+        curValCol = numericCols[2].col;
+        usedCols.add(unitsCol);
+        usedCols.add(invValCol);
+        usedCols.add(curValCol);
+      }
+    }
+  }
+
+  // Fallback: If no distinct security name column was found but a symbol column exists, use symbol as name
+  if (nameCol === -1 && symbolCol !== undefined) {
+    nameCol = symbolCol;
+    usedCols.add(nameCol);
   }
 
   // Scoring mapping confidence

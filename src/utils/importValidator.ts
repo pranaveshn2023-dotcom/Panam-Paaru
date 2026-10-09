@@ -2,15 +2,44 @@
  * Panam Paaru — Validation & Reconciliation Engine
  *
  * Enforces financial correctness across imported holding rows:
- * - Detects impossible/inconsistent numbers (zero units with positive cost, negative values)
- * - Detects price drift between statement and live market quotes
- * - Guards against asset type cross-contamination (e.g. mutual fund with stock ticker)
- * - Identifies duplicates idempotently using ISIN, Scheme Code, or Symbol+Exchange
- * - NEVER invents quantities or prices.
+ * - Distinguishes 3 severity levels: ERROR (blocking), WARNING (actionable limitation), INFO (detail).
+ * - Detects impossible/inconsistent numbers (zero units with positive cost, negative values).
+ * - Performs deterministic arithmetic checks:
+ *     Calculated cost = quantity × avgCost (with configurable tolerance)
+ *     Calculated market value = quantity × price (with configurable tolerance)
+ *     Unrealized P&L = current value − invested amount
+ *     Unrealized return % = (P&L / invested amount) × 100
+ * - Detects price drift between statement historical price and live market quotes.
+ * - Guards against asset type cross-contamination (e.g. mutual fund with stock ticker).
+ * - Identifies duplicates idempotently using ISIN, Scheme Code, or Symbol+Exchange.
+ * - Reconciles extracted holdings against statement summary totals where available.
+ * - NEVER invents quantities, prices, or NAVs.
  */
 
-import { ParsedHolding } from './investmentParser';
+import { ParsedHolding, cleanCurrency } from './investmentParser';
 import { ResolutionConfidence } from './securityResolver';
+
+export type ValidationSeverity = 'ERROR' | 'WARNING' | 'INFO';
+
+export interface ValidationFinding {
+  code: string;
+  severity: ValidationSeverity;
+  field?: string;
+  message: string;
+}
+
+export interface ArithmeticValidationSummary {
+  calculatedCost?: number;
+  reportedCost?: number;
+  costDiscrepancy?: number;
+  calculatedValue?: number;
+  reportedValue?: number;
+  valueDiscrepancy?: number;
+  unrealizedPnl?: number;
+  unrealizedReturnPct?: number;
+  isCostConsistent: boolean;
+  isValueConsistent: boolean;
+}
 
 export interface RowValidationResult {
   isValid: boolean;
@@ -18,7 +47,22 @@ export interface RowValidationResult {
   status: ResolutionConfidence;
   errors: string[];
   warnings: string[];
+  info: string[];
+  findings: ValidationFinding[];
   dedupeKey: string;
+  arithmeticCheck?: ArithmeticValidationSummary;
+}
+
+export interface SummaryReconciliationResult {
+  isReconciled: boolean;
+  reportedTotalInvested?: number;
+  calculatedTotalInvested: number;
+  investedDiscrepancy?: number;
+  reportedTotalCurrent?: number;
+  calculatedTotalCurrent: number;
+  currentDiscrepancy?: number;
+  holdingsCount: number;
+  findings: ValidationFinding[];
 }
 
 /**
@@ -28,43 +72,117 @@ export function validateHoldingRow(
   holding: ParsedHolding,
   existingKeys?: Set<string>
 ): RowValidationResult {
+  const findings: ValidationFinding[] = [];
   const errors: string[] = [];
   const warnings: string[] = [];
+  const info: string[] = [];
+
+  const addFinding = (code: string, severity: ValidationSeverity, message: string, field?: string) => {
+    findings.push({ code, severity, field, message });
+    if (severity === 'ERROR') errors.push(message);
+    else if (severity === 'WARNING') warnings.push(message);
+    else info.push(message);
+  };
 
   // 1. Mandatory Identity Check
   if (!holding.name || holding.name.trim().length === 0) {
-    errors.push('Security name is missing.');
+    addFinding('MISSING_NAME', 'ERROR', 'Security name is missing.', 'name');
   }
 
   // 2. Financial Amount Checks
   const invested = holding.investedAmount ?? 0;
   const current = holding.currentValue ?? 0;
   const units = holding.units;
+  const buyPrice = holding.buyPrice;
+  const currentPrice = holding.currentPrice;
 
   if (invested < 0) {
-    errors.push('Invested amount cannot be negative in a holdings statement.');
+    addFinding('NEGATIVE_INVESTED', 'ERROR', 'Invested amount cannot be negative in a holdings statement.', 'investedAmount');
   }
   if (current < 0) {
-    errors.push('Current value cannot be negative in a holdings statement.');
+    addFinding('NEGATIVE_CURRENT', 'ERROR', 'Current value cannot be negative in a holdings statement.', 'currentValue');
   }
   if (invested === 0 && current === 0 && (!units || units === 0)) {
-    errors.push('Zero financial value and zero units recorded.');
+    addFinding('ZERO_VALUATION', 'ERROR', 'Zero financial value and zero units recorded.', 'investedAmount');
   }
 
   // 3. Units Integrity Check
   if (units !== undefined) {
     if (units < 0) {
-      errors.push('Units cannot be negative in a holdings statement.');
+      addFinding('NEGATIVE_UNITS', 'ERROR', 'Units cannot be negative in a holdings statement.', 'units');
     } else if (units === 0 && (invested > 0 || current > 0)) {
-      warnings.push('Units are zero while invested/current value is positive.');
+      addFinding('ZERO_UNITS_POSITIVE_VALUE', 'WARNING', 'Units are zero while invested/current value is positive.', 'units');
     }
   }
 
-  // 4. Asset Type & Identifier Consistency (Self-healing)
+  // 4. Arithmetic Consistency Checks (Quantity × Rate vs Value)
+  let arithmeticSummary: ArithmeticValidationSummary | undefined;
+  const isCostConsistent = true;
+  const isValueConsistent = true;
+
+  if (units && units > 0) {
+    let calcCost: number | undefined;
+    let costDisc: number | undefined;
+    let costOk = true;
+
+    if (buyPrice && buyPrice > 0 && invested > 0) {
+      calcCost = cleanCurrency(units * buyPrice);
+      costDisc = Math.abs(calcCost - invested);
+      // Allow minor rounding tolerance: ₹2.0 or 0.5%
+      const tolerance = Math.max(2.0, invested * 0.005);
+      if (costDisc > tolerance) {
+        costOk = false;
+        addFinding(
+          'ARITHMETIC_COST_DISCREPANCY',
+          'INFO',
+          `Calculated cost (units × avg price = ₹${calcCost.toFixed(2)}) differs from reported invested value (₹${invested.toFixed(2)}) by ₹${costDisc.toFixed(2)}.`,
+          'investedAmount'
+        );
+      }
+    }
+
+    let calcVal: number | undefined;
+    let valDisc: number | undefined;
+    let valOk = true;
+
+    if (currentPrice && currentPrice > 0 && current > 0) {
+      calcVal = cleanCurrency(units * currentPrice);
+      valDisc = Math.abs(calcVal - current);
+      const tolerance = Math.max(2.0, current * 0.005);
+      if (valDisc > tolerance) {
+        valOk = false;
+        addFinding(
+          'ARITHMETIC_VALUE_DISCREPANCY',
+          'INFO',
+          `Calculated value (units × current price = ₹${calcVal.toFixed(2)}) differs from reported current value (₹${current.toFixed(2)}) by ₹${valDisc.toFixed(2)}.`,
+          'currentValue'
+        );
+      }
+    }
+
+    const unrealizedPnl = cleanCurrency(current - invested);
+    const unrealizedReturnPct = invested > 0 ? parseFloat(((unrealizedPnl / invested) * 100).toFixed(2)) : undefined;
+
+    arithmeticSummary = {
+      calculatedCost: calcCost,
+      reportedCost: invested > 0 ? invested : undefined,
+      costDiscrepancy: costDisc,
+      calculatedValue: calcVal,
+      reportedValue: current > 0 ? current : undefined,
+      valueDiscrepancy: valDisc,
+      unrealizedPnl,
+      unrealizedReturnPct,
+      isCostConsistent: costOk,
+      isValueConsistent: valOk,
+    };
+  }
+
+  // 5. Asset Type & Identifier Consistency (Self-healing)
   if (holding.isin && holding.isin.startsWith('INF')) {
     if (holding.assetType !== 'mutual_fund') {
       holding.assetType = 'mutual_fund';
       holding.subType = holding.subType || 'Mutual Fund';
+      addFinding('TYPE_NORMALIZED_MF', 'INFO', 'Asset type adjusted to Mutual Fund based on INF ISIN.', 'assetType');
     }
     if (holding.ticker && (holding.ticker.endsWith('.NS') || holding.ticker.endsWith('.BO'))) {
       holding.ticker = undefined; // clear accidental stock ticker on mutual fund
@@ -73,17 +191,18 @@ export function validateHoldingRow(
     if (holding.assetType === 'mutual_fund') {
       holding.assetType = 'stocks';
       holding.subType = 'Stock / Equity';
+      addFinding('TYPE_NORMALIZED_STOCK', 'INFO', 'Asset type adjusted to Stock based on INE ISIN.', 'assetType');
     }
   } else if (holding.assetType === 'mutual_fund') {
     if (holding.ticker && (holding.ticker.endsWith('.NS') || holding.ticker.endsWith('.BO'))) {
       holding.ticker = undefined;
     }
     if (holding.isin && !holding.isin.startsWith('INF')) {
-      warnings.push(`Mutual fund has non-INF ISIN: ${holding.isin}`);
+      addFinding('NON_INF_MF_ISIN', 'WARNING', `Mutual fund has non-INF ISIN: ${holding.isin}`, 'isin');
     }
   }
 
-  // 5. Duplicate Detection Key (Deterministic)
+  // 6. Duplicate Detection Key (Deterministic)
   let dedupeKey = '';
   if (holding.isin) {
     dedupeKey = `isin_${holding.isin.toUpperCase()}`;
@@ -96,10 +215,10 @@ export function validateHoldingRow(
   }
 
   if (existingKeys && existingKeys.has(dedupeKey)) {
-    warnings.push('Potential duplicate holding detected with identical security identifier.');
+    addFinding('DUPLICATE_IDENTIFIER', 'WARNING', 'Potential duplicate holding detected with identical security identifier.', 'dedupeKey');
   }
 
-  // 6. Overall Review Requirement Determination
+  // 7. Overall Review Requirement Determination
   const requiresReview = warnings.length > 0 || errors.length > 0 || !holding.isin;
   const status: ResolutionConfidence =
     errors.length > 0
@@ -116,7 +235,10 @@ export function validateHoldingRow(
     status,
     errors,
     warnings,
+    info,
+    findings,
     dedupeKey,
+    arithmeticCheck: arithmeticSummary,
   };
 }
 
@@ -137,8 +259,8 @@ export function validateMarketPriceDrift(
   }
 
   const ratio = livePrice / baseline;
-  const maxAllowedRatio = holding.assetType === 'mutual_fund' ? 2.5 : 5.0;
-  const minAllowedRatio = holding.assetType === 'mutual_fund' ? 0.4 : 0.15;
+  const maxAllowedRatio = holding.assetType === 'mutual_fund' ? 3.5 : 8.0;
+  const minAllowedRatio = holding.assetType === 'mutual_fund' ? 0.25 : 0.1;
 
   if (ratio > maxAllowedRatio || ratio < minAllowedRatio) {
     return {
@@ -148,4 +270,63 @@ export function validateMarketPriceDrift(
   }
 
   return { isAcceptable: true };
+}
+
+/**
+ * Reconciles the sum of extracted holdings against statement summary totals
+ */
+export function reconcileStatementSummary(
+  holdings: ParsedHolding[],
+  reportedTotalInvested?: number,
+  reportedTotalCurrent?: number
+): SummaryReconciliationResult {
+  const calculatedTotalInvested = cleanCurrency(
+    holdings.filter((h) => h.isValid && h.selected).reduce((s, h) => s + (h.investedAmount || 0), 0)
+  );
+  const calculatedTotalCurrent = cleanCurrency(
+    holdings.filter((h) => h.isValid && h.selected).reduce((s, h) => s + (h.currentValue || 0), 0)
+  );
+
+  const findings: ValidationFinding[] = [];
+  let isReconciled = true;
+
+  let investedDiscrepancy: number | undefined;
+  if (reportedTotalInvested !== undefined && reportedTotalInvested > 0) {
+    investedDiscrepancy = cleanCurrency(Math.abs(calculatedTotalInvested - reportedTotalInvested));
+    const tolerance = Math.max(5.0, reportedTotalInvested * 0.002);
+    if (investedDiscrepancy > tolerance) {
+      isReconciled = false;
+      findings.push({
+        code: 'INVESTED_RECONCILIATION_DISCREPANCY',
+        severity: 'WARNING',
+        message: `Total invested sum (₹${calculatedTotalInvested}) differs from statement summary (₹${reportedTotalInvested}) by ₹${investedDiscrepancy}.`,
+      });
+    }
+  }
+
+  let currentDiscrepancy: number | undefined;
+  if (reportedTotalCurrent !== undefined && reportedTotalCurrent > 0) {
+    currentDiscrepancy = cleanCurrency(Math.abs(calculatedTotalCurrent - reportedTotalCurrent));
+    const tolerance = Math.max(5.0, reportedTotalCurrent * 0.002);
+    if (currentDiscrepancy > tolerance) {
+      isReconciled = false;
+      findings.push({
+        code: 'CURRENT_RECONCILIATION_DISCREPANCY',
+        severity: 'WARNING',
+        message: `Total current value sum (₹${calculatedTotalCurrent}) differs from statement summary (₹${reportedTotalCurrent}) by ₹${currentDiscrepancy}.`,
+      });
+    }
+  }
+
+  return {
+    isReconciled,
+    reportedTotalInvested,
+    calculatedTotalInvested,
+    investedDiscrepancy,
+    reportedTotalCurrent,
+    calculatedTotalCurrent,
+    currentDiscrepancy,
+    holdingsCount: holdings.length,
+    findings,
+  };
 }

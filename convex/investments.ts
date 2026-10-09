@@ -2242,10 +2242,10 @@ export const ALL_MF_CATEGORIES = [
   { key: 'gilt', match: /\bgilt\b/i },
   { key: 'corporatebond', match: /\bcorporate\s*bond\b/i },
   { key: 'defence', match: /\b(defence|defense)\b/i },
-  { key: 'digital', match: /\b(digital|technology|tech|it)\b/i },
+  { key: 'digital', match: /\b(digital\s*fund|technology\s*fund|tech\s*fund|information\s*technology)\b/i },
   { key: 'pharma', match: /\b(pharma|healthcare)\b/i },
   { key: 'auto', match: /\bauto\b/i },
-  { key: 'banking', match: /\b(banking|bank|psu\s*bank|financial\s*services)\b/i },
+  { key: 'banking', match: /\b(banking\s*fund|banking\s*and\s*financial|financial\s*services\s*fund|psu\s*bank\s*fund)\b/i },
   { key: 'infra', match: /\b(infra|infrastructure)\b/i },
   { key: 'energy', match: /\b(energy|power)\b/i },
   { key: 'consumption', match: /\b(consumption|consumer)\b/i },
@@ -2283,46 +2283,64 @@ export function isMfCandidateCompatible(candName: string, queryName: string): bo
   const c = candName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const q = queryName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-  // 1. Differentiator patterns: major strategies, indices, numbers
-  const DIFFERENTIATOR_PATTERNS = [
-    { key: 'momentum', regex: /\bmomentum\b|momentum/i },
-    { key: 'lowvol', regex: /\b(low\s*vol(?:atility)?|alpha)\b|lowvol|alpha/i },
-    { key: 'equalweight', regex: /\bequal\s*weight\b|equalweight/i },
-    { key: 'quality', regex: /\bquality\b|quality/i },
-    { key: 'next50', regex: /\bnext\s*50\b|next50/i },
-    { key: '500', regex: /\b500\b|500/ },
-    { key: '150', regex: /\b150\b|150/ },
-    { key: '250', regex: /\b250\b|250/ },
-    { key: '100', regex: /\b100\b|100/ },
+  // Strip common AMC corporate words from query to prevent false category clashes (e.g. 'Bank', 'Financial', 'Services')
+  const qSchemeOnly = q
+    .replace(/\b(state\s*bank\s*of\s*india|canara\s*bank|bank\s*of\s*india|financial\s*services|asset\s*management|mutual\s*fund|amc)\b/gi, ' ')
+    .trim();
+
+  // 1. Differentiator patterns: major specific index strategies
+  const STRATEGY_DIFFERENTIATORS = [
+    { key: 'momentum', regex: /\bmomentum\b/i },
+    { key: 'lowvol', regex: /\b(low\s*vol(?:atility)?|alpha)\b/i },
+    { key: 'equalweight', regex: /\bequal\s*weight\b/i },
+    { key: 'next50', regex: /\bnext\s*50\b/i },
     { key: 'etf', regex: /\b(etf|exchange\s*traded)\b/i },
   ];
 
-  for (const diff of DIFFERENTIATOR_PATTERNS) {
+  for (const diff of STRATEGY_DIFFERENTIATORS) {
     const inCand = diff.regex.test(c);
-    const inQuery = diff.regex.test(q);
+    const inQuery = diff.regex.test(qSchemeOnly);
     if (inCand !== inQuery) return false;
   }
 
-  // 2. Category exclusive words (cannot confuse Balanced Advantage with Emerging Markets, Liquid, etc.)
-  for (const cat of MF_CATEGORY_EXCLUSIVE_WORDS) {
+  // 2. Cap-size Mutual Fund Exclusivity (e.g. Small Cap vs Mid Cap vs Large Cap vs Flexi Cap)
+  const CAP_CATEGORIES = [
+    { key: 'smallcap', regex: /\bsmall\s*cap\b/i },
+    { key: 'midcap', regex: /\bmid\s*cap\b/i },
+    { key: 'largecap', regex: /\b(large\s*cap|blue\s*chip)\b/i },
+    { key: 'flexicap', regex: /\bflexi\s*cap\b/i },
+    { key: 'multicap', regex: /\bmulti\s*cap\b/i },
+    { key: 'arbitrage', regex: /\barbitrage\b/i },
+    { key: 'liquid', regex: /\bliquid\b/i },
+    { key: 'overnight', regex: /\bovernight\b/i },
+    { key: 'elss', regex: /\b(elss|tax\s*saver)\b/i },
+  ];
+
+  for (const cat of CAP_CATEGORIES) {
     const inCand = cat.regex.test(c);
-    const inQuery = cat.regex.test(q);
-    if (inCand !== inQuery) return false;
+    const inQuery = cat.regex.test(qSchemeOnly);
+    // If the query explicitly specifies this cap category (e.g. "Small Cap"), the candidate MUST also have it!
+    if (inQuery && !inCand) return false;
+    // Conversely, if candidate has "Small Cap" but query explicitly asked for "Large Cap" or "Mid Cap", reject
+    if (inCand && !inQuery) {
+      const hasOtherCap = CAP_CATEGORIES.some((other) => other.key !== cat.key && other.regex.test(qSchemeOnly));
+      if (hasOtherCap) return false;
+    }
   }
 
   // 3. Direct vs Regular Plan
-  const wantsDirect = /\b(direct|dir)\b|direct/i.test(q);
-  const wantsRegular = /\b(regular|reg)\b|regular/i.test(q);
-  const isDirect = /\bdirect\b|direct/i.test(c);
-  const isRegular = /\bregular\b|regular/i.test(c);
+  const wantsDirect = /\b(direct|dir)\b/i.test(q);
+  const wantsRegular = /\b(regular|reg)\b/i.test(q);
+  const isDirect = /\bdirect\b/i.test(c);
+  const isRegular = /\bregular\b/i.test(c);
   if (wantsDirect && isRegular) return false;
   if (wantsRegular && isDirect) return false;
 
   // 4. Growth vs IDCW
-  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b|idcw|dividend/i.test(q);
-  const wantsGrowth = /\b(growth|gr)\b|growth/i.test(q);
-  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b|idcw|dividend/i.test(c);
-  const isGrowth = /\bgrowth\b|growth/i.test(c);
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(q);
+  const wantsGrowth = /\b(growth|gr)\b/i.test(q);
+  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(c);
+  const isGrowth = /\bgrowth\b/i.test(c);
   if (wantsIdcw && isGrowth) return false;
   if (wantsGrowth && isIdcw) return false;
 
@@ -2358,8 +2376,11 @@ export function scoreMfCandidate(
 
   // 2. Strict Category Matching: If query specifies a category, scheme MUST match that category
   let matchedCat: (typeof ALL_MF_CATEGORIES)[0] | null = null;
+  const qCategoryClean = qClean
+    .replace(/\b(state\s*bank\s*of\s*india|canara\s*bank|bank\s*of\s*india|financial\s*services|asset\s*management|mutual\s*fund|amc)\b/gi, ' ')
+    .trim();
   for (const cat of ALL_MF_CATEGORIES) {
-    if (cat.match.test(qClean)) {
+    if (cat.match.test(qCategoryClean)) {
       matchedCat = cat;
       if (!cat.match.test(sFull)) {
         return -100; // Reject completely: Category mismatch
@@ -2461,15 +2482,13 @@ export function scoreMfCandidate(
     }
   }
 
-  // Statement Price proximity bonus / penalty (exact mutual fund NAV matching)
+  // Statement Price proximity bonus (exact mutual fund NAV matching bonus without false rejection penalty)
   if (statementPrice && statementPrice > 0 && item.nav && item.nav > 0) {
     const ratio = item.nav / statementPrice;
     if (ratio >= 0.88 && ratio <= 1.12) {
       score += 150;
     } else if (ratio >= 0.75 && ratio <= 1.25) {
       score += 70;
-    } else if (ratio > 1.6 || ratio < 0.6) {
-      score -= 300; // Drastic price mismatch: reject completely
     }
   }
 
@@ -2697,7 +2716,7 @@ export async function fetchMfNav(
           const dateMs = parseNavDateToMs(latest.date);
           const isDead = dateMs > 0 && (now - dateMs) > 45 * 24 * 60 * 60 * 1000;
           const isCompatible = isMfCandidateCompatible(candSchemeName, name);
-          const priceDriftOk = !statementPrice || statementPrice <= 0 || (navNum / statementPrice >= 0.6 && navNum / statementPrice <= 1.6);
+          const priceDriftOk = !statementPrice || statementPrice <= 0 || (navNum / statementPrice >= 0.1 && navNum / statementPrice <= 10.0);
 
           if (!isNaN(navNum) && navNum > 0 && !isDead && isCompatible && priceDriftOk) {
             return {
@@ -2708,7 +2727,7 @@ export async function fetchMfNav(
               isin: details.meta?.isin_growth || isin,
             };
           } else {
-            console.warn(`[fetchMfNav] Candidate code ${codeNum} (${candSchemeName}) failed compatibility or price drift check with "${name}". Falling through to table search.`);
+            console.warn(`[fetchMfNav] Candidate code ${codeNum} (${candSchemeName}) failed compatibility check with "${name}". Falling through to table search.`);
           }
         }
       }
@@ -2722,7 +2741,7 @@ export async function fetchMfNav(
         const dateMs = parseNavDateToMs(amfiMatch.date);
         const isDead = dateMs > 0 && (now - dateMs) > 45 * 24 * 60 * 60 * 1000;
         const isCompatible = isMfCandidateCompatible(amfiMatch.name, name);
-        const priceDriftOk = !statementPrice || statementPrice <= 0 || (amfiMatch.nav / statementPrice >= 0.6 && amfiMatch.nav / statementPrice <= 1.6);
+        const priceDriftOk = !statementPrice || statementPrice <= 0 || (amfiMatch.nav / statementPrice >= 0.1 && amfiMatch.nav / statementPrice <= 10.0);
         if (!isDead && isCompatible && priceDriftOk) {
           return {
             nav: amfiMatch.nav,

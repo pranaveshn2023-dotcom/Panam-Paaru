@@ -146,12 +146,27 @@ Continuously updates portfolio holding values across asset classes:
 - **Real Estate**: Manual property holding valuations and equity attribution.
 - **Market Benchmarks**: Background index polling for official NIFTY 50 and BSE SENSEX performance tracking.
 
-### 6. Universal Statement Ingestion & 1-Click Rollback
-Eliminates manual portfolio data entry through client-side parsing:
-- **Supported Formats**: CAMS CAS PDFs, KFintech PDFs, Zerodha CSV exports, Groww Excel workbooks (XLSX), and Word files (DOCX via Mammoth).
-- **Normalization Pipeline**: Automatic identification and mapping of scheme names, folio references, transaction dates, unit counts, acquisition costs, and current valuations.
-- **Broker Directory Support** (`src/utils/brokerDirectory.ts`): Built-in identification of brokers, ISIN standards, and ticker formats for high-accuracy statement normalization.
-- **1-Click Batch Undo**: Every import generates an entry in `importBatches` tagged with an `importBatchId`, allowing users to undo an entire statement import with a single click.
+### 6. Universal Investment Statement Extraction & Import Pipeline
+Engineered as a deterministic, broker-agnostic financial data ingestion engine:
+- **Zero LLM / Zero Generative AI**: 100% deterministic parsing, table detection, field mapping, and financial validation. No synthetic data, no hallucinations, no silent conversion of missing values to zero.
+- **Universal Multi-Format Ingestion**: Ingests `.xlsx`, `.xls`, `.csv`, `.pdf` (text & coordinate table extraction), and `.docx` statements with support for multi-sheet workbooks, repeated page headers, blank rows, footnotes, merged cells, and different currency formats (`₹`, `$`, `Rs.`, `INR`).
+- **Deterministic Format Adapters & Generic Ingestion**: Dedicated regression-tested format adapters for Groww (Stocks XLSX and Mutual Funds XLSX) alongside generic structural table extraction that automatically identifies holdings across unfamiliar layouts.
+- **Semantic Header Ontology & Currency-Cleaned Aliases** (`src/utils/columnMapper.ts`): Comprehensive alias dictionary covering all canonical financial fields, normalized for case, whitespace, abbreviations, and currency tokens (`(₹)`, `(Rs.)`, `(INR)`). Data-driven sample row inspection and symbol-column fallback guarantee confident mapping.
+- **Deterministic Table & Boundary Detection** (`src/utils/tableDetector.ts`): Evaluates financial signal density across worksheets to identify true table headers, isolate data rows from preamble metadata, and separate point-in-time holdings statements from historical transaction tradebooks.
+- **Extensible Asset-Handler Registry** (`src/utils/securityResolver.ts` & `src/utils/liveMarketService.ts`):
+  - *Stocks & Equities*: ISIN-first (`INE...`), BSE Scrip Code, and NSE exchange ticker resolution.
+  - *Mutual Funds*: Official AMFI Scheme Code & ISIN (`INF...`) matching with direct/regular and growth/IDCW distinction.
+  - *Commodities & Bullion*: Spot rates and ETFs for Gold, Silver, and Sovereign Gold Bonds (SGB).
+  - *Cryptocurrency*: Provider-specific ticker and contract asset resolution.
+  - *Fixed Income & Private*: Preserves reported valuations without fabricating nonexistent live market quotes.
+- **Financial Validation & Reconciliation Engine** (`src/utils/importValidator.ts`):
+  - *Three Severity Levels*: `ERROR` (blocks invalid commit), `WARNING` (actionable limitation), `INFO` (non-blocking audit detail).
+  - *Arithmetic Checks*: Enforces `Calculated Cost = units × avgBuyPrice` and `Calculated Value = units × currentPrice` against reported amounts with configurable precision tolerances.
+  - *Statement Reconciliation*: Verifies sum of extracted holdings against statement summary totals and flags discrepancies.
+- **Live Market Synchronization & Anti-Anomaly Price Guard**: Preserves authentic statement valuations while enriching live quotes from official AMFI (`NAVAll.txt`) and Yahoo Finance. Verified AMFI codes and ISINs bypass baseline drift checks, while unverified matches enforce strict anomaly limits.
+- **Idempotent Persistence & 1-Click Rollback** (`convex/investments.ts`):
+  - *Deduplication*: Resolves existing holdings by ISIN, AMFI Scheme Code, Ticker, or normalized name + folio. Updates existing assets when values change, marks identical records unchanged, and inserts genuine new holdings.
+  - *1-Click Undo*: Every import batch registers an entry in `importBatches`, enabling instant 1-click rollback of any statement import.
 - **Global Shortcut**: Accessible via `Ctrl + U` (Windows/Linux) or `Cmd + U` (macOS) from any screen.
 
 ### 7. Spending Insights (`src/pages/InsightsPage.tsx`)

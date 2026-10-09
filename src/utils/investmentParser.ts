@@ -919,17 +919,18 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
           if (basis > 0) pnl = cleanCurrency((basis * pnlRaw) / 100);
         }
 
-        if (current === 0 && invested > 0 && pnl !== undefined) current = invested + pnl;
-        if (invested === 0 && current > 0 && pnl !== undefined) invested = current - pnl;
-
-        if (invested === 0 && current > 0 && investedValueCol === undefined && buyPriceCol === undefined) invested = current;
-        if (current === 0 && invested > 0 && currentValueCol === undefined && currentPriceCol === undefined) current = invested;
-
-        if ((!currentPrice || currentPrice <= 0) && units && units > 0 && current > 0) {
-          currentPrice = cleanNavPrice(current / units, isMfIdentity);
+        let resolvedUnits = units;
+        if ((!resolvedUnits || resolvedUnits <= 0) && current > 0 && currentPrice && currentPrice > 0) {
+          resolvedUnits = cleanUnits(current / currentPrice);
+        } else if ((!resolvedUnits || resolvedUnits <= 0) && invested > 0 && buyPrice && buyPrice > 0) {
+          resolvedUnits = cleanUnits(invested / buyPrice);
         }
-        if ((!buyPrice || buyPrice <= 0) && units && units > 0 && invested > 0) {
-          buyPrice = cleanNavPrice(invested / units, isMfIdentity);
+
+        if ((!currentPrice || currentPrice <= 0) && resolvedUnits && resolvedUnits > 0 && current > 0) {
+          currentPrice = cleanNavPrice(current / resolvedUnits, isMfIdentity);
+        }
+        if ((!buyPrice || buyPrice <= 0) && resolvedUnits && resolvedUnits > 0 && invested > 0) {
+          buyPrice = cleanNavPrice(invested / resolvedUnits, isMfIdentity);
         }
 
         if (invested > 500000000 || current > 500000000) continue;
@@ -993,7 +994,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
             investedAmount: cleanCurrency(Math.abs(invested)),
             currentValue: cleanCurrency(Math.abs(current)),
             returns: finalReturns,
-            units: cleanUnits(units),
+            units: cleanUnits(resolvedUnits),
             buyPrice: buyPrice && buyPrice > 0 ? cleanNavPrice(buyPrice, isMf) : undefined,
             currentPrice: currentPrice && currentPrice > 0 ? cleanNavPrice(currentPrice, isMf) : undefined,
             statementPrice: currentPrice && currentPrice > 0 ? cleanNavPrice(currentPrice, isMf) : undefined,

@@ -41,16 +41,21 @@ export const listWithProgress = query({
       // Sum actual expenses for this budget in the active cycle
       const matchingTxs = transactions.filter((tx) => {
         // 1. Exclude internal budget funding / allocation / reload / renewal transactions
-        if (
+        const isFundingTx =
           tx.title?.startsWith("Budget Allocated:") ||
           tx.title?.startsWith("Budget Top-up:") ||
           tx.title?.startsWith("Recurring Budget Renewed:") ||
           tx.notes?.includes("Auto-allocated from wallet") ||
           tx.notes?.includes("Top-up loaded into budget wallet") ||
-          tx.notes?.includes("Auto-renewed for cycle") ||
-          tx.budgetId === budget._id
-        ) {
+          tx.notes?.includes("Auto-renewed for cycle");
+
+        if (isFundingTx) {
           return false;
+        }
+
+        // If explicitly assigned to this budget, count it for the active cycle
+        if (tx.budgetId === budget._id) {
+          return tx.date >= activePeriod.startDate && tx.date <= activePeriod.endDate;
         }
 
         // 2. Account Tracking: If budget is configured for a specific wallet / account,

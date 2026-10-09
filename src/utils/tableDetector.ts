@@ -24,13 +24,14 @@ export interface DetectedTable {
 
 // Canonical signals for Holdings statements
 const HOLDINGS_SIGNALS = [
-  /\b(holding|portfolio|balance|quantity|qty|units?|shares)\b/i,
-  /\b(avg\s*price|buy\s*price|cost\s*price|avg\s*cost|purchase\s*price)\b/i,
-  /\b(ltp|cmp|current\s*price|market\s*price|nav|latest\s*nav)\b/i,
-  /\b(invested\s*val\w*|invested\s*amount|cost\s*value|purchase\s*value|total\s*cost)\b/i,
-  /\b(current\s*val\w*|market\s*val\w*|portfolio\s*val\w*|valuation|present\s*val\w*)\b/i,
-  /\b(unrealized|unrealised|profit|loss|p\s*l|returns?)\b/i,
-  /\b(isin|symbol|scrip|instrument|scheme\s*name)\b/i,
+  /\b(holding|holdings|portfolio|balance|quantity|qty|units?|shares|volume|net\s*qty)\b/i,
+  /\b(price|avg\s*price|buy\s*price|cost\s*price|avg\s*cost|purchase\s*price|rate|buy\s*rate|avg\s*rate)\b/i,
+  /\b(ltp|cmp|current\s*price|market\s*price|nav|latest\s*nav|closing\s*price|close\s*price|last\s*price)\b/i,
+  /\b(invested|amount\s*invested|invested\s*val\w*|invested\s*amount|cost\s*val\w*|purchase\s*val\w*|total\s*cost|total\s*invested|principal|cost|book\s*cost|amount)\b/i,
+  /\b(current\s*val\w*|market\s*val\w*|portfolio\s*val\w*|valuation|present\s*val\w*|cur\s*val\w*|value|market\s*value|current\s*value|total\s*value)\b/i,
+  /\b(unrealized|unrealised|profit|loss|p\s*l|pnl|returns?|gain|overall\s*gain|net\s*chg|yield|xirr|cagr)\b/i,
+  /\b(isin|symbol|scrip|instrument|scheme|fund|stock|company|asset|security|particulars?|description|item|name|scrip\s*name|scheme\s*name|fund\s*name)\b/i,
+  /\b(folio|folio\s*no|folio\s*number|amfi|amfi\s*code|scheme\s*code|bse\s*code)\b/i,
 ];
 
 // Canonical signals for Transaction statements / tradebooks
@@ -57,6 +58,7 @@ export function normalizeCellText(val: any): string {
   return String(val)
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/[\.\(\)₹\$\[\]\/\\-]/g, ' ')
+    .replace(/\b(inr|rs|usd|eur|gbp)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
@@ -116,11 +118,11 @@ export function detectTablesInSheet(
       }
     }
 
-    // Must have minimum financial signal density to be a table header
-    if (holdingsScore < 30 && txScore < 30) continue;
+    // Must have minimum financial signal density (at least two signals) to be a table header
+    if (holdingsScore < 20 && txScore < 20) continue;
 
     const tableType: TableType =
-      txScore > holdingsScore ? 'TRANSACTIONS' : holdingsScore >= 30 ? 'HOLDINGS' : 'ACCOUNT_SUMMARY';
+      txScore > holdingsScore ? 'TRANSACTIONS' : holdingsScore >= 20 ? 'HOLDINGS' : 'ACCOUNT_SUMMARY';
 
     const confidence = Math.min(100, Math.max(holdingsScore, txScore));
 

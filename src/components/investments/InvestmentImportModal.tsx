@@ -131,7 +131,21 @@ function validateLivePriceAgainstHolding(
     }
   }
 
-  // Determine baseline unit price from statement closing price or invested basis
+  // Verified provider bypass: If official AMFI schemeCode, ISIN, or exchange symbol is confirmed,
+  // trust the authentic data feed directly (bypassing baseline drift checks).
+  const hasVerifiedIdentity = Boolean(
+    schemeCode ||
+    holding.schemeCode ||
+    resIsin ||
+    holding.isin ||
+    (symbol && (symbol.endsWith('.NS') || symbol.endsWith('.BO')))
+  );
+
+  if (hasVerifiedIdentity) {
+    return { valid: true };
+  }
+
+  // Determine baseline unit price ONLY from statement market price (NOT historical cost basis)
   let baseline = 0;
   if (holding.statementPrice && holding.statementPrice > 0) {
     baseline = holding.statementPrice;
@@ -141,20 +155,18 @@ function validateLivePriceAgainstHolding(
     baseline = holding.statementValue / holding.units;
   } else if (holding.units && holding.units > 0 && holding.currentValue && holding.currentValue > 0) {
     baseline = holding.currentValue / holding.units;
-  } else if (holding.units && holding.units > 0 && holding.investedAmount && holding.investedAmount > 0) {
-    baseline = holding.investedAmount / holding.units;
   }
 
-  // Strict Baseline Drift Guard:
-  // For mutual funds, NAV never drops by > 45% or triples overnight — any such drift indicates a wrong scheme match!
+  // Wide Baseline Drift Guard for unverified matches:
+  // Rejects extreme 15x or 0.05x outliers to avoid accidental cross-ticker collision
   if (baseline > 0) {
     const ratio = price / baseline;
-    const maxRatio = holding.assetType === 'mutual_fund' ? 1.75 : 6.0;
-    const minRatio = holding.assetType === 'mutual_fund' ? 0.55 : 0.15;
+    const maxRatio = holding.assetType === 'mutual_fund' ? 8.0 : 15.0;
+    const minRatio = holding.assetType === 'mutual_fund' ? 0.12 : 0.05;
 
     if (ratio > maxRatio || ratio < minRatio) {
       console.warn(
-        `[PriceGuard] Anomaly drift detected for "${holding.name}". Baseline: ${baseline}, API Price: ${price} (Ratio: ${ratio.toFixed(2)}x). Rejecting update to protect portfolio value.`
+        `[PriceGuard] Wild drift detected for unverified "${holding.name}". Baseline: ${baseline}, API Price: ${price} (Ratio: ${ratio.toFixed(2)}x).`
       );
       return {
         valid: false,
@@ -341,7 +353,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                   h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(oldPrice, true) : cleanCurrency(oldPrice);
                 }
                 if (!h.investedAmount || h.investedAmount === 0) {
-                  h.investedAmount = cleanCurrency(h.currentValue);
+                  h.investedAmount = cleanCurrency(h.statementValue || (derivedUnits * oldPrice));
                 }
               }
             } else {
@@ -480,7 +492,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(oldPrice, true) : cleanCurrency(oldPrice);
                   }
                   if (!h.investedAmount || h.investedAmount === 0) {
-                    h.investedAmount = cleanCurrency(h.currentValue);
+                    h.investedAmount = cleanCurrency(h.statementValue || (derivedUnits * oldPrice));
                   }
                 }
               } else {
