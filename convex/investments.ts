@@ -721,7 +721,7 @@ export const batchAdd = mutation({
             sector: item.sector || existing.sector,
             broker: item.broker || args.broker || existing.broker,
             notes: item.notes || existing.notes,
-            manualPrice: true,
+            manualPrice: !autoSchemeCode && !item.ticker && (!autoIsin || !autoIsin.startsWith("INF")),
             manualPriceUpdatedAt: now,
             importBatchId: batchId || existing.importBatchId,
             updatedAt: now,
@@ -740,7 +740,7 @@ export const batchAdd = mutation({
             isin: autoIsin ?? existing.isin,
             ticker: item.ticker ?? existing.ticker,
             xirr: item.xirr || existing.xirr,
-            manualPrice: true,
+            manualPrice: !autoSchemeCode && !item.ticker && (!autoIsin || !autoIsin.startsWith("INF")),
             manualPriceUpdatedAt: now,
             updatedAt: now,
           };
@@ -752,6 +752,7 @@ export const batchAdd = mutation({
         }
       } else {
         // Genuine new asset: insert
+        const isListed = Boolean(autoSchemeCode || item.ticker || (autoIsin && autoIsin.startsWith("INF")));
         const safeNewVal = item.currentValue > 0 ? item.currentValue : (item.investedAmount > 0 ? item.investedAmount : 0);
         const id = await ctx.db.insert("investments", {
           userId,
@@ -773,7 +774,7 @@ export const batchAdd = mutation({
           sipDay: item.sipDay,
           xirr: item.xirr,
           notes: item.notes,
-          manualPrice: true,
+          manualPrice: !isListed,
           manualPriceUpdatedAt: now,
           createdAt: now,
           updatedAt: now,

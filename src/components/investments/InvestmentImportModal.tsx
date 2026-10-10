@@ -361,39 +361,16 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             if (res.symbol && !h.ticker) h.ticker = res.symbol;
 
             const cleanPrice = cleanNavPrice(res.price, h.assetType === 'mutual_fund');
-            const hasStatementPrice = typeof h.statementPrice === 'number' && h.statementPrice > 0;
-            const hasStatementVal = typeof h.statementValue === 'number' && h.statementValue > 0;
-            const hasCurrentVal = typeof h.currentValue === 'number' && h.currentValue > 0;
-
-            if (isUserExplicitSync) {
-              // User explicitly requested live market synchronization:
-              h.currentPrice = cleanPrice;
-              h.isLiveSynced = true;
-              if (res.date) h.liveNavDate = res.date;
-              if (h.units && h.units > 0) {
-                h.currentValue = cleanCurrency(h.units * res.price);
-              }
-              if (h.investedAmount > 0) {
-                h.returns = cleanCurrency(h.currentValue - h.investedAmount);
-              }
-              count++;
-            } else {
-              // Initial statement import: NEVER overwrite authentic file values!
-              // Only populate if statement was completely missing price or market value
-              if (!hasStatementPrice && (!h.currentPrice || h.currentPrice === 0)) {
-                h.currentPrice = cleanPrice;
-                h.isLiveSynced = true;
-                if (res.date) h.liveNavDate = res.date;
-                count++;
-              }
-              if (!hasStatementVal && !hasCurrentVal && h.units && h.units > 0) {
-                h.currentValue = cleanCurrency(h.units * cleanPrice);
-                h.isLiveSynced = true;
-                if (h.investedAmount > 0) {
-                  h.returns = cleanCurrency(h.currentValue - h.investedAmount);
-                }
-              }
+            h.currentPrice = cleanPrice;
+            h.isLiveSynced = true;
+            if (res.date) h.liveNavDate = res.date;
+            if (h.units && h.units > 0) {
+              h.currentValue = cleanCurrency(h.units * res.price);
             }
+            if (h.investedAmount > 0) {
+              h.returns = cleanCurrency(h.currentValue - h.investedAmount);
+            }
+            count++;
 
             if (h.assetType === 'other') {
               const detected = detectDetailedAssetType(h.name);
@@ -411,7 +388,6 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
             h.returns = cleanCurrency(h.currentValue - h.investedAmount);
             updatedHoldings[idx] = h;
-            count++;
           }
         }
 
@@ -522,36 +498,16 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               if (liveSymbol && !h.ticker && (liveSymbol.endsWith('.NS') || liveSymbol.endsWith('.BO'))) h.ticker = liveSymbol;
 
               const cleanPrice = cleanNavPrice(livePrice, h.assetType === 'mutual_fund');
-              const hasStatementPrice = typeof h.statementPrice === 'number' && h.statementPrice > 0;
-              const hasStatementVal = typeof h.statementValue === 'number' && h.statementValue > 0;
-              const hasCurrentVal = typeof h.currentValue === 'number' && h.currentValue > 0;
-
-              if (isUserExplicitSync) {
-                h.currentPrice = cleanPrice;
-                h.isLiveSynced = true;
-                if (liveDate) h.liveNavDate = liveDate;
-                if (h.units && h.units > 0) {
-                  h.currentValue = cleanCurrency(h.units * livePrice);
-                }
-                if (h.investedAmount > 0) {
-                  h.returns = cleanCurrency(h.currentValue - h.investedAmount);
-                }
-                count++;
-              } else {
-                if (!hasStatementPrice && (!h.currentPrice || h.currentPrice === 0)) {
-                  h.currentPrice = cleanPrice;
-                  h.isLiveSynced = true;
-                  if (liveDate) h.liveNavDate = liveDate;
-                  count++;
-                }
-                if (!hasStatementVal && !hasCurrentVal && h.units && h.units > 0) {
-                  h.currentValue = cleanCurrency(h.units * cleanPrice);
-                  h.isLiveSynced = true;
-                  if (h.investedAmount > 0) {
-                    h.returns = cleanCurrency(h.currentValue - h.investedAmount);
-                  }
-                }
+              h.currentPrice = cleanPrice;
+              h.isLiveSynced = true;
+              if (liveDate) h.liveNavDate = liveDate;
+              if (h.units && h.units > 0) {
+                h.currentValue = cleanCurrency(h.units * livePrice);
               }
+              if (h.investedAmount > 0) {
+                h.returns = cleanCurrency(h.currentValue - h.investedAmount);
+              }
+              count++;
 
               if (h.assetType === 'other') {
                 const detected = detectDetailedAssetType(h.name);
@@ -569,7 +525,6 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
               h.returns = cleanCurrency(h.currentValue - h.investedAmount);
               updatedHoldings[idx] = h;
-              count++;
             }
           }
         })
@@ -782,7 +737,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         }));
         setParsedHoldings(taggedHoldings);
         setIsParsing(false);
-        enrichHoldingsWithLivePrices(taggedHoldings);
+        enrichHoldingsWithLivePrices(taggedHoldings, true);
       } else {
         setIsParsing(false);
         if (result.rawGrid && result.rawGrid.sheets.length > 0 && result.rawGrid.sheets[0].rows.length > 0) {
