@@ -247,9 +247,14 @@ function getHoldingDedupeKey(name: string, notes?: string, isin?: string, scheme
 }
 
 function areHoldingsEquivalent(
-  a: { name: string; notes?: string; isin?: string; schemeCode?: number },
-  b: { name: string; notes?: string; isin?: string; schemeCode?: number }
+  a: { name: string; notes?: string; isin?: string; schemeCode?: number; assetType?: string },
+  b: { name: string; notes?: string; isin?: string; schemeCode?: number; assetType?: string }
 ): boolean {
+  // Prevent collision across different asset types (e.g. Stock vs Mutual Fund)
+  if (a.assetType && b.assetType && a.assetType !== b.assetType) {
+    return false;
+  }
+
   // 1. ISIN equivalence: 100% unique primary mapping key across all Indian NSE/BSE stocks & mutual funds
   const aIsin = a.isin || extractSecurityIsin(a.notes) || extractSecurityIsin(a.name);
   const bIsin = b.isin || extractSecurityIsin(b.notes) || extractSecurityIsin(b.name);

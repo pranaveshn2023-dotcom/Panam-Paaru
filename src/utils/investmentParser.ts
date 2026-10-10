@@ -8,6 +8,8 @@ import { mapHeadersToCanonical, CanonicalColumnMapping } from './columnMapper';
 import { resolveSecurityIdentity, ResolutionConfidence } from './securityResolver';
 import { validateHoldingRow } from './importValidator';
 import { detectBrokerFromFile } from './brokerDirectory';
+import { extractStocksFromGrid, extractStocksFromPdfItems, PdfToken } from './stocksEtfFlow';
+import { parseMutualFundsFromCASLines, extractMutualFundsFromGrid, extractMutualFundsFromPdfItems } from './mutualFundsFlow';
 
 // PDF Worker Initialization
 function initPdfWorker() {
@@ -140,18 +142,48 @@ export function parseCleanNumber(val: any): number {
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   if (!val) return 0;
 
-  let str = String(val)
+  const rawStr = String(val).trim();
+  if (!rawStr) return 0;
+
+  // Strict rejection of dates in all common formats:
+  // 1) ISO / YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD
+  // 2) DD-MM-YYYY / DD/MM/YYYY / DD.MM.YYYY
+  // 3) DD-Mon-YYYY / DD/Mon/YYYY (e.g. 31-Mar-2024, 05-Jan-2023)
+  // 4) Text dates: 31 March 2024, Mar 31, 2024
+  if (
+    /^\d{4}[-/.]\d{1,2}[-/.]\d{1,4}/.test(rawStr) ||
+    /^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/.test(rawStr) ||
+    /^\d{1,2}[-/.]\w{3,9}[-/.]\d{2,4}/i.test(rawStr) ||
+    /^\w{3,9}\s+\d{1,2},?\s+\d{4}/i.test(rawStr)
+  ) {
+    return 0;
+  }
+
+  // Reject Demat / DP / BO / Account numbers (12 to 20 continuous digits without decimal)
+  if (/^\d{12,20}$/.test(rawStr)) return 0;
+
+  // Reject Indian PAN cards
+  if (/^[A-Z]{5}\d{4}[A-Z]$/i.test(rawStr)) return 0;
+
+  // Reject phone numbers (10 digits starting with 6-9)
+  if (/^[6-9]\d{9}$/.test(rawStr)) return 0;
+
+  // Clean currency symbols, commas, spaces, percentages, INR/USD
+  const str = rawStr
     .replace(/[₹$,\s%]/gi, '')
-    .replace(/INR/gi, '')
+    .replace(/INR|USD|EUR|GBP/gi, '')
     .replace(/\((.*?)\)/g, '-$1')
+    .replace(/--+|—|-$/g, '')
     .trim();
 
-  // Strict rejection of phone numbers (10 digits starting with 6-9)
-  if (/^[6-9]\d{9}$/.test(str)) return 0;
-  // Rejection of Indian PAN cards
-  if (/^[A-Z]{5}\d{4}[A-Z]$/i.test(str)) return 0;
-  // Reject dates
-  if (/^\d{2}[-/]\d{2}[-/]\d{2,4}$/.test(str)) return 0;
+  if (!str || str === '-' || str.toLowerCase() === 'nil' || str.toLowerCase() === 'na' || str.toLowerCase() === 'nan') {
+    return 0;
+  }
+
+  // Strictly require numeric representation (with optional leading sign and decimal point)
+  if (!/^[+-]?\d+(?:\.\d+)?$/.test(str)) {
+    return 0;
+  }
 
   const num = parseFloat(str);
   return isNaN(num) ? 0 : num;
@@ -193,6 +225,50 @@ const NOISE_TOKENS = new Set([
   'SUMMARY', 'PORTFOLIO', 'STATEMENT', 'HOLDINGS', 'REPORT', 'VALUE', 'INVESTMENT',
 ]);
 
+const NOISE_EXACT_TERMS = new Set([
+  'symbol', 'symbols', 'tradingsymbol', 'trading symbol', 'scrip', 'scrip name', 'scrip code',
+  'security', 'security name', 'instrument', 'instrument name', 'particulars', 'particular',
+  'description', 'item', 'items', 'company', 'company name', 'asset', 'assets', 'holding', 'holdings',
+  'qty', 'quantity', 'shares', 'units', 'units held', 'balance', 'balance qty', 'closing balance',
+  'closing units', 'unit balance', 'free qty', 'available qty', 'total qty',
+  'ltp', 'cmp', 'current price', 'market price', 'nav', 'current nav', 'latest nav', 'closing price',
+  'avg price', 'average price', 'avg cost', 'average cost', 'buy price', 'buy avg', 'cost price',
+  'purchase price', 'purchase nav', 'buy rate', 'cost per unit', 'cost/unit',
+  'invested', 'invested amount', 'invested value', 'total cost', 'total investment', 'purchase value',
+  'current value', 'market value', 'present value', 'valuation', 'latest value', 'cur value', 'total value',
+  'p&l', 'pnl', 'profit', 'loss', 'gain', 'returns', 'net change', 'unrealized', 'unrealized p&l',
+  'isin', 'isin code', 'folio', 'folio no', 'folio number', 'account no', 'scheme code', 'amfi code',
+  'xirr', 'cagr', 'exchange', 'segment', 'series', 'sector', 'industry', 'category', 'type',
+  'purchase', 'additional purchase', 'sale', 'redemption', 'sip', 'stp', 'swp', 'switch in', 'switch out',
+  'dividend', 'dividend payout', 'dividend reinvestment', 'bonus', 'split', 'rights',
+  'brokerage', 'stt', 'stamp duty', 'gst', 'cgst', 'sgst', 'igst', 'turnover charges', 'dp charges',
+  'equity', 'equities', 'equity shares', 'equity holdings', 'mutual fund', 'mutual funds', 'mutual fund holdings',
+  'demat holdings', 'portfolio summary', 'holdings summary', 'account summary',
+  'disclaimer', 'total', 'sub total', 'subtotal', 'grand total', 'net worth',
+  'action', 'date', 'trade date', 'status', 'time',
+]);
+
+/**
+ * Universal noise filter for headers, charges, footers, and category banners
+ */
+export function isNonHoldingNoise(text: string): boolean {
+  if (!text) return true;
+  const t = text.trim();
+  if (t.length < 2) return true;
+  const lower = t.toLowerCase().replace(/[\r\n\t]+/g, ' ').replace(/[._\-–—/\\()[\]₹$:,]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  if (NOISE_EXACT_TERMS.has(lower)) return true;
+  if (/^(total|sub\s*total|subtotal|grand\s*total|portfolio\s*summary|portfolio\s*valuation|holdings?\s*summary|statement\s*of\s*holdings|account\s*statement|consolidated\s*account|page\s+\d+|generated\s*on|report\s*date|as\s*on\s*date|disclaimer|terms\s*&|notes?\s*:)/i.test(t)) {
+    return true;
+  }
+  // Check if every word in the string is a column header or noise token
+  const words = lower.split(' ').filter(Boolean);
+  if (words.length > 0 && words.every((w) => NOISE_EXACT_TERMS.has(w))) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Checks if a line is CAS metadata, summary, or table noise
  */
@@ -203,6 +279,7 @@ export function isCASMetadata(text: string): boolean {
 
   // Personal information check
   if (isPersonalInfo(t)) return true;
+  if (isNonHoldingNoise(t)) return true;
 
   // Valuation summary lines are NOT scheme names
   if (/(?:market|cost|total\s*cost|current|present|latest)\s*val(?:ue)?\s*[:：]/i.test(t)) return true;
@@ -224,6 +301,7 @@ export function isValidHoldingName(text: string): boolean {
 
   // Reject personal info & metadata
   if (isPersonalInfo(t)) return false;
+  if (isNonHoldingNoise(t)) return false;
   if (isCASMetadata(t)) return false;
 
   // Allow short all-caps tickers (TCS, ITC, INFY, HDFC, RELIANCE, etc.)
@@ -638,68 +716,134 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
 // Excel / CSV / PDF Raw Grid Extraction
 // ──────────────────────────────────────────
 
+export async function extractPdfTokensAndLines(
+  file: File,
+  password?: string
+): Promise<{
+  tokens: PdfToken[];
+  sortedLines: string[];
+  rawGrid: RawFileContent;
+}> {
+  initPdfWorker();
+  const buffer = await file.arrayBuffer();
+  let pdf: any;
+
+  try {
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(buffer),
+      password: password || undefined,
+    });
+    pdf = await loadingTask.promise;
+  } catch (err: any) {
+    if (
+      err?.name === 'PasswordException' ||
+      err?.code === 1 ||
+      err?.code === 2 ||
+      String(err?.message || '').toLowerCase().includes('password')
+    ) {
+      throw new PasswordRequiredError(
+        err?.code === 2 ? 'Incorrect password for PDF.' : 'PDF is password-protected.',
+        err?.code === 2
+      );
+    }
+    throw err;
+  }
+
+  const numPages = pdf.numPages;
+  const tokens: PdfToken[] = [];
+  const lineMap = new Map<string, { text: string; x: number; width?: number }[]>();
+
+  for (let p = 1; p <= numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    for (const item of content.items as any[]) {
+      const text = String(item.str || '').trim();
+      if (text) {
+        const x = Math.round(item.transform[4]);
+        const y = Math.round(item.transform[5]);
+        tokens.push({ text, x, y, page: p, width: item.width });
+
+        const key = `${p}_${Math.round(y / 3) * 3}`;
+        if (!lineMap.has(key)) lineMap.set(key, []);
+        lineMap.get(key)!.push({ text, x, width: item.width });
+      }
+    }
+  }
+
+  // Sorted lines across pages
+  const sortedLines = Array.from(lineMap.entries())
+    .sort((a, b) => {
+      const [pageA, yA] = a[0].split('_').map(Number);
+      const [pageB, yB] = b[0].split('_').map(Number);
+      if (pageA !== pageB) return pageA - pageB;
+      return yB - yA;
+    })
+    .map(([, items]) => {
+      items.sort((a, b) => a.x - b.x);
+      return items.map((i) => i.text).join('  ');
+    });
+
+  // Reconstruct tabular rows by line with cell boundary clustering
+  const gridRows: (string | number)[][] = [];
+  const sortedEntries = Array.from(lineMap.entries()).sort((a, b) => {
+    const [pageA, yA] = a[0].split('_').map(Number);
+    const [pageB, yB] = b[0].split('_').map(Number);
+    if (pageA !== pageB) return pageA - pageB;
+    return yB - yA;
+  });
+
+  for (const [, items] of sortedEntries) {
+    items.sort((a, b) => a.x - b.x);
+    const cells: string[] = [];
+    let currentCell = '';
+    let lastRightX = -999;
+
+    for (const it of items) {
+      if (!it.text) continue;
+      if (lastRightX === -999 || it.x - lastRightX < 18) {
+        currentCell = currentCell ? `${currentCell} ${it.text}` : it.text;
+      } else {
+        if (currentCell) cells.push(currentCell);
+        currentCell = it.text;
+      }
+      lastRightX = it.x + (it.width || it.text.length * 6);
+    }
+    if (currentCell) cells.push(currentCell);
+
+    if (cells.length > 0 && !isCASMetadata(cells.join(' '))) {
+      gridRows.push(cells);
+    }
+  }
+
+  return {
+    tokens,
+    sortedLines,
+    rawGrid: { fileName: file.name, sheets: [{ sheetName: 'PDF', rows: gridRows }] },
+  };
+}
+
 export async function extractRawGrid(file: File, password?: string): Promise<RawFileContent> {
   const ext = file.name.split('.').pop()?.toLowerCase();
 
   if (ext === 'pdf') {
-    initPdfWorker();
-    const buffer = await file.arrayBuffer();
-    let pdf: any;
-
-    try {
-      const loadingTask = pdfjsLib.getDocument({
-        data: new Uint8Array(buffer),
-        password: password || undefined,
-      });
-      pdf = await loadingTask.promise;
-    } catch (err: any) {
-      if (
-        err?.name === 'PasswordException' ||
-        err?.code === 1 ||
-        err?.code === 2 ||
-        String(err?.message || '').toLowerCase().includes('password')
-      ) {
-        throw new PasswordRequiredError(
-          err?.code === 2 ? 'Incorrect password for PDF.' : 'PDF is password-protected.',
-          err?.code === 2
-        );
-      }
-      throw err;
-    }
-
-    const lines: (string | number)[][] = [];
-
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page = await pdf.getPage(p);
-      const content = await page.getTextContent();
-      const items = content.items as any[];
-
-      const rowMap = new Map<number, { text: string; x: number }[]>();
-      for (const item of items) {
-        const y = Math.round(item.transform[5] / 3) * 3;
-        if (!rowMap.has(y)) rowMap.set(y, []);
-        rowMap.get(y)!.push({ text: String(item.str || ''), x: item.transform[4] });
-      }
-
-      const sortedYs = Array.from(rowMap.keys()).sort((a, b) => b - a);
-      for (const y of sortedYs) {
-        const cells = rowMap.get(y)!.sort((a, b) => a.x - b.x).map((c) => c.text.trim()).filter(Boolean);
-        if (cells.length > 0 && !isCASMetadata(cells.join(' '))) {
-          lines.push(cells);
-        }
-      }
-    }
-
-    return { fileName: file.name, sheets: [{ sheetName: 'PDF', rows: lines }] };
+    const res = await extractPdfTokensAndLines(file, password);
+    return res.rawGrid;
   }
 
   // Word Document (.docx / .doc)
   if (ext === 'docx' || ext === 'doc') {
     const buffer = await file.arrayBuffer();
     let html = '';
+    let rawDocxText = '';
     try {
       const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
       html = result.value || '';
+    } catch (e) {
+      // ignore
+    }
+    try {
+      const textResult = await mammoth.extractRawText({ arrayBuffer: buffer });
+      rawDocxText = textResult.value || '';
     } catch (e) {
       // ignore
     }
@@ -717,11 +861,13 @@ export async function extractRawGrid(file: File, password?: string): Promise<Raw
           const tdMatches = trMatch[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi);
           for (const tdMatch of tdMatches) {
             const cleanCell = tdMatch[1]
+              .replace(/<br\s*\/?>|<\/p>|<\/div>/gi, ' ')
               .replace(/<[^>]+>/g, '')
               .replace(/&nbsp;/g, ' ')
               .replace(/&amp;/g, '&')
               .replace(/&#39;/g, "'")
               .replace(/&quot;/g, '"')
+              .replace(/\s+/g, ' ')
               .trim();
             cells.push(cleanCell);
           }
@@ -733,21 +879,42 @@ export async function extractRawGrid(file: File, password?: string): Promise<Raw
       });
     }
 
+    // Also extract paragraph lines for statements formatted without HTML tables
+    const pMatches = Array.from(html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi));
+    const pRows: (string | number)[][] = [];
+    for (const pMatch of pMatches) {
+      const text = pMatch[1]
+        .replace(/<br\s*\/?>|<\/div>/gi, ' ')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text) {
+        const parts = text.includes('\t') ? text.split('\t') : text.includes('|') ? text.split('|') : [text];
+        pRows.push(parts.map((s) => s.trim()));
+      }
+    }
+
+    if (pRows.length > 0) {
+      sheets.push({ sheetName: 'Word Document Text', rows: pRows });
+    }
+
+    if (rawDocxText.trim().length > 0 && sheets.length === 0) {
+      const rawLines = rawDocxText
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      sheets.push({ sheetName: 'Word Document', rows: rawLines.map((l) => [l]) });
+    }
+
     if (sheets.length > 0) {
       return { fileName: file.name, sheets };
     }
 
-    // Fallback for paragraph-based tables or lists
-    const pMatches = html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi);
-    const pRows: (string | number)[][] = [];
-    for (const pMatch of pMatches) {
-      const text = pMatch[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
-      if (text) {
-        const parts = text.includes('\t') ? text.split('\t') : text.includes(',') ? text.split(',') : [text];
-        pRows.push(parts.map((s) => s.trim()));
-      }
-    }
-    return { fileName: file.name, sheets: [{ sheetName: 'Word Document', rows: pRows }] };
+    return { fileName: file.name, sheets: [{ sheetName: 'Word Document', rows: [] }] };
   }
 
   // Excel / CSV / TSV
@@ -1131,20 +1298,123 @@ export async function parseInvestmentFile(
   const ext = file.name.split('.').pop()?.toLowerCase();
 
   if (ext === 'pdf') {
-    const casHoldings = await parseCASPdf(file, password);
-    const rawGrid = await extractRawGrid(file, password);
+    const { tokens, sortedLines, rawGrid } = await extractPdfTokensAndLines(file, password);
+    const autoBroker = detectBrokerFromFile(file.name, rawGrid) || undefined;
 
-    if (casHoldings.length > 0) {
-      return { holdings: casHoldings, rawGrid };
+    // ── Flow 1: Stocks & ETFs Extraction ──
+    const stocksFromPdf = extractStocksFromPdfItems(tokens, autoBroker);
+    const stocksFromGrid = extractStocksFromGrid(rawGrid, { brokerHint: autoBroker });
+    const stockHoldings = [...stocksFromPdf, ...stocksFromGrid];
+
+    // ── Flow 2: Mutual Funds Extraction ──
+    const mfFromCas = parseMutualFundsFromCASLines(sortedLines, autoBroker);
+    const mfFromPdf = extractMutualFundsFromPdfItems(tokens, autoBroker);
+    const mfFromGrid = extractMutualFundsFromGrid(rawGrid, { brokerHint: autoBroker });
+    const mfHoldings = [...mfFromCas, ...mfFromPdf, ...mfFromGrid];
+
+    // Deduplicate and combine holdings from both flows
+    const allHoldings: ParsedHolding[] = [];
+    const seen = new Set<string>();
+
+    for (const h of [...stockHoldings, ...mfHoldings]) {
+      const key = h.isin
+        ? `isin_${h.isin}`
+        : h.schemeCode
+        ? `scheme_${h.schemeCode}`
+        : h.ticker
+        ? `ticker_${h.ticker}`
+        : `${h.name.toLowerCase()}_${h.subType || ''}_${h.folioNo || ''}`.substring(0, 60);
+
+      if (!seen.has(key)) {
+        seen.add(key);
+        allHoldings.push(h);
+      }
     }
 
-    const gridHoldings = autoExtractHoldings(rawGrid);
-    return { holdings: gridHoldings, rawGrid };
+    const filteredPdfHoldings = allHoldings.filter(
+      (h) =>
+        !isNonHoldingNoise(h.name) &&
+        (h.investedAmount > 0 || h.currentValue > 0 || (h.units !== undefined && h.units > 0))
+    );
+
+    let primaryTable: DetectedTable | undefined;
+    let primaryMapping: CanonicalColumnMapping | undefined;
+
+    for (const sheet of rawGrid.sheets) {
+      const tables = detectTablesInSheet(sheet.sheetName, sheet.rows);
+      const best = selectPrimaryTable(tables);
+      if (best) {
+        primaryTable = best;
+        primaryMapping = mapHeadersToCanonical(best.headers, best.rawRows.slice(0, 5));
+        break;
+      }
+    }
+
+    if (filteredPdfHoldings.length > 0) {
+      return { holdings: filteredPdfHoldings, rawGrid, detectedTable: primaryTable, columnMapping: primaryMapping };
+    }
+
+    // Safety fallback
+    const fallbackHoldings = autoExtractHoldings(rawGrid).filter(
+      (h) =>
+        !isNonHoldingNoise(h.name) &&
+        (h.investedAmount > 0 || h.currentValue > 0 || (h.units !== undefined && h.units > 0))
+    );
+    return { holdings: fallbackHoldings, rawGrid, detectedTable: primaryTable, columnMapping: primaryMapping };
   }
 
-  // Excel / CSV / TSV / DOCX
+  // ── Spreadsheets (Excel / CSV / TSV / DOCX) ──
   const rawGrid = await extractRawGrid(file);
-  const holdings = autoExtractHoldings(rawGrid);
+  const autoBroker = detectBrokerFromFile(file.name, rawGrid) || undefined;
+
+  // Run Flow 1: Stocks & ETFs
+  const stockHoldings = extractStocksFromGrid(rawGrid, { brokerHint: autoBroker });
+
+  // Run Flow 2: Mutual Funds
+  const mfHoldings = extractMutualFundsFromGrid(rawGrid, { brokerHint: autoBroker });
+
+  // Also compile all lines across sheets to catch CAS-formatted entity statements
+  const allLines: string[] = [];
+  for (const sheet of rawGrid.sheets) {
+    for (const row of sheet.rows) {
+      const line = row
+        .filter((c) => c !== null && c !== undefined && String(c).trim() !== '')
+        .map(String)
+        .join(' ')
+        .trim();
+      if (line) allLines.push(line);
+    }
+  }
+  const mfFromCas = parseMutualFundsFromCASLines(allLines, autoBroker);
+
+  const allHoldings: ParsedHolding[] = [];
+  const seen = new Set<string>();
+
+  for (const h of [...stockHoldings, ...mfHoldings, ...mfFromCas]) {
+    if (isNonHoldingNoise(h.name)) continue;
+    if (h.investedAmount <= 0 && h.currentValue <= 0 && (!h.units || h.units <= 0)) continue;
+
+    const key = h.isin
+      ? `isin_${h.isin}`
+      : h.schemeCode
+      ? `scheme_${h.schemeCode}`
+      : h.ticker
+      ? `ticker_${h.ticker}`
+      : `${h.name.toLowerCase()}_${h.subType || ''}_${h.folioNo || ''}`.substring(0, 60);
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      allHoldings.push(h);
+    }
+  }
+
+  const fallback = autoExtractHoldings(rawGrid).filter(
+    (h) =>
+      !isNonHoldingNoise(h.name) &&
+      (h.investedAmount > 0 || h.currentValue > 0 || (h.units !== undefined && h.units > 0))
+  );
+
+  const finalHoldings = allHoldings.length > 0 ? allHoldings : fallback;
 
   let primaryTable: DetectedTable | undefined;
   let primaryMapping: CanonicalColumnMapping | undefined;
@@ -1159,11 +1429,11 @@ export async function parseInvestmentFile(
     }
   }
 
-  return { holdings, rawGrid, detectedTable: primaryTable, columnMapping: primaryMapping };
+  return { holdings: finalHoldings, rawGrid, detectedTable: primaryTable, columnMapping: primaryMapping };
 }
 
 // ──────────────────────────────────────────
-// Pasted Text Parser
+// Pasted Text Parser (Dual-Flow Integrated)
 // ──────────────────────────────────────────
 
 export function parsePastedText(text: string): ParsedHolding[] {
@@ -1182,5 +1452,30 @@ export function parsePastedText(text: string): ParsedHolding[] {
     sheets: [{ sheetName: 'Pasted', rows }],
   };
 
-  return autoExtractHoldings(raw);
+  const stocks = extractStocksFromGrid(raw);
+  const mfs = extractMutualFundsFromGrid(raw);
+  const mfFromCas = parseMutualFundsFromCASLines(lines);
+  const combined = [...stocks, ...mfs, ...mfFromCas];
+
+  const seen = new Set<string>();
+  const deduped: ParsedHolding[] = [];
+
+  for (const h of combined) {
+    if (isNonHoldingNoise(h.name)) continue;
+    if (h.investedAmount <= 0 && h.currentValue <= 0 && (!h.units || h.units <= 0)) continue;
+
+    const key = h.isin ? `isin_${h.isin}` : h.ticker ? `ticker_${h.ticker}` : h.name.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(h);
+    }
+  }
+
+  if (deduped.length > 0) return deduped;
+
+  return autoExtractHoldings(raw).filter(
+    (h) =>
+      !isNonHoldingNoise(h.name) &&
+      (h.investedAmount > 0 || h.currentValue > 0 || (h.units !== undefined && h.units > 0))
+  );
 }
