@@ -674,6 +674,8 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         }
       }
 
+      const effectiveNav = navValue > 0 ? cleanNavPrice(navValue, isMf) : (marketValue > 0 && closingUnits > 0 ? cleanNavPrice(marketValue / closingUnits, isMf) : undefined);
+
       holdings.push({
         id: `cas_${idCounter++}`,
         name: schemeName,
@@ -686,8 +688,8 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         returns: cleanCurrency(marketValue - costValue),
         units: cleanUnits(closingUnits),
         buyPrice,
-        currentPrice: navValue > 0 ? cleanNavPrice(navValue, isMf) : undefined,
-        statementPrice: navValue > 0 ? cleanNavPrice(navValue, isMf) : undefined,
+        currentPrice: effectiveNav || buyPrice,
+        statementPrice: effectiveNav,
         statementValue: cleanCurrency(marketValue),
         folioNo: folioNo || undefined,
         isin: isin || undefined,

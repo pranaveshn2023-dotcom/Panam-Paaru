@@ -131,21 +131,15 @@ function validateLivePriceAgainstHolding(
     }
   }
 
-  // Verified provider bypass: If official AMFI schemeCode, ISIN, or exchange symbol is confirmed,
-  // trust the authentic data feed directly (bypassing baseline drift checks).
-  const hasVerifiedIdentity = Boolean(
-    schemeCode ||
-    holding.schemeCode ||
-    resIsin ||
-    holding.isin ||
-    (symbol && (symbol.endsWith('.NS') || symbol.endsWith('.BO')))
-  );
-
-  if (hasVerifiedIdentity) {
-    return { valid: true };
+  // Guard 2: Stocks/ETFs must NEVER accept pure AMFI mutual fund scheme codes without stock symbol
+  if ((holding.assetType === 'stocks' || holding.assetType === 'gold') && schemeCode && !symbol) {
+    if (!holding.isin?.startsWith('INF') && !/\b(fund|scheme)\b/i.test(holding.name)) {
+      console.warn(`[PriceGuard] Rejected mutual fund scheme ${schemeCode} for equity "${holding.name}"`);
+      return { valid: false, reason: `Mutual fund scheme matched to equity` };
+    }
   }
 
-  // Determine baseline unit price ONLY from statement market price (NOT historical cost basis)
+  // Determine baseline unit price ONLY from statement market price
   let baseline = 0;
   if (holding.statementPrice && holding.statementPrice > 0) {
     baseline = holding.statementPrice;
@@ -157,12 +151,50 @@ function validateLivePriceAgainstHolding(
     baseline = holding.currentValue / holding.units;
   }
 
-  // Wide Baseline Drift Guard for unverified matches:
-  // Rejects extreme 15x or 0.05x outliers to avoid accidental cross-ticker collision
+  // Strict Bidirectional Identity Verification:
+  // Both sides must agree on ISIN, Scheme Code, or cleaned Stock Ticker.
+  const isIsinMatched = Boolean(
+    resIsin &&
+    holding.isin &&
+    resIsin.trim().toUpperCase() === holding.isin.trim().toUpperCase()
+  );
+
+  const isSchemeCodeMatched = Boolean(
+    schemeCode &&
+    holding.schemeCode &&
+    Number(schemeCode) === Number(holding.schemeCode)
+  );
+
+  const cleanSym = (s?: string) =>
+    s ? s.toUpperCase().replace(/\.(NS|BO)$/i, '').replace(/[^A-Z0-9]/g, '') : '';
+  const isTickerMatched = Boolean(
+    symbol &&
+    holding.ticker &&
+    cleanSym(symbol) === cleanSym(holding.ticker)
+  );
+
+  const hasVerifiedIdentity = isIsinMatched || isSchemeCodeMatched || isTickerMatched;
+
   if (baseline > 0) {
     const ratio = price / baseline;
-    const maxRatio = holding.assetType === 'mutual_fund' ? 8.0 : 15.0;
-    const minRatio = holding.assetType === 'mutual_fund' ? 0.12 : 0.05;
+
+    if (hasVerifiedIdentity) {
+      // Even with verified identity, guard against corrupt quotes or extreme splits
+      if (ratio > 5.0 || ratio < 0.20) {
+        console.warn(`[PriceGuard] Extreme drift for verified "${holding.name}": baseline ${baseline}, API ${price} (${ratio.toFixed(2)}x)`);
+        return {
+          valid: false,
+          reason: `Extreme verified price drift (${ratio.toFixed(2)}x from baseline ${baseline.toFixed(2)})`,
+        };
+      }
+      return { valid: true };
+    }
+
+    // Realistic Drift Guards for unverified / query-matched assets:
+    // Mutual Funds NAV change is typically < 40% from statement date to today.
+    // Stocks typically stay within 35% to 275% of statement closing price.
+    const maxRatio = holding.assetType === 'mutual_fund' ? 1.85 : 2.75;
+    const minRatio = holding.assetType === 'mutual_fund' ? 0.55 : 0.35;
 
     if (ratio > maxRatio || ratio < minRatio) {
       console.warn(
@@ -270,7 +302,10 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
    * Uses high-speed server-side batch lookup via Convex (unblocked by CORS)
    * covering AMFI, NSE, BSE, unlisted platforms, and crypto exchanges.
    */
-  const enrichHoldingsWithLivePrices = async (holdingsToEnrich: ParsedHolding[]) => {
+  const enrichHoldingsWithLivePrices = async (
+    holdingsToEnrich: ParsedHolding[],
+    isUserExplicitSync: boolean = false
+  ) => {
     if (!holdingsToEnrich || holdingsToEnrich.length === 0) return;
 
     const runId = ++enrichmentRunId.current;
@@ -319,46 +354,45 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               console.warn(`[Enrichment] Skipping price for "${h.name}": ${validation.reason}`);
               continue;
             }
-            const oldPrice = h.statementPrice || h.currentPrice || 0;
-            const cleanPrice = cleanNavPrice(res.price, h.assetType === 'mutual_fund');
-            h.currentPrice = cleanPrice;
-            h.isLiveSynced = true;
-            if (res.date) h.liveNavDate = res.date;
+
+            // Always resolve authentic identifiers without mutating statement values
             if (res.isin && !h.isin) h.isin = res.isin;
             if (res.schemeCode && !h.schemeCode) h.schemeCode = res.schemeCode;
             if (res.symbol && !h.ticker) h.ticker = res.symbol;
 
-            if (h.units && h.units > 0) {
-              h.currentValue = cleanCurrency(h.units * res.price);
-              if (h.buyPrice && h.buyPrice > 0) {
-                const computedInv = cleanCurrency(h.units * h.buyPrice);
-                if (!h.investedAmount || h.investedAmount === 0) {
-                  h.investedAmount = computedInv;
-                }
-              } else if (h.investedAmount > 0) {
-                h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(h.investedAmount / h.units, true) : cleanCurrency(h.investedAmount / h.units);
+            const cleanPrice = cleanNavPrice(res.price, h.assetType === 'mutual_fund');
+            const hasStatementPrice = typeof h.statementPrice === 'number' && h.statementPrice > 0;
+            const hasStatementVal = typeof h.statementValue === 'number' && h.statementValue > 0;
+            const hasCurrentVal = typeof h.currentValue === 'number' && h.currentValue > 0;
+
+            if (isUserExplicitSync) {
+              // User explicitly requested live market synchronization:
+              h.currentPrice = cleanPrice;
+              h.isLiveSynced = true;
+              if (res.date) h.liveNavDate = res.date;
+              if (h.units && h.units > 0) {
+                h.currentValue = cleanCurrency(h.units * res.price);
               }
-            } else if (h.investedAmount > 0 && h.buyPrice && h.buyPrice > 0) {
-              const derivedUnits = cleanUnits(h.investedAmount / h.buyPrice);
-              h.units = derivedUnits;
-              if (derivedUnits && derivedUnits > 0) {
-                h.currentValue = cleanCurrency(derivedUnits * res.price);
+              if (h.investedAmount > 0) {
+                h.returns = cleanCurrency(h.currentValue - h.investedAmount);
               }
-            } else if (oldPrice && oldPrice > 0 && h.currentValue > 0) {
-              const derivedUnits = cleanUnits(h.currentValue / oldPrice);
-              h.units = derivedUnits;
-              if (derivedUnits && derivedUnits > 0) {
-                h.currentValue = cleanCurrency(derivedUnits * res.price);
-                if (!h.buyPrice || h.buyPrice === 0) {
-                  h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(oldPrice, true) : cleanCurrency(oldPrice);
-                }
-                if (!h.investedAmount || h.investedAmount === 0) {
-                  h.investedAmount = cleanCurrency(h.statementValue || (derivedUnits * oldPrice));
-                }
-              }
+              count++;
             } else {
-              h.requiresReview = true;
-              h.reviewReasons = [...(h.reviewReasons || []), 'Units / Quantity missing in statement; please confirm holding units.'];
+              // Initial statement import: NEVER overwrite authentic file values!
+              // Only populate if statement was completely missing price or market value
+              if (!hasStatementPrice && (!h.currentPrice || h.currentPrice === 0)) {
+                h.currentPrice = cleanPrice;
+                h.isLiveSynced = true;
+                if (res.date) h.liveNavDate = res.date;
+                count++;
+              }
+              if (!hasStatementVal && !hasCurrentVal && h.units && h.units > 0) {
+                h.currentValue = cleanCurrency(h.units * cleanPrice);
+                h.isLiveSynced = true;
+                if (h.investedAmount > 0) {
+                  h.returns = cleanCurrency(h.currentValue - h.investedAmount);
+                }
+              }
             }
 
             if (h.assetType === 'other') {
@@ -403,6 +437,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
         unsynced.map(async (holding) => {
           let livePrice: number | null = null;
           let liveDate: string | undefined = undefined;
+          let liveSymbol: string | undefined = undefined;
+          let liveIsin: string | undefined = undefined;
+          let liveSchemeCode: number | undefined = undefined;
 
           try {
             // First try single-item Convex server action
@@ -424,16 +461,28 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               if (sRes && sRes.price > 0) {
                 livePrice = sRes.price;
                 if ((sRes as any)?.date) liveDate = (sRes as any).date;
+                if ((sRes as any)?.symbol) liveSymbol = (sRes as any).symbol;
+                if ((sRes as any)?.isin) liveIsin = (sRes as any).isin;
+                if ((sRes as any)?.schemeCode) liveSchemeCode = (sRes as any).schemeCode;
               }
             } catch {}
 
             // Then try direct AMFI client query if mutual fund
             if (!livePrice && holding.assetType === 'mutual_fund') {
               const isinLookup = holding.isin ? `ISIN: ${holding.isin}` : undefined;
-              const live = await fetchAmfiNav(holding.name, holding.notes || isinLookup, holding.schemeCode, holding.isin);
+              const live = await fetchAmfiNav(
+                holding.name,
+                holding.notes || isinLookup,
+                holding.schemeCode,
+                holding.isin,
+                holding.statementPrice || holding.currentPrice
+              );
               if (live && live.nav > 0) {
                 livePrice = live.nav;
                 liveDate = live.date;
+                liveSchemeCode = live.schemeCode;
+                liveIsin = live.isin;
+                liveSymbol = live.schemeName;
               }
             } else if (!livePrice && (holding.assetType === 'stocks' || holding.assetType === 'gold')) {
               const live = await fetchLiveStockPrice(
@@ -445,6 +494,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
               );
               if (live && live.price > 0) {
                 livePrice = live.price;
+                liveSymbol = live.symbol;
+                liveIsin = live.isin;
               }
             } else if (!livePrice && holding.assetType === 'crypto') {
               const live = await fetchLiveCryptoPrice(holding.name);
@@ -456,48 +507,50 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
             const idx = updatedHoldings.findIndex((h) => h.id === holding.id);
             if (idx !== -1) {
               const h = { ...updatedHoldings[idx] };
-              const validation = validateLivePriceAgainstHolding(h, { price: livePrice, isin: h.isin, schemeCode: h.schemeCode });
+              const validation = validateLivePriceAgainstHolding(h, {
+                price: livePrice,
+                symbol: liveSymbol,
+                isin: liveIsin,
+                schemeCode: liveSchemeCode,
+              });
               if (!validation.valid) {
                 console.warn(`[Enrichment Fallback] Skipping price for "${h.name}": ${validation.reason}`);
                 return;
               }
-              const oldPrice = h.statementPrice || h.currentPrice || 0;
-              const cleanPrice = cleanNavPrice(livePrice, h.assetType === 'mutual_fund');
-              h.currentPrice = cleanPrice;
-              h.isLiveSynced = true;
-              if (liveDate) h.liveNavDate = liveDate;
+              if (liveIsin && !h.isin) h.isin = liveIsin;
+              if (liveSchemeCode && !h.schemeCode) h.schemeCode = liveSchemeCode;
+              if (liveSymbol && !h.ticker && (liveSymbol.endsWith('.NS') || liveSymbol.endsWith('.BO'))) h.ticker = liveSymbol;
 
-              if (h.units && h.units > 0) {
-                h.currentValue = cleanCurrency(h.units * livePrice);
-                if (h.buyPrice && h.buyPrice > 0) {
-                  const computedInv = cleanCurrency(h.units * h.buyPrice);
-                  if (!h.investedAmount || h.investedAmount === 0) {
-                    h.investedAmount = computedInv;
-                  }
-                } else if (h.investedAmount > 0) {
-                  h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(h.investedAmount / h.units, true) : cleanCurrency(h.investedAmount / h.units);
+              const cleanPrice = cleanNavPrice(livePrice, h.assetType === 'mutual_fund');
+              const hasStatementPrice = typeof h.statementPrice === 'number' && h.statementPrice > 0;
+              const hasStatementVal = typeof h.statementValue === 'number' && h.statementValue > 0;
+              const hasCurrentVal = typeof h.currentValue === 'number' && h.currentValue > 0;
+
+              if (isUserExplicitSync) {
+                h.currentPrice = cleanPrice;
+                h.isLiveSynced = true;
+                if (liveDate) h.liveNavDate = liveDate;
+                if (h.units && h.units > 0) {
+                  h.currentValue = cleanCurrency(h.units * livePrice);
                 }
-              } else if (h.investedAmount > 0 && h.buyPrice && h.buyPrice > 0) {
-                const derivedUnits = cleanUnits(h.investedAmount / h.buyPrice);
-                h.units = derivedUnits;
-                if (derivedUnits && derivedUnits > 0) {
-                  h.currentValue = cleanCurrency(derivedUnits * livePrice);
+                if (h.investedAmount > 0) {
+                  h.returns = cleanCurrency(h.currentValue - h.investedAmount);
                 }
-              } else if (oldPrice && oldPrice > 0 && h.currentValue > 0) {
-                const derivedUnits = cleanUnits(h.currentValue / oldPrice);
-                h.units = derivedUnits;
-                if (derivedUnits && derivedUnits > 0) {
-                  h.currentValue = cleanCurrency(derivedUnits * livePrice);
-                  if (!h.buyPrice || h.buyPrice === 0) {
-                    h.buyPrice = h.assetType === 'mutual_fund' ? cleanNavPrice(oldPrice, true) : cleanCurrency(oldPrice);
-                  }
-                  if (!h.investedAmount || h.investedAmount === 0) {
-                    h.investedAmount = cleanCurrency(h.statementValue || (derivedUnits * oldPrice));
-                  }
-                }
+                count++;
               } else {
-                h.requiresReview = true;
-                h.reviewReasons = [...(h.reviewReasons || []), 'Units / Quantity missing in statement; please confirm holding units.'];
+                if (!hasStatementPrice && (!h.currentPrice || h.currentPrice === 0)) {
+                  h.currentPrice = cleanPrice;
+                  h.isLiveSynced = true;
+                  if (liveDate) h.liveNavDate = liveDate;
+                  count++;
+                }
+                if (!hasStatementVal && !hasCurrentVal && h.units && h.units > 0) {
+                  h.currentValue = cleanCurrency(h.units * cleanPrice);
+                  h.isLiveSynced = true;
+                  if (h.investedAmount > 0) {
+                    h.returns = cleanCurrency(h.currentValue - h.investedAmount);
+                  }
+                }
               }
 
               if (h.assetType === 'other') {
@@ -564,36 +617,58 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
 
     let livePrice: number | null = null;
     let liveDate: string | undefined = undefined;
+    let liveSymbol: string | undefined = undefined;
+    let liveIsin: string | undefined = undefined;
+    let liveSchemeCode: number | undefined = undefined;
 
     try {
       // Primary: Unblocked server action
       try {
+        const targetHolding = parsedHoldings.find((h) => h.id === id);
+        const sPrice =
+          (typeof targetHolding?.statementPrice === 'number' && targetHolding.statementPrice > 0 ? targetHolding.statementPrice : undefined) ||
+          (typeof targetHolding?.currentPrice === 'number' && targetHolding.currentPrice > 0 ? targetHolding.currentPrice : undefined);
+
         const serverRes = await fetchLivePriceAction({
           name: assetName,
           assetType: targetType,
           notes: notesOrIsin,
           isin: notesOrIsin,
+          statementPrice: sPrice,
           force: true,
         });
         if (serverRes && serverRes.price > 0) {
           livePrice = serverRes.price;
           const resDate = (serverRes as any)?.date;
           if (resDate) liveDate = resDate;
+          if ((serverRes as any)?.symbol) liveSymbol = (serverRes as any).symbol;
+          if ((serverRes as any)?.isin) liveIsin = (serverRes as any).isin;
+          if ((serverRes as any)?.schemeCode) liveSchemeCode = (serverRes as any).schemeCode;
         }
       } catch {}
 
       // Secondary client-side fallbacks
       if (livePrice === null || livePrice <= 0) {
+        const targetHolding = parsedHoldings.find((h) => h.id === id);
+        const sPrice =
+          (typeof targetHolding?.statementPrice === 'number' && targetHolding.statementPrice > 0 ? targetHolding.statementPrice : undefined) ||
+          (typeof targetHolding?.currentPrice === 'number' && targetHolding.currentPrice > 0 ? targetHolding.currentPrice : undefined);
+
         if (targetType === 'mutual_fund') {
-          const live = await fetchAmfiNav(assetName, notesOrIsin);
+          const live = await fetchAmfiNav(assetName, notesOrIsin, undefined, undefined, sPrice);
           if (live && live.nav > 0) {
             livePrice = live.nav;
             liveDate = live.date;
+            liveSchemeCode = live.schemeCode;
+            liveIsin = live.isin;
+            liveSymbol = live.schemeName;
           }
         } else if (targetType === 'stocks' || targetType === 'gold') {
-          const live = await fetchLiveStockPrice(assetName, notesOrIsin);
+          const live = await fetchLiveStockPrice(assetName, notesOrIsin, undefined, undefined, sPrice);
           if (live && live.price > 0) {
             livePrice = live.price;
+            liveSymbol = live.symbol;
+            liveIsin = live.isin;
           }
         } else if (targetType === 'crypto') {
           const live = await fetchLiveCryptoPrice(assetName);
@@ -616,8 +691,9 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
           if (h.id !== id) return h;
           const validation = validateLivePriceAgainstHolding(h, {
             price: livePrice!,
-            isin: h.isin,
-            schemeCode: h.schemeCode,
+            symbol: liveSymbol,
+            isin: liveIsin,
+            schemeCode: liveSchemeCode,
           });
           if (!validation.valid) {
             console.warn(`[RowPrice] Skipping price for "${h.name}": ${validation.reason}`);
@@ -1431,7 +1507,7 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => enrichHoldingsWithLivePrices(parsedHoldings)}
+                      onClick={() => enrichHoldingsWithLivePrices(parsedHoldings, true)}
                       className="text-[10px] font-black uppercase tracking-wider text-neutral-600 hover:text-black hover:underline flex items-center gap-1 cursor-pointer"
                       title="Re-fetch live AMFI NAVs and exchange prices"
                     >
@@ -1442,12 +1518,12 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1.5 text-xs text-neutral-600 bg-neutral-100 border border-neutral-300 px-2 py-0.5 font-bold">
-                      <span className="w-2 h-2 rounded-full bg-amber-400 inline-block shrink-0" />
-                      <span>Statement Prices</span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" />
+                      <span>Statement Values (from file)</span>
                     </div>
                     <button
                       type="button"
-                      onClick={() => enrichHoldingsWithLivePrices(parsedHoldings)}
+                      onClick={() => enrichHoldingsWithLivePrices(parsedHoldings, true)}
                       className="text-[10px] font-black uppercase tracking-wider text-[#0B6B38] hover:underline flex items-center gap-1 cursor-pointer font-bold"
                       title="Fetch live real-time market prices"
                     >
@@ -1633,8 +1709,8 @@ export const InvestmentImportModal: React.FC<InvestmentImportModalProps> = ({
                     <th className="p-2.5 text-right min-w-[80px]">QTY</th>
                     <th className="p-2.5 text-right min-w-[100px]">
                       <div className="flex items-center justify-end gap-1">
-                        <span>LIVE NAV / CP</span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#05DF72]" title="Real-time live rate from AMFI & Exchanges" />
+                        <span>NAV / CMP</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Statement Price / AMFI NAV from file. Click 'Sync Live Prices' to update." />
                       </div>
                     </th>
                     <th className="p-2.5 text-right min-w-[80px]">XIRR</th>

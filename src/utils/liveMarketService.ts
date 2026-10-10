@@ -351,7 +351,12 @@ export function isMfCandidateCompatible(candName: string, queryName: string): bo
   return true;
 }
 
-export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: string }, rawQuery: string): number {
+export function scoreSchemeCandidate(
+  item: { schemeCode: number; schemeName: string; nav?: number },
+  rawQuery: string,
+  notes?: string,
+  statementPrice?: number
+): number {
   const stripped = sanitizeTruncatedSchemeName(rawQuery);
   const qClean = stripped.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const sName = item.schemeName || '';
@@ -425,15 +430,36 @@ export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: str
     score += 40;
   }
 
-  // Direct vs Regular intent (Default to Direct)
-  const wantsDirect = /\b(direct|dir)\b/i.test(stripped);
-  const wantsRegular = /\b(regular|reg)\b/i.test(stripped);
+  // Direct vs Regular intent (Strict matching inspecting both query and notes)
+  const combinedContext = `${stripped} ${notes || ''}`;
+  const wantsDirect = /\b(direct|dir)\b/i.test(combinedContext);
+  const wantsRegular = /\b(regular|reg)\b/i.test(combinedContext);
   const isDirect = /\bdirect\b/i.test(sClean);
   const isRegular = /\bregular\b/i.test(sClean);
 
-  // 3. Strict Differentiator Token Guard:
-  // Evaluated ONLY against scheme name (sClean) so AMFI's category name like "FoF Overseas"
-  // does not falsely trigger etf/fof penalties on normal mutual funds!
+  if (wantsRegular) {
+    if (isRegular) score += 50;
+    if (isDirect) return -100;
+  } else if (wantsDirect) {
+    if (isDirect) score += 50;
+    if (isRegular) return -100;
+  }
+
+  // Growth vs IDCW intent
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(combinedContext);
+  const wantsGrowth = /\b(growth|gr)\b/i.test(combinedContext);
+  const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sClean);
+  const isGrowth = /\bgrowth\b/i.test(sClean);
+
+  if (wantsIdcw) {
+    if (isIdcw) score += 50;
+    if (isGrowth) return -100;
+  } else if (wantsGrowth) {
+    if (isGrowth) score += 50;
+    if (isIdcw) return -100;
+  }
+
+  // 3. Strict Differentiator Token Guard
   const DIFFERENTIATOR_PATTERNS = [
     { key: 'momentum', regex: /\bmomentum\b/i },
     { key: 'lowvol', regex: /\b(low\s*vol(?:atility)?|alpha)\b/i },
@@ -451,9 +477,26 @@ export function scoreSchemeCandidate(item: { schemeCode: number; schemeName: str
     const inCand = diff.regex.test(sClean);
     const inQuery = diff.regex.test(qClean);
     if (inCand && !inQuery) {
-      score -= 250; // Candidate has a specific differentiator/strategy NOT in query: massive penalty
+      score -= 250;
     } else if (!inCand && inQuery) {
-      score -= 150; // Candidate lacks the specific differentiator requested
+      score -= 150;
+    }
+  }
+
+  // Statement Price proximity bonus (graduated to differentiate Direct vs Regular)
+  if (statementPrice && statementPrice > 0 && item.nav && item.nav > 0) {
+    const ratio = item.nav / statementPrice;
+    const diff = Math.abs(ratio - 1.0);
+    if (diff <= 0.02) {
+      score += 350; // Near exact match (within 2%)
+    } else if (diff <= 0.05) {
+      score += 250; // Within 5%
+    } else if (diff <= 0.10) {
+      score += 150; // Within 10%
+    } else if (diff <= 0.20) {
+      score += 60;  // Within 20%
+    } else if (ratio < 0.60 || ratio > 1.60) {
+      score -= 200; // Excessive drift for mutual fund NAV
     }
   }
 
@@ -629,7 +672,7 @@ export async function fetchAmfiNav(
           if (Array.isArray(list)) {
             for (const item of list) {
               if (!candidateMap.has(item.schemeCode)) {
-                const score = scoreSchemeCandidate(item, fundName);
+                const score = scoreSchemeCandidate(item, fundName, notes, statementPrice);
                 candidateMap.set(item.schemeCode, { ...item, score });
               }
             }
@@ -701,6 +744,14 @@ export async function fetchAmfiNav(
     if (validResults.length === 0) return null;
 
     validResults.sort((a, b) => {
+      if (statementPrice && statementPrice > 0) {
+        const diffA = Math.abs(a.nav - statementPrice);
+        const diffB = Math.abs(b.nav - statementPrice);
+        // If one candidate is significantly closer to statement price (e.g. Regular vs Direct)
+        if (Math.abs(diffA - diffB) / statementPrice > 0.03) {
+          return diffA - diffB;
+        }
+      }
       if (b.score !== a.score) return b.score - a.score;
       if (a.isDirect && !b.isDirect) return -1;
       if (!a.isDirect && b.isDirect) return 1;
@@ -1172,6 +1223,12 @@ export async function fetchLiveStockPrice(
     const meta = data?.chart?.result?.[0]?.meta;
     const parsed = meta ? parseYahooQuoteMeta(meta) : null;
     if (parsed && parsed.price > 0) {
+      if (statementPrice && statementPrice > 0 && !isinMatch) {
+        const ratio = parsed.price / statementPrice;
+        if (ratio < 0.35 || ratio > 2.85) {
+          continue; // Excessive drift for unverified candidate, try next candidate
+        }
+      }
       const result = { price: parsed.price, prevClose: parsed.prevClose, symbol: sym, isin: isinMatch };
       clientStockPriceCache.set(cacheKey, { ...result, timestamp: Date.now() });
       if (cacheKey !== clean) {

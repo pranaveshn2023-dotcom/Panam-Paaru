@@ -196,18 +196,18 @@ export function parseMutualFundsFromCASLines(
       }
     }
 
-    // Mathematical derivation
+    // Authentic statement derivations directly from file
+    if (navValue === 0 && marketValue > 0 && closingUnits > 0) {
+      navValue = cleanNavPrice(marketValue / closingUnits, true);
+    }
     if (marketValue === 0 && closingUnits > 0 && navValue > 0) {
       marketValue = cleanCurrency(closingUnits * navValue);
     }
+    if (avgBuyPrice === 0 && costValue > 0 && closingUnits > 0) {
+      avgBuyPrice = cleanNavPrice(costValue / closingUnits, true);
+    }
     if (costValue === 0 && closingUnits > 0 && avgBuyPrice > 0) {
       costValue = cleanCurrency(closingUnits * avgBuyPrice);
-    }
-    if (costValue === 0 && marketValue > 0) {
-      costValue = marketValue;
-    }
-    if (costValue > 0 && marketValue === 0) {
-      marketValue = costValue;
     }
 
     let buyPrice: number | undefined;
@@ -218,6 +218,8 @@ export function parseMutualFundsFromCASLines(
     }
 
     if (costValue <= 0 && marketValue <= 0 && closingUnits <= 0) continue;
+
+    const effectiveNav = navValue > 0 ? cleanNavPrice(navValue, true) : (marketValue > 0 && closingUnits > 0 ? cleanNavPrice(marketValue / closingUnits, true) : undefined);
 
     const detailed = detectDetailedAssetType(schemeName, 'Mutual Fund');
     const amc = detectAmcFromText(schemeName)?.name;
@@ -254,8 +256,8 @@ export function parseMutualFundsFromCASLines(
       returns: cleanCurrency(marketValue - costValue),
       units: cleanUnits(closingUnits),
       buyPrice,
-      currentPrice: navValue > 0 ? cleanNavPrice(navValue, true) : buyPrice,
-      statementPrice: navValue > 0 ? cleanNavPrice(navValue, true) : buyPrice,
+      currentPrice: effectiveNav || buyPrice,
+      statementPrice: effectiveNav,
       statementValue: cleanCurrency(Math.max(0, marketValue)),
       xirr: xirrValue,
       notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
@@ -377,25 +379,23 @@ export function extractMutualFundsFromGrid(
         let current = curValCol !== -1 ? parseCleanNumber(dRow[curValCol]) : 0;
         const xirr = xirrCol !== -1 ? cleanXirr(dRow[xirrCol]) : undefined;
 
-        // Mathematical derivations
+        // Authentic statement derivations
+        if (nav === 0 && current > 0 && units && units > 0) {
+          nav = cleanNavPrice(current / units, true);
+        }
         if (current === 0 && units && units > 0 && nav && nav > 0) {
           current = cleanCurrency(units * nav);
+        }
+        if (buyNav === 0 && invested > 0 && units && units > 0) {
+          buyNav = cleanNavPrice(invested / units, true);
         }
         if (invested === 0 && units && units > 0 && buyNav && buyNav > 0) {
           invested = cleanCurrency(units * buyNav);
         }
-        if (invested === 0 && current > 0) invested = current;
-        if (current === 0 && invested > 0) current = invested;
-
-        if ((!buyNav || buyNav <= 0) && units && units > 0 && invested > 0) {
-          buyNav = cleanNavPrice(invested / units, true);
-        }
-        if ((!nav || nav <= 0) && units && units > 0 && current > 0) {
-          nav = cleanNavPrice(current / units, true);
-        }
 
         if (invested <= 0 && current <= 0 && (!units || units <= 0)) continue;
 
+        const effectiveGridNav = nav && nav > 0 ? cleanNavPrice(nav, true) : (current > 0 && units && units > 0 ? cleanNavPrice(current / units, true) : undefined);
         const cleanName = rawName.replace(/\s+/g, ' ').trim();
         const detailed = detectDetailedAssetType(cleanName, 'Mutual Fund');
         const amc = detectAmcFromText(cleanName)?.name;
@@ -431,8 +431,8 @@ export function extractMutualFundsFromGrid(
           returns: cleanCurrency(current - invested),
           units: cleanUnits(units),
           buyPrice: buyNav && buyNav > 0 ? cleanNavPrice(buyNav, true) : undefined,
-          currentPrice: nav && nav > 0 ? cleanNavPrice(nav, true) : buyNav,
-          statementPrice: nav && nav > 0 ? cleanNavPrice(nav, true) : buyNav,
+          currentPrice: effectiveGridNav || (buyNav && buyNav > 0 ? cleanNavPrice(buyNav, true) : undefined),
+          statementPrice: effectiveGridNav,
           statementValue: cleanCurrency(Math.max(0, current)),
           xirr,
           notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
@@ -577,16 +577,17 @@ export function extractMutualFundsFromPdfItems(
         }
       }
 
+      if (nav === 0 && current > 0 && units > 0) {
+        nav = cleanNavPrice(current / units, true);
+      }
       if (invested === 0 && units > 0 && buyNav > 0) invested = cleanCurrency(units * buyNav);
       if (current === 0 && units > 0 && nav > 0) current = cleanCurrency(units * nav);
-      if (invested === 0 && current > 0) invested = current;
-      if (current === 0 && invested > 0) current = invested;
 
       if ((!buyNav || buyNav <= 0) && units > 0 && invested > 0) buyNav = cleanNavPrice(invested / units, true);
-      if ((!nav || nav <= 0) && units > 0 && current > 0) nav = cleanNavPrice(current / units, true);
 
       if (invested <= 0 && current <= 0 && units <= 0) continue;
 
+      const effectivePdfNav = nav && nav > 0 ? cleanNavPrice(nav, true) : (current > 0 && units > 0 ? cleanNavPrice(current / units, true) : undefined);
       const cleanName = rawName.replace(/\s+/g, ' ').trim();
       const detailed = detectDetailedAssetType(cleanName, 'Mutual Fund');
       const amc = detectAmcFromText(cleanName)?.name;
@@ -614,8 +615,8 @@ export function extractMutualFundsFromPdfItems(
         returns: cleanCurrency(current - invested),
         units: cleanUnits(units),
         buyPrice: buyNav && buyNav > 0 ? cleanNavPrice(buyNav, true) : undefined,
-        currentPrice: nav && nav > 0 ? cleanNavPrice(nav, true) : buyNav,
-        statementPrice: nav && nav > 0 ? cleanNavPrice(nav, true) : buyNav,
+        currentPrice: effectivePdfNav || (buyNav && buyNav > 0 ? cleanNavPrice(buyNav, true) : undefined),
+        statementPrice: effectivePdfNav,
         statementValue: cleanCurrency(Math.max(0, current)),
         notes: notesParts.length > 0 ? notesParts.join(' | ') : undefined,
         selected: true,

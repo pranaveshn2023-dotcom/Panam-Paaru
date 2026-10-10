@@ -721,6 +721,8 @@ export const batchAdd = mutation({
             sector: item.sector || existing.sector,
             broker: item.broker || args.broker || existing.broker,
             notes: item.notes || existing.notes,
+            manualPrice: true,
+            manualPriceUpdatedAt: now,
             importBatchId: batchId || existing.importBatchId,
             updatedAt: now,
           });
@@ -738,6 +740,8 @@ export const batchAdd = mutation({
             isin: autoIsin ?? existing.isin,
             ticker: item.ticker ?? existing.ticker,
             xirr: item.xirr || existing.xirr,
+            manualPrice: true,
+            manualPriceUpdatedAt: now,
             updatedAt: now,
           };
 
@@ -769,6 +773,8 @@ export const batchAdd = mutation({
           sipDay: item.sipDay,
           xirr: item.xirr,
           notes: item.notes,
+          manualPrice: true,
+          manualPriceUpdatedAt: now,
           createdAt: now,
           updatedAt: now,
         });
@@ -1513,6 +1519,13 @@ async function fetchStockQuote(
   if (candidates.length > 0) {
     try {
       const batchMap = await fetchBatchYahooQuotes(candidates);
+      const scoredQuotes: {
+        sym: string;
+        price: number;
+        prevClose?: number;
+        score: number;
+      }[] = [];
+
       for (const sym of candidates) {
         const q = batchMap.get(sym);
         if (q && typeof q.price === "number" && q.price > 0) {
@@ -1526,12 +1539,38 @@ async function fetchStockQuote(
             }
           }
 
-          // Price plausibility validation against statement baseline (only if no verified ISIN)
-          if (statementPrice && statementPrice > 0 && !isin) {
+          let score = 50;
+          const cleanSym = sym.replace(/\.(NS|BO)$/i, "").toUpperCase();
+          if (knownTicker && cleanSym === knownTicker.replace(/\.(NS|BO)$/i, "").toUpperCase()) {
+            score += 350;
+          }
+          if (cleanSym === clean || cleanSym === strippedCorporate.replace(/[^A-Z0-9]/g, "")) {
+            score += 250;
+          }
+          if (highPriorityCandidates.includes(sym)) {
+            score += 100;
+          }
+          if (sym.endsWith(".NS")) {
+            score += 25;
+          }
+
+          // Evaluate statementPrice proximity if available
+          if (statementPrice && statementPrice > 0) {
             const ratio = price / statementPrice;
-            if (ratio > 8.0 || ratio < 0.10) {
-              // Plausibility check failed: price drift is too extreme for a matched stock without ISIN
-              continue;
+            const diff = Math.abs(ratio - 1.0);
+            if (diff <= 0.05) {
+              score += 250; // Within 5% of statement price
+            } else if (diff <= 0.15) {
+              score += 150; // Within 15%
+            } else if (diff <= 0.35) {
+              score += 75;
+            } else if (ratio < 0.35 || ratio > 2.85) {
+              // Wild divergence from statement price: heavily penalize unless verified by ISIN
+              if (!isin) {
+                score -= 300;
+              } else {
+                score -= 100;
+              }
             }
           }
 
@@ -1539,10 +1578,24 @@ async function fetchStockQuote(
             change !== undefined
               ? price - change
               : q.prevClose;
-          return {
+
+          scoredQuotes.push({
+            sym,
             price,
             prevClose,
-            symbol: sym,
+            score,
+          });
+        }
+      }
+
+      if (scoredQuotes.length > 0) {
+        scoredQuotes.sort((a, b) => b.score - a.score);
+        const best = scoredQuotes.find((sq) => sq.score > 0);
+        if (best) {
+          return {
+            price: best.price,
+            prevClose: best.prevClose,
+            symbol: best.sym,
             isin: isin || undefined,
           };
         }
@@ -1590,6 +1643,14 @@ async function fetchStockQuote(
           price = Math.round(price * usdInr * 100) / 100;
           if (change !== undefined) {
             change = Math.round(change * usdInr * 100) / 100;
+          }
+        }
+
+        // Statement price sanity check in individual fallback
+        if (statementPrice && statementPrice > 0 && !isin) {
+          const ratio = price / statementPrice;
+          if (ratio < 0.35 || ratio > 2.85) {
+            continue; // Drift too high for unverified symbol
           }
         }
 
@@ -2355,7 +2416,8 @@ export function isMfCandidateCompatible(candName: string, queryName: string): bo
 export function scoreMfCandidate(
   item: { schemeCode: number; schemeName: string; amc?: string; category?: string; nav?: number },
   rawQuery: string,
-  statementPrice?: number
+  statementPrice?: number,
+  notes?: string
 ): number {
   const stripped = sanitizeTruncatedSchemeName(rawQuery);
   const qClean = stripped.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -2433,31 +2495,32 @@ export function scoreMfCandidate(
     score += 40;
   }
 
-  // Direct vs Regular intent (Strict matching without defaulting)
-  const wantsDirect = /\b(direct|dir)\b/i.test(stripped);
-  const wantsRegular = /\b(regular|reg)\b/i.test(stripped);
+  // Direct vs Regular intent (Strict matching checking both query and notes)
+  const combinedContext = `${stripped} ${notes || ''}`;
+  const wantsDirect = /\b(direct|dir)\b/i.test(combinedContext);
+  const wantsRegular = /\b(regular|reg)\b/i.test(combinedContext);
   const isDirect = /\bdirect\b/i.test(sFull);
   const isRegular = /\bregular\b/i.test(sFull);
 
   if (wantsRegular) {
-    if (isRegular) score += 40;
+    if (isRegular) score += 50;
     if (isDirect) return -100; // Reject Direct scheme when Regular is requested
   } else if (wantsDirect) {
-    if (isDirect) score += 40;
+    if (isDirect) score += 50;
     if (isRegular) return -100; // Reject Regular scheme when Direct is requested
   }
 
-  // Growth vs IDCW intent (Strict matching without defaulting)
-  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(stripped);
-  const wantsGrowth = /\b(growth|gr)\b/i.test(stripped);
+  // Growth vs IDCW intent (Strict matching checking both query and notes)
+  const wantsIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(combinedContext);
+  const wantsGrowth = /\b(growth|gr)\b/i.test(combinedContext);
   const isIdcw = /\b(idcw|dividend|payout|reinvestment)\b/i.test(sFull);
   const isGrowth = /\bgrowth\b/i.test(sFull);
 
   if (wantsIdcw) {
-    if (isIdcw) score += 40;
+    if (isIdcw) score += 50;
     if (isGrowth) return -100; // Reject Growth when IDCW is requested
   } else if (wantsGrowth) {
-    if (isGrowth) score += 40;
+    if (isGrowth) score += 50;
     if (isIdcw) return -100; // Reject IDCW when Growth is requested
   }
 
@@ -2487,13 +2550,20 @@ export function scoreMfCandidate(
     }
   }
 
-  // Statement Price proximity bonus (exact mutual fund NAV matching bonus without false rejection penalty)
+  // Statement Price proximity bonus (graduated to differentiate Direct vs Regular plans)
   if (statementPrice && statementPrice > 0 && item.nav && item.nav > 0) {
     const ratio = item.nav / statementPrice;
-    if (ratio >= 0.88 && ratio <= 1.12) {
-      score += 150;
-    } else if (ratio >= 0.75 && ratio <= 1.25) {
-      score += 70;
+    const diff = Math.abs(ratio - 1.0);
+    if (diff <= 0.02) {
+      score += 350; // Near exact match (within 2%)
+    } else if (diff <= 0.05) {
+      score += 250; // Within 5%
+    } else if (diff <= 0.10) {
+      score += 150; // Within 10%
+    } else if (diff <= 0.20) {
+      score += 60;  // Within 20%
+    } else if (ratio < 0.60 || ratio > 1.60) {
+      score -= 200; // Excessive drift for mutual fund NAV
     }
   }
 
@@ -2829,11 +2899,17 @@ export async function fetchMfNav(
         const score = scoreMfCandidate(
           { schemeCode: item.code, schemeName: item.name, amc: item.amc, category: item.category, nav: item.nav },
           strippedName,
-          statementPrice
+          statementPrice,
+          notes
         );
         if (score > bestTableScore && score >= 50) {
           bestTableScore = score;
           bestTableMatch = item;
+        } else if (score === bestTableScore && bestTableMatch && statementPrice && statementPrice > 0) {
+          // Tie-breaker: pick candidate whose NAV is closest to statement price
+          if (Math.abs(item.nav - statementPrice) < Math.abs(bestTableMatch.nav - statementPrice)) {
+            bestTableMatch = item;
+          }
         }
       }
 
@@ -2909,9 +2985,12 @@ export async function fetchMfNav(
 
       if (candidateMap.size > 0) {
         const sorted = Array.from(candidateMap.values())
-          .map((item) => ({ ...item, score: scoreMfCandidate(item, strippedName, statementPrice) }))
+          .map((item) => ({ ...item, score: scoreMfCandidate(item, strippedName, statementPrice, notes) }))
           .filter((item) => item.score >= 40)
-          .sort((a, b) => b.score - a.score);
+          .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return 0;
+          });
 
         // Check top candidates in order and pick the highest scoring ACTIVE candidate that passes drift sanity
         for (const cand of sorted.slice(0, 5)) {
