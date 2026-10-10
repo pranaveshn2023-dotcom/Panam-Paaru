@@ -2776,7 +2776,7 @@ export async function fetchMfNav(
   // 1. Instant Fast-Path: If scheme code is known, query high-speed mirror first (<200ms).
   // IMPORTANT: Reject defunct / discontinued schemes whose latest NAV is older than 45 days,
   // or schemes whose name or NAV drastically mismatches the query!
-  if (codeNum && codeNum > 0 && codeNum !== 102957) {
+  if (codeNum && codeNum > 0) {
     try {
       const latestRes = await fetch(`https://api.mfapi.in/mf/${codeNum}/latest`, {
         headers: AMFI_CLEAN_HEADERS,
@@ -2856,7 +2856,7 @@ export async function fetchMfNav(
         const isinList: any[] = await isinSearchRes.json();
         if (Array.isArray(isinList) && isinList.length > 0) {
           const exactCand = isinList[0];
-          if (exactCand.schemeCode && exactCand.schemeCode > 0 && exactCand.schemeCode !== 102957) {
+          if (exactCand.schemeCode && exactCand.schemeCode > 0) {
             const latestRes = await fetch(`https://api.mfapi.in/mf/${exactCand.schemeCode}/latest`, {
               headers: AMFI_CLEAN_HEADERS,
               signal: AbortSignal.timeout(3500),
@@ -2973,7 +2973,7 @@ export async function fetchMfNav(
             const list: any[] = await searchRes.json();
             if (Array.isArray(list)) {
               for (const item of list) {
-                if (item.schemeCode !== 102957 && !candidateMap.has(item.schemeCode)) {
+                if (item.schemeCode && !candidateMap.has(item.schemeCode)) {
                   candidateMap.set(item.schemeCode, item);
                 }
               }
@@ -3290,7 +3290,7 @@ export const internalPurgeStaleMfCache = internalMutation({
 });
 
 /**
- * Purges defunct schemes (e.g. scheme 102957 or any record with navDate > 45 days old).
+ * Purges defunct schemes (any record with navDate > 45 days old or invalid/stale NAV).
  */
 export const internalPurgeDeadMfCache = mutation({
   args: {},
@@ -3301,7 +3301,7 @@ export const internalPurgeDeadMfCache = mutation({
     for (const item of all) {
       const dateMs = item.navDate ? parseNavDateToMs(item.navDate) : 0;
       const isIncompatible = item.searchKey && item.schemeName ? !isMfCandidateCompatible(item.schemeName, item.searchKey) : false;
-      const isDead = item.schemeCode === 102957 || !dateMs || (now - dateMs) > 45 * 24 * 60 * 60 * 1000 || item.nav <= 0 || isIncompatible;
+      const isDead = !dateMs || (now - dateMs) > 45 * 24 * 60 * 60 * 1000 || item.nav <= 0 || isIncompatible;
       if (isDead) {
         await ctx.db.delete(item._id);
         purged++;
@@ -3643,8 +3643,8 @@ async function getOrFetchMfNavWithCache(
   const expectedDateMs = parseNavDateToMs(expectedDate);
   const cachedDateMs = cached?.navDate ? parseNavDateToMs(cached.navDate) : 0;
   const isCachedCompatible = cached ? isMfCandidateCompatible(cached.schemeName, cleanKey) : false;
-  // If the cached entry's navDate is older than 45 days, scheme is known defunct (102957), or fails differentiator check, reject it completely
-  const isCachedDead = !cachedDateMs || (now - cachedDateMs) > 45 * 24 * 60 * 60 * 1000 || cached?.schemeCode === 102957 || !isCachedCompatible;
+  // If the cached entry's navDate is older than 45 days, or fails differentiator check, reject it completely
+  const isCachedDead = !cachedDateMs || (now - cachedDateMs) > 45 * 24 * 60 * 60 * 1000 || !isCachedCompatible;
   // If the cached entry's navDate is earlier than expected latest trade date, it is mathematically stale
   const isDateStale = isCachedDead || !cached?.navDate || cachedDateMs < expectedDateMs;
 
@@ -5131,7 +5131,7 @@ export const searchMarketAssets = action({
         const now = Date.now();
 
         // Exact scheme code fast-path
-        if (!isNaN(codeNum) && codeNum > 100000 && codeNum !== 102957) {
+        if (!isNaN(codeNum) && codeNum > 100000) {
           try {
             const detailRes = await fetch(`https://api.mfapi.in/mf/${codeNum}/latest`, {
               headers: AMFI_CLEAN_HEADERS,
@@ -5240,7 +5240,7 @@ export const searchMarketAssets = action({
                 const list: any[] = await res.json();
                 if (Array.isArray(list)) {
                   for (const item of list) {
-                    if (item.schemeCode !== 102957 && !candidateMap.has(item.schemeCode)) {
+                    if (item.schemeCode && !candidateMap.has(item.schemeCode)) {
                       candidateMap.set(item.schemeCode, item);
                     }
                   }

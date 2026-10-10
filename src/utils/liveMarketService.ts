@@ -2040,7 +2040,7 @@ export async function searchIndianMutualFunds(
         const list: Array<{ schemeCode: number; schemeName: string }> = await res.json();
         if (Array.isArray(list)) {
           for (const item of list) {
-            if (item.schemeCode !== 102957 && !candidateMap.has(item.schemeCode)) {
+            if (item.schemeCode && !candidateMap.has(item.schemeCode)) {
               candidateMap.set(item.schemeCode, item);
             }
           }

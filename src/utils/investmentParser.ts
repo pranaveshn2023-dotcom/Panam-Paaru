@@ -620,7 +620,7 @@ async function parseCASPdf(file: File, password?: string): Promise<ParsedHolding
         if (/\b(purchase|sip|switch\s*in|allotment)\b/i.test(txLine) && !/redemption|switch\s*out/i.test(txLine)) {
           const nums = txLine.match(/[\d,]+(?:\.\d+)?/g);
           if (nums && nums.length >= 2) {
-            const parsed = nums.map(parseCleanNumber).filter((n) => n > 10 && n < 10000000);
+            const parsed = nums.map(parseCleanNumber).filter((n) => n > 0 && isFinite(n));
             if (parsed.length > 0) txSum += parsed[0];
           }
         }
@@ -1102,7 +1102,6 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
           buyPrice = cleanNavPrice(invested / resolvedUnits, isMfIdentity);
         }
 
-        if (invested > 500000000 || current > 500000000) continue;
 
         if (invested > 0 || current > 0 || (units !== undefined && units > 0)) {
           const resolved = resolveSecurityIdentity(
@@ -1207,7 +1206,7 @@ export function autoExtractHoldings(raw: RawFileContent): ParsedHolding[] {
         const nums: number[] = [];
         row.forEach((cell: any) => {
           const n = parseCleanNumber(cell);
-          if (n > 0 && n < 500000000) nums.push(n);
+          if (n > 0 && isFinite(n)) nums.push(n);
         });
 
         if (nums.length >= 2) {
