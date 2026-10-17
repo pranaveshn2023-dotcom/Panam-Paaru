@@ -164,7 +164,7 @@ export const WalletCard: React.FC<WalletCardProps> = ({
         </span>
         <span
           className={`text-2xl font-mono font-black ${
-            wallet.balance < 0 ? 'text-[#FF4343]' : 'text-[#121212]'
+            wallet.balance < -0.005 ? 'text-[#FF4343]' : 'text-[#121212]'
           }`}
         >
           {isPrivacyMode ? '••••••' : formatPrivateAmount(wallet.balance, currencySymbol)}

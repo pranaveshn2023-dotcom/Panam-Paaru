@@ -193,7 +193,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
               </span>
               <input
                 type="number"
-                step="0.01"
+                step="any"
                 value={balance}
                 onChange={(e) => setBalance(e.target.value)}
                 placeholder="25000.00"

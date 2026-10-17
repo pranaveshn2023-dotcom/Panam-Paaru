@@ -170,7 +170,7 @@ export const ExpensesHubPage: React.FC<ExpensesHubPageProps> = ({
               {tab.badge !== undefined && (
                 <span
                   className={clsx(
-                    'text-[9px] sm:text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.2 rounded-none border',
+                    'text-[9px] sm:text-[10px] font-mono font-black px-1 sm:px-1.5 py-0.5 rounded-none border',
                     isActive
                       ? 'bg-[#FFE600] text-[#121212] border-[#FFE600]'
                       : 'bg-neutral-200 text-neutral-700 border-neutral-300'

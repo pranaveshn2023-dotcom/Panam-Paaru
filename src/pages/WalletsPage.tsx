@@ -159,7 +159,7 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
                 ACCOUNTS & WALLETS
               </span>
               <h2 className="text-2xl sm:text-3xl font-black uppercase text-[#121212] tracking-tight">
-                {isPrivacyMode ? '[ All Accounts: •••••• ]' : `[ All Accounts: ${currencySymbol}${totalBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} ]`}
+                {isPrivacyMode ? '[ All Accounts: •••••• ]' : `[ All Accounts: ${formatPrivateAmount(totalBalance, currencySymbol)} ]`}
               </h2>
               <p className="text-xs font-bold text-neutral-800 mt-0.5">
                 Manage your wallets, cards, and bank balances all in one place
@@ -186,7 +186,7 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
                 className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial"
               >
                 <Plus size={16} strokeWidth={3} className="text-[#05DF72]" />
-                <span>+ Add Account</span>
+                <span>Add Account</span>
               </NeoButton>
             </div>
           </div>
@@ -233,7 +233,7 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
       </div>
 
       {/* Account Type Filters */}
-      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll pb-1 w-full">
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll py-1.5 px-0.5 w-full">
         {TYPE_FILTERS.map((tf) => {
           const count = tf.value === 'all'
             ? wallets.length
@@ -250,7 +250,7 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
             >
               <span>{tf.label}</span>
               <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
                   selectedTypeFilter === tf.value
                     ? 'bg-[#FFE600] text-[#121212]'
                     : 'bg-neutral-100 text-neutral-600'
@@ -265,7 +265,7 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
 
       {/* Wallets Grid */}
       {filteredWallets.length === 0 ? (
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-12 text-center flex flex-col items-center gap-3">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-8 sm:p-12 text-center flex flex-col items-center gap-3">
           <div className="w-16 h-16 bg-[#FFE600] border-[3px] border-[#121212] shadow-neo flex items-center justify-center font-black">
             <WalletIcon size={32} />
           </div>
@@ -285,7 +285,7 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
           </NeoButton>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
           {filteredWallets.map((wallet) => (
             <WalletCard
               key={wallet._id}

@@ -107,7 +107,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
       </div>
 
       {/* Recurrence Filter Tabs for All, One-Time, Daily, Weekly, Monthly, Quarterly, Yearly */}
-      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll pb-1 w-full">
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-scroll py-1.5 px-0.5 w-full">
         <span className="text-xs font-black uppercase text-neutral-500 flex items-center gap-1 mr-2 shrink-0">
           <Filter size={13} /> Type:
         </span>
@@ -128,7 +128,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
 
       {/* Budget Grid */}
       {filteredBudgets.length === 0 ? (
-        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-12 text-center flex flex-col items-center gap-3">
+        <div className="bg-white border-[3px] border-[#121212] shadow-neo p-8 sm:p-12 text-center flex flex-col items-center gap-3">
           <div className="w-14 h-14 bg-[#FFE600] border-2 border-[#121212] shadow-neo flex items-center justify-center font-black">
             <CalendarSync size={28} />
           </div>
@@ -143,7 +143,7 @@ export const BudgetsPage: React.FC<BudgetsPageProps> = ({
           </NeoButton>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
           {filteredBudgets.map((b) => (
             <BudgetCard
               key={b._id}

@@ -26,12 +26,18 @@ export const PrivacyProvider: React.FC<{ children: ReactNode }> = ({ children })
     if (isPrivacyMode) {
       return '••••••';
     }
-    const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+    let num = typeof amount === 'string' ? parseFloat(amount) : amount;
     if (isNaN(num)) return `${symbol}0.00`;
-    return `${symbol}${num.toLocaleString('en-IN', {
+    // Normalize any tiny floating point residue or negative zero to 0
+    if (Math.abs(num) < 0.005 || Object.is(num, -0)) {
+      num = 0;
+    }
+    const isNegative = num < 0;
+    const formatted = Math.abs(num).toLocaleString('en-IN', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    })}`;
+    });
+    return isNegative ? `-${symbol}${formatted}` : `${symbol}${formatted}`;
   };
 
   return (

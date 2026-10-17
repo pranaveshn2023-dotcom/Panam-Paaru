@@ -184,8 +184,8 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             </span>
             <input
               type="number"
-              step="0.01"
-              min="0.01"
+              step="any"
+              min="0"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="1000.00"

@@ -690,7 +690,7 @@ export const InsightsPage: React.FC<InsightsPageProps> = ({
                           >
                             <span
                               className={`text-[9px] sm:text-[10px] font-mono font-black ${
-                                isToday ? 'bg-[#121212] text-white px-1 py-0.2 rounded-none' : 'text-neutral-800'
+                                isToday ? 'bg-[#121212] text-white px-1 py-0.5 rounded-none' : 'text-neutral-800'
                               }`}
                             >
                               {cell.day}

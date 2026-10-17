@@ -283,8 +283,8 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
             </span>
             <input
               type={showCalculator ? 'text' : 'number'}
-              step="0.01"
-              min="0.01"
+              step="any"
+              min="0"
               value={showCalculator ? (calcExpression || amount) : amount}
               onChange={(e) => {
                 const val = e.target.value;

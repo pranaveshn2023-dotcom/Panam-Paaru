@@ -262,7 +262,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                           </span>
                           <input
                             type="number"
-                            step="1"
+                            step="any"
                             min="1"
                             value={topUpState.amount}
                             onChange={(e) => handleAmountChange(budget._id, e.target.value, budget.sourceWalletId)}
@@ -283,7 +283,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                               <option value="">No Wallet</option>
                               {wallets.map((w) => (
                                 <option key={w._id} value={w._id}>
-                                  {w.name} ({currencySymbol}{w.balance.toLocaleString('en-IN')})
+                                  {w.name} ({formatPrivateAmount(w.balance, currencySymbol)})
                                 </option>
                               ))}
                             </select>

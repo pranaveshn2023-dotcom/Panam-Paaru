@@ -157,8 +157,8 @@ export const create = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Unauthorized");
 
-    if (args.amount <= 0 && (!args.initialLoadedAmount || args.initialLoadedAmount <= 0)) {
-      throw new Error("Budget limit or loaded amount must be greater than 0");
+    if (args.amount < 1 && (!args.initialLoadedAmount || args.initialLoadedAmount < 1)) {
+      throw new Error("Budget limit or loaded amount must be at least 1");
     }
 
     const initialLoaded = args.initialLoadedAmount ?? args.amount;
@@ -246,6 +246,10 @@ export const update = mutation({
       throw new Error("Budget not found or unauthorized");
     }
 
+    if (args.amount < 1) {
+      throw new Error("Budget limit must be at least 1");
+    }
+
     const isRecurring = args.isRecurring !== undefined ? args.isRecurring : (args.recurrence !== 'one_time');
 
     const newInitialLoadedAmount = args.initialLoadedAmount ?? budget.initialLoadedAmount;
@@ -283,8 +287,8 @@ export const topUp = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Unauthorized");
 
-    if (args.topUpAmount <= 0) {
-      throw new Error("Top-up amount must be greater than 0");
+    if (args.topUpAmount < 1) {
+      throw new Error("Top-up amount must be at least 1");
     }
 
     const budget = await ctx.db.get(args.id);
@@ -296,13 +300,15 @@ export const topUp = mutation({
     const currentTotal = (budget.currentLoadedAmount ?? budget.initialLoadedAmount) ?? budget.amount;
     const newTotal = currentTotal + args.topUpAmount;
 
-    // Deduct top-up amount from wallet if provided
-    const fundingWalletId = args.walletId || budget.sourceWalletId;
+    // Deduct top-up amount from wallet only if explicitly selected by the user
+    const fundingWalletId = args.walletId;
     if (fundingWalletId) {
       const wallet = await ctx.db.get(fundingWalletId);
       if (wallet && wallet.userId === userId) {
+        const nextBalance = wallet.balance - args.topUpAmount;
+        const cleanBalance = Math.abs(nextBalance) < 0.005 ? 0 : Math.round(nextBalance * 100) / 100;
         await ctx.db.patch(fundingWalletId, {
-          balance: wallet.balance - args.topUpAmount,
+          balance: cleanBalance,
           updatedAt: now,
         });
 

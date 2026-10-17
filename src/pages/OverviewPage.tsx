@@ -303,7 +303,11 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             </div>
           </div>
           <div className="text-lg sm:text-2xl font-mono font-black text-[#05DF72] truncate">
-            {isPrivacyMode ? '••••••' : `+${formatPrivateAmount(monthIncome, currencySymbol)}`}
+            {isPrivacyMode
+              ? '••••••'
+              : monthIncome > 0.005
+              ? `+${formatPrivateAmount(monthIncome, currencySymbol)}`
+              : formatPrivateAmount(0, currencySymbol)}
           </div>
           <span className="text-[9px] sm:text-[10px] font-mono font-bold text-neutral-600 truncate">
             Earned this month
@@ -321,7 +325,11 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
             </div>
           </div>
           <div className="text-lg sm:text-2xl font-mono font-black text-[#FF4343] truncate">
-            {isPrivacyMode ? '••••••' : `-${formatPrivateAmount(monthExpense, currencySymbol)}`}
+            {isPrivacyMode
+              ? '••••••'
+              : monthExpense > 0.005
+              ? `-${formatPrivateAmount(monthExpense, currencySymbol)}`
+              : formatPrivateAmount(0, currencySymbol)}
           </div>
           <span className="text-[9px] sm:text-[10px] font-mono font-bold text-neutral-600 truncate">
             Spent this month
@@ -388,8 +396,8 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {budgets.slice(0, 4).map((b) => {
                   const spent = b.spentAmount ?? 0;
-                  const total = b.amount;
-                  const percent = b.progressPercent ?? Math.round((spent / total) * 100);
+                  const total = (b.currentLoadedAmount ?? b.initialLoadedAmount) ?? b.amount;
+                  const percent = b.progressPercent ?? (total > 0 ? Math.round((spent / total) * 100) : 0);
                   const isOver = b.isOverBudget ?? spent > total;
 
                   return (
@@ -401,17 +409,17 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                         <span className="text-xs font-black uppercase text-[#121212] truncate">
                           {b.name}
                         </span>
-                        <span className="text-[10px] font-mono font-bold bg-[#FFE600] px-1.5 py-0.2 border border-[#121212]">
+                        <span className="text-[10px] font-mono font-bold bg-[#FFE600] px-1.5 py-0.5 border border-[#121212]">
                           {b.recurrence === 'one_time' ? 'ONE-TIME' : b.recurrence.toUpperCase()}
                         </span>
                       </div>
 
                       <div className="flex items-baseline justify-between text-xs font-mono font-bold">
                         <span className={isOver ? 'text-[#FF4343] font-black' : 'text-[#121212]'}>
-                          {isPrivacyMode ? '••••' : `${currencySymbol}${spent.toLocaleString()}`}
+                          {formatPrivateAmount(spent, currencySymbol)}
                         </span>
                         <span className="text-neutral-500">
-                          {isPrivacyMode ? '••••' : `/ ${currencySymbol}${total.toLocaleString()}`}
+                          / {formatPrivateAmount(total, currencySymbol)}
                         </span>
                       </div>
 

@@ -48,7 +48,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
   const handleTopUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(topUpAmount);
-    if (isNaN(val) || val <= 0 || !onTopUp) return;
+    if (isNaN(val) || val < 1 || !onTopUp) return;
     try {
       setIsToppingUp(true);
       await onTopUp(budget._id, val, selectedTopUpWallet || undefined);
@@ -64,7 +64,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
       
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 mb-1 flex-wrap">
             <span
               className="neo-badge text-[10px]"
@@ -86,24 +86,26 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
               </span>
             )}
           </div>
-          <h4 className="text-base font-black uppercase text-[#121212] tracking-tight">
+          <h4 className="text-base font-black uppercase text-[#121212] tracking-tight truncate">
             {budget.name}
           </h4>
         </div>
 
         {/* Action icons */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => setIsTopUpOpen((prev) => !prev)}
-            className="p-1.5 bg-[#05DF72] hover:bg-[#04C966] text-[#121212] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center gap-1 text-[11px] font-black"
+            className={`py-1 px-2 border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center gap-1 text-[11px] font-black ${
+              isTopUpOpen ? 'bg-[#FFE600] text-[#121212]' : 'bg-[#05DF72] hover:bg-[#04C966] text-[#121212]'
+            }`}
             title="Reload Funds into this Wallet"
           >
             <PlusCircle size={13} strokeWidth={2.5} />
-            <span className="hidden sm:inline">Reload</span>
+            <span>Reload</span>
           </button>
           <button
             onClick={() => onEdit(budget)}
-            className="p-1.5 bg-white hover:bg-[#FFE600] border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+            className="p-1.5 bg-white hover:bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
             title="Edit Budget"
           >
             <Edit size={13} strokeWidth={2.5} />
@@ -112,7 +114,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
             onClick={() => {
               if (confirm(`Delete budget "${budget.name}"?`)) onDelete(budget._id);
             }}
-            className="p-1.5 bg-white hover:bg-[#FF4343] hover:text-white border border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+            className="p-1.5 bg-white hover:bg-[#FF4343] hover:text-white border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
             title="Delete Budget"
           >
             <Trash2 size={13} strokeWidth={2.5} />
@@ -122,48 +124,96 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
 
       {/* Quick Reload Input with Wallet Deduction Option */}
       {isTopUpOpen && (
-        <form onSubmit={handleTopUpSubmit} className="p-3 bg-[#FFE600] border-2 border-[#121212] shadow-neo-sm flex flex-col sm:flex-row items-stretch sm:items-center gap-2 animate-in fade-in">
-          <span className="text-xs font-black uppercase text-[#121212] shrink-0">Reload:</span>
-          <div className="relative flex-1">
-            <span className="absolute left-2.5 top-1.5 text-xs font-mono font-bold text-neutral-600">{currencySymbol}</span>
-            <input
-              type="number"
-              step="100"
-              min="1"
-              value={topUpAmount}
-              onChange={(e) => setTopUpAmount(e.target.value)}
-              className="w-full pl-6 pr-2 py-1 text-xs font-mono font-bold bg-white border border-[#121212]"
-              required
-            />
-          </div>
-          {wallets.length > 0 && (
-            <select
-              value={selectedTopUpWallet}
-              onChange={(e) => setSelectedTopUpWallet(e.target.value)}
-              className="p-1 text-xs font-black bg-white border border-[#121212]"
+        <form onSubmit={handleTopUpSubmit} className="p-3.5 bg-[#FFFDF5] border-[3px] border-[#121212] shadow-neo flex flex-col gap-2.5 animate-in fade-in duration-150">
+          <div className="flex items-center justify-between pb-1 border-b border-neutral-200">
+            <span className="text-xs font-black uppercase text-[#121212] flex items-center gap-1">
+              <PlusCircle size={13} className="text-[#05DF72]" strokeWidth={3} />
+              Reload / Top-up Funds
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsTopUpOpen(false)}
+              className="text-xs font-black hover:bg-neutral-200 px-1.5 py-0.5 border border-transparent hover:border-[#121212] cursor-pointer"
+              title="Close reload panel"
             >
-              <option value="">-- No wallet deduction --</option>
-              {wallets.map((w) => (
-                <option key={w._id} value={w._id}>
-                  From: {w.name} ({currencySymbol}{w.balance.toLocaleString('en-IN')})
-                </option>
-              ))}
-            </select>
+              ✕
+            </button>
+          </div>
+
+          {/* Amount Input */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-black uppercase text-neutral-600">
+              Amount to Load ({currencySymbol}) *
+            </label>
+            <div className="relative flex items-center">
+              <span className="absolute left-3 text-sm font-mono font-black text-neutral-500 pointer-events-none">
+                {currencySymbol}
+              </span>
+              <input
+                type="number"
+                step="any"
+                min="1"
+                value={topUpAmount}
+                onChange={(e) => setTopUpAmount(e.target.value)}
+                placeholder="Enter amount (e.g. 500)"
+                className="w-full pl-8 pr-3 py-1.5 text-sm font-mono font-black bg-white border-2 border-[#121212] focus:outline-none focus:ring-1 focus:ring-[#121212]"
+                required
+              />
+            </div>
+          </div>
+
+          {/* Quick Preset Amount Chips */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-black uppercase text-neutral-500">Quick:</span>
+            {[100, 500, 1000, 2000, 5000].map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setTopUpAmount(String(preset))}
+                className="px-2 py-0.5 text-[10px] font-mono font-bold bg-white hover:bg-[#FFE600] text-[#121212] border border-[#121212] shadow-neo-sm active:translate-y-[1px] transition-colors cursor-pointer"
+              >
+                +{currencySymbol}{preset}
+              </button>
+            ))}
+          </div>
+
+          {/* Wallet Deduction Dropdown */}
+          {wallets.length > 0 && (
+            <div className="flex flex-col gap-1 pt-1">
+              <label className="text-[10px] font-black uppercase text-neutral-600 flex items-center gap-1">
+                <Coins size={11} /> Deduct From Account (Optional):
+              </label>
+              <select
+                value={selectedTopUpWallet}
+                onChange={(e) => setSelectedTopUpWallet(e.target.value)}
+                className="p-1.5 text-xs font-bold bg-white border-2 border-[#121212] cursor-pointer"
+              >
+                <option value="">-- No wallet deduction (Direct reload) --</option>
+                {wallets.map((w) => (
+                  <option key={w._id} value={w._id}>
+                    {w.name} (Bal: {formatPrivateAmount(w.balance, currencySymbol)})
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
-          <div className="flex items-center gap-1 shrink-0">
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 pt-1">
             <button
               type="submit"
-              disabled={isToppingUp}
-              className="px-3 py-1 bg-[#121212] text-white hover:bg-black text-xs font-black uppercase cursor-pointer"
+              disabled={isToppingUp || !topUpAmount || parseFloat(topUpAmount) < 1}
+              className="flex-1 py-1.5 px-3 bg-[#121212] text-white hover:bg-black disabled:opacity-50 text-xs font-black uppercase border-2 border-[#121212] shadow-neo-sm active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center justify-center gap-1.5"
             >
-              {isToppingUp ? '...' : '+ Load'}
+              <PlusCircle size={13} strokeWidth={2.5} className="text-[#05DF72]" />
+              <span>{isToppingUp ? 'Loading...' : `+ Load ${currencySymbol}${topUpAmount || '0'}`}</span>
             </button>
             <button
               type="button"
               onClick={() => setIsTopUpOpen(false)}
-              className="px-2 py-1 text-xs font-bold text-[#121212] cursor-pointer"
+              className="py-1.5 px-3 bg-white hover:bg-neutral-100 text-[#121212] text-xs font-black uppercase border-2 border-[#121212] cursor-pointer"
             >
-              ✕
+              Cancel
             </button>
           </div>
         </form>
@@ -214,7 +264,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
 
       {/* Cycle Boundaries & Engine Info */}
       {budget.recurrence === 'one_time' ? (
-        <div className="pt-3 border-t-2 border-neutral-100 flex items-center justify-between text-[10px] font-mono font-bold text-neutral-600">
+        <div className="pt-3 border-t-2 border-neutral-100 flex items-center justify-between gap-1.5 flex-wrap text-[10px] font-mono font-bold text-neutral-600">
           <div className="flex items-center gap-1">
             <Clock size={12} className="text-neutral-500" />
             <span>
@@ -226,7 +276,7 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
           </div>
         </div>
       ) : budget.activePeriod ? (
-        <div className="pt-3 border-t-2 border-neutral-100 flex items-center justify-between text-[10px] font-mono font-bold text-neutral-600">
+        <div className="pt-3 border-t-2 border-neutral-100 flex items-center justify-between gap-1.5 flex-wrap text-[10px] font-mono font-bold text-neutral-600">
           <div className="flex items-center gap-1">
             <Clock size={12} className="text-neutral-500" />
             <span>
@@ -240,57 +290,57 @@ export const BudgetCard: React.FC<BudgetCardProps> = ({
       ) : null}
 
       {isOver ? (
-        <div className="bg-[#FF4343] text-white p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
+        <div className="bg-[#FF4343] text-white p-2.5 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 min-w-0">
             <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
-            <span>Budget Exceeded by {formatPrivateAmount(spent - total, currencySymbol)} • Add Money</span>
+            <span>Budget Exceeded by {formatPrivateAmount(spent - total, currencySymbol)}</span>
           </div>
           <button
             onClick={() => setIsTopUpOpen(true)}
-            className="px-2 py-0.5 bg-[#121212] text-white text-[10px] font-mono uppercase cursor-pointer"
+            className="px-2.5 py-1 bg-[#121212] text-white text-[11px] font-black uppercase cursor-pointer hover:bg-neutral-900 border border-white/30 shrink-0"
           >
             + Add Money
           </button>
         </div>
       ) : budget.isLowAmount ? (
-        <div className="bg-[#FF8800] text-[#121212] p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
+        <div className="bg-[#FF8800] text-[#121212] p-2.5 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 min-w-0">
             <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
             <span>
               {budget.alertTarget === 'wallet'
-                ? `Alert Reached: ${budget.sourceWalletName || 'Account'} balance below ${formatPrivateAmount(budget.lowBalanceThresholdAmount ?? 0, currencySymbol)}`
-                : `Alert Reached: Below ${formatPrivateAmount(budget.lowBalanceThresholdAmount ?? 0, currencySymbol)} (${formatPrivateAmount(remaining, currencySymbol)} left)`}
+                ? `Alert: ${budget.sourceWalletName || 'Account'} balance below ${formatPrivateAmount(budget.lowBalanceThresholdAmount ?? 0, currencySymbol)}`
+                : `Alert: Below ${formatPrivateAmount(budget.lowBalanceThresholdAmount ?? 0, currencySymbol)} (${formatPrivateAmount(remaining, currencySymbol)} left)`}
             </span>
           </div>
           <button
             onClick={() => setIsTopUpOpen(true)}
-            className="px-2 py-0.5 bg-[#121212] text-white text-[10px] font-mono uppercase cursor-pointer"
+            className="px-2.5 py-1 bg-[#121212] text-white text-[11px] font-black uppercase cursor-pointer hover:bg-neutral-900 shrink-0"
           >
             + Add Money
           </button>
         </div>
       ) : budget.isLowPercent ? (
-        <div className="bg-[#FF8800] text-[#121212] p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
+        <div className="bg-[#FF8800] text-[#121212] p-2.5 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 min-w-0">
             <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
-            <span>Alert Reached: Under {budget.lowBalanceThresholdPercent}% remaining ({formatPrivateAmount(remaining, currencySymbol)} left)</span>
+            <span>Alert: Under {budget.lowBalanceThresholdPercent}% remaining ({formatPrivateAmount(remaining, currencySymbol)} left)</span>
           </div>
           <button
             onClick={() => setIsTopUpOpen(true)}
-            className="px-2 py-0.5 bg-[#121212] text-white text-[10px] font-mono uppercase cursor-pointer"
+            className="px-2.5 py-1 bg-[#121212] text-white text-[11px] font-black uppercase cursor-pointer hover:bg-neutral-900 shrink-0"
           >
             + Add Money
           </button>
         </div>
       ) : isWarning ? (
-        <div className="bg-[#FFE600] text-[#121212] p-2 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
+        <div className="bg-[#FFE600] text-[#121212] p-2.5 border-2 border-[#121212] shadow-neo-sm text-xs font-black flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 min-w-0">
             <AlertTriangle size={15} strokeWidth={3} className="shrink-0" />
             <span>Alert Reached ({percent}% used)</span>
           </div>
           <button
             onClick={() => setIsTopUpOpen(true)}
-            className="px-2 py-0.5 bg-[#121212] text-white text-[10px] font-mono uppercase cursor-pointer"
+            className="px-2.5 py-1 bg-[#121212] text-white text-[11px] font-black uppercase cursor-pointer hover:bg-neutral-900 shrink-0"
           >
             + Add Money
           </button>
