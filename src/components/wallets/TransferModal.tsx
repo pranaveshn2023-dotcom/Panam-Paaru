@@ -4,6 +4,7 @@ import { NeoButton } from '../ui/NeoButton';
 import { Wallet } from '../../types';
 import { ArrowRightLeft, ArrowDown, Wallet as WalletIcon, Calendar } from 'lucide-react';
 import { getWalletIcon } from './WalletCard';
+import { formatCurrency } from '../../context/PrivacyContext';
 
 interface TransferModalProps {
   isOpen: boolean;
@@ -128,13 +129,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             >
               {wallets.map((w) => (
                 <option key={w._id} value={w._id}>
-                  {w.name} ({currencySymbol}{w.balance.toLocaleString('en-IN')})
+                  {w.name} ({formatCurrency(w.balance, currencySymbol)})
                 </option>
               ))}
             </select>
             {fromWallet && (
               <span className="text-[10px] font-mono font-bold text-neutral-600 mt-1 block">
-                Available: {currencySymbol}{fromWallet.balance.toLocaleString('en-IN')}
+                Available: {formatCurrency(fromWallet.balance, currencySymbol)}
               </span>
             )}
           </div>
@@ -161,13 +162,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             >
               {wallets.map((w) => (
                 <option key={w._id} value={w._id} disabled={w._id === fromWalletId}>
-                  {w.name} ({currencySymbol}{w.balance.toLocaleString('en-IN')})
+                  {w.name} ({formatCurrency(w.balance, currencySymbol)})
                 </option>
               ))}
             </select>
             {toWallet && (
               <span className="text-[10px] font-mono font-bold text-neutral-600 mt-1 block">
-                Available: {currencySymbol}{toWallet.balance.toLocaleString('en-IN')}
+                Available: {formatCurrency(toWallet.balance, currencySymbol)}
               </span>
             )}
           </div>
@@ -211,13 +212,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <div className="flex justify-between">
               <span>{fromWallet.name} after transfer:</span>
               <span className="font-mono font-black">
-                {currencySymbol}{(fromWallet.balance - numAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                {formatCurrency(fromWallet.balance - numAmount, currencySymbol, 2, 2)}
               </span>
             </div>
             <div className="flex justify-between">
               <span>{toWallet.name} after transfer:</span>
               <span className="font-mono font-black">
-                {currencySymbol}{(toWallet.balance + numAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                {formatCurrency(toWallet.balance + numAmount, currencySymbol, 2, 2)}
               </span>
             </div>
           </div>

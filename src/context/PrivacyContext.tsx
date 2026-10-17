@@ -54,6 +54,24 @@ export const PrivacyProvider: React.FC<{ children: ReactNode }> = ({ children })
   );
 };
 
+export const formatCurrency = (
+  amount: number | string,
+  symbol = '₹',
+  minDecimals = 0,
+  maxDecimals = 2
+): string => {
+  let num = typeof amount === 'string' ? parseFloat(amount) : amount;
+  if (isNaN(num) || Math.abs(num) < 0.005 || Object.is(num, -0)) {
+    num = 0;
+  }
+  const isNegative = num < 0;
+  const formatted = Math.abs(num).toLocaleString('en-IN', {
+    minimumFractionDigits: minDecimals,
+    maximumFractionDigits: maxDecimals,
+  });
+  return isNegative ? `-${symbol}${formatted}` : `${symbol}${formatted}`;
+};
+
 export const usePrivacy = () => {
   const context = useContext(PrivacyContext);
   if (!context) {

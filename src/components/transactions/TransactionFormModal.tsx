@@ -5,6 +5,7 @@ import { NeoInput } from '../ui/NeoInput';
 import { Transaction, TransactionType, Category, Wallet } from '../../types';
 import { ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Calendar, Tag, FileText, Wallet as WalletIcon, Plus, Calculator, Delete } from 'lucide-react';
 import { CategoryFormModal } from '../categories/CategoryFormModal';
+import { formatCurrency } from '../../context/PrivacyContext';
 
 function evaluateMath(expr: string): number | null {
   try {
@@ -370,7 +371,7 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
                     <option value="" disabled>Select Source</option>
                     {wallets.map((w) => (
                       <option key={w._id} value={w._id}>
-                        {w.name} ({currencySymbol}{w.balance.toLocaleString('en-IN')})
+                        {w.name} ({formatCurrency(w.balance, currencySymbol)})
                       </option>
                     ))}
                   </select>
@@ -389,7 +390,7 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
                     <option value="" disabled>Select Destination</option>
                     {wallets.map((w) => (
                       <option key={w._id} value={w._id} disabled={w._id === walletId}>
-                        {w.name} ({currencySymbol}{w.balance.toLocaleString('en-IN')})
+                        {w.name} ({formatCurrency(w.balance, currencySymbol)})
                       </option>
                     ))}
                   </select>
@@ -409,7 +410,7 @@ export const TransactionFormModal: React.FC<TransactionFormModalProps> = ({
                   <option value="">-- None / Unassigned --</option>
                   {wallets.map((w) => (
                     <option key={w._id} value={w._id}>
-                      {w.name} • {w.type.toUpperCase()} ({currencySymbol}{w.balance.toLocaleString('en-IN')})
+                      {w.name} • {w.type.toUpperCase()} ({formatCurrency(w.balance, currencySymbol)})
                     </option>
                   ))}
                 </select>

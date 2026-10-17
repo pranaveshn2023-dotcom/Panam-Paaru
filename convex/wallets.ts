@@ -13,7 +13,14 @@ export const list = query({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
 
-    const totalBalance = wallets.reduce((sum, w) => sum + w.balance, 0);
+    const cleanWallets = wallets.map((w) => {
+      let b = w.balance;
+      if (Math.abs(b) < 0.005 || Object.is(b, -0)) b = 0;
+      return { ...w, balance: b };
+    });
+
+    let totalBalance = cleanWallets.reduce((sum, w) => sum + w.balance, 0);
+    if (Math.abs(totalBalance) < 0.005 || Object.is(totalBalance, -0)) totalBalance = 0;
 
     // Compute period expense and income for wallets
     const allTxs = await ctx.db
@@ -30,7 +37,7 @@ export const list = query({
     }
 
     return {
-      wallets: wallets.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0)),
+      wallets: cleanWallets.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0)),
       totalBalance,
       expenseSoFar,
       incomeSoFar,
@@ -257,13 +264,18 @@ export const transfer = mutation({
 
     // Update balances atomically
     const now = Date.now();
+    const rawFrom = fromWallet.balance - args.amount;
+    const cleanFrom = Math.abs(rawFrom) < 0.005 || Object.is(rawFrom, -0) ? 0 : rawFrom;
+    const rawTo = toWallet.balance + args.amount;
+    const cleanTo = Math.abs(rawTo) < 0.005 || Object.is(rawTo, -0) ? 0 : rawTo;
+
     await ctx.db.patch(args.fromWalletId, {
-      balance: fromWallet.balance - args.amount,
+      balance: cleanFrom,
       updatedAt: now,
     });
 
     await ctx.db.patch(args.toWalletId, {
-      balance: toWallet.balance + args.amount,
+      balance: cleanTo,
       updatedAt: now,
     });
 

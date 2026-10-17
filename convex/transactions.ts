@@ -100,6 +100,11 @@ export const getStats = query({
   },
 });
 
+const cleanBalance = (b: number): number => {
+  if (Math.abs(b) < 0.005 || Object.is(b, -0)) return 0;
+  return b;
+};
+
 export const add = mutation({
   args: {
     title: v.string(),
@@ -129,23 +134,23 @@ export const add = mutation({
       if (wallet && wallet.userId === userId) {
         if (args.type === "expense") {
           await ctx.db.patch(args.walletId, {
-            balance: wallet.balance - cleanAmount,
+            balance: cleanBalance(wallet.balance - cleanAmount),
             updatedAt: now,
           });
         } else if (args.type === "income") {
           await ctx.db.patch(args.walletId, {
-            balance: wallet.balance + cleanAmount,
+            balance: cleanBalance(wallet.balance + cleanAmount),
             updatedAt: now,
           });
         } else if (args.type === "transfer" && args.transferToWalletId) {
           const destWallet = await ctx.db.get(args.transferToWalletId);
           if (destWallet && destWallet.userId === userId) {
             await ctx.db.patch(args.walletId, {
-              balance: wallet.balance - cleanAmount,
+              balance: cleanBalance(wallet.balance - cleanAmount),
               updatedAt: now,
             });
             await ctx.db.patch(args.transferToWalletId, {
-              balance: destWallet.balance + cleanAmount,
+              balance: cleanBalance(destWallet.balance + cleanAmount),
               updatedAt: now,
             });
           }
@@ -200,23 +205,23 @@ export const update = mutation({
       if (oldWallet) {
         if (oldTx.type === "expense") {
           await ctx.db.patch(oldTx.walletId, {
-            balance: oldWallet.balance + oldTx.amount,
+            balance: cleanBalance(oldWallet.balance + oldTx.amount),
             updatedAt: now,
           });
         } else if (oldTx.type === "income") {
           await ctx.db.patch(oldTx.walletId, {
-            balance: oldWallet.balance - oldTx.amount,
+            balance: cleanBalance(oldWallet.balance - oldTx.amount),
             updatedAt: now,
           });
         } else if (oldTx.type === "transfer" && oldTx.transferToWalletId) {
           const oldDest = await ctx.db.get(oldTx.transferToWalletId);
           await ctx.db.patch(oldTx.walletId, {
-            balance: oldWallet.balance + oldTx.amount,
+            balance: cleanBalance(oldWallet.balance + oldTx.amount),
             updatedAt: now,
           });
           if (oldDest) {
             await ctx.db.patch(oldTx.transferToWalletId, {
-              balance: oldDest.balance - oldTx.amount,
+              balance: cleanBalance(oldDest.balance - oldTx.amount),
               updatedAt: now,
             });
           }
@@ -230,23 +235,23 @@ export const update = mutation({
       if (newWallet) {
         if (args.type === "expense") {
           await ctx.db.patch(args.walletId, {
-            balance: newWallet.balance - newAmount,
+            balance: cleanBalance(newWallet.balance - newAmount),
             updatedAt: now,
           });
         } else if (args.type === "income") {
           await ctx.db.patch(args.walletId, {
-            balance: newWallet.balance + newAmount,
+            balance: cleanBalance(newWallet.balance + newAmount),
             updatedAt: now,
           });
         } else if (args.type === "transfer" && args.transferToWalletId) {
           const newDest = await ctx.db.get(args.transferToWalletId);
           await ctx.db.patch(args.walletId, {
-            balance: newWallet.balance - newAmount,
+            balance: cleanBalance(newWallet.balance - newAmount),
             updatedAt: now,
           });
           if (newDest) {
             await ctx.db.patch(args.transferToWalletId, {
-              balance: newDest.balance + newAmount,
+              balance: cleanBalance(newDest.balance + newAmount),
               updatedAt: now,
             });
           }
@@ -290,23 +295,23 @@ export const remove = mutation({
         const now = Date.now();
         if (tx.type === "expense") {
           await ctx.db.patch(tx.walletId, {
-            balance: wallet.balance + tx.amount,
+            balance: cleanBalance(wallet.balance + tx.amount),
             updatedAt: now,
           });
         } else if (tx.type === "income") {
           await ctx.db.patch(tx.walletId, {
-            balance: wallet.balance - tx.amount,
+            balance: cleanBalance(wallet.balance - tx.amount),
             updatedAt: now,
           });
         } else if (tx.type === "transfer" && tx.transferToWalletId) {
           const destWallet = await ctx.db.get(tx.transferToWalletId);
           await ctx.db.patch(tx.walletId, {
-            balance: wallet.balance + tx.amount,
+            balance: cleanBalance(wallet.balance + tx.amount),
             updatedAt: now,
           });
           if (destWallet) {
             await ctx.db.patch(tx.transferToWalletId, {
-              balance: destWallet.balance - tx.amount,
+              balance: cleanBalance(destWallet.balance - tx.amount),
               updatedAt: now,
             });
           }

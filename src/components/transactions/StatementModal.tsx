@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ReceiptText,
 } from 'lucide-react';
+import { formatCurrency } from '../../context/PrivacyContext';
 
 interface StatementModalProps {
   isOpen: boolean;
@@ -239,7 +240,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
         <div class="account-summary-grid">
           <div class="summary-card">
             <div class="summary-label">Opening Balance</div>
-            <div class="summary-value">${currencySymbol}${openingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+            <div class="summary-value">${formatCurrency(openingBalance, currencySymbol, 2, 2)}</div>
           </div>
           <div class="summary-card">
             <div class="summary-label">Total Deposits (+)</div>
@@ -251,7 +252,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
           </div>
           <div class="summary-card" style="border: 2.5px solid #058f4c; background: #f0fdf4;">
             <div class="summary-label" style="color: #058f4c; font-weight: 900;">Closing Net Balance</div>
-            <div class="summary-value text-green" style="font-size: 20px;"><strong>${currencySymbol}${closingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+            <div class="summary-value text-green" style="font-size: 20px;"><strong>${formatCurrency(closingBalance, currencySymbol, 2, 2)}</strong></div>
           </div>
         </div>
 
@@ -276,7 +277,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
                 <td><strong>Opening Balance Brought Forward</strong></td>
                 <td class="text-right">-</td>
                 <td class="text-right">-</td>
-                <td class="text-right mono"><strong>${currencySymbol}${openingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></td>
+                <td class="text-right mono"><strong>${formatCurrency(openingBalance, currencySymbol, 2, 2)}</strong></td>
               </tr>
             `
                 : ''
@@ -293,7 +294,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
                 </td>
                 <td class="text-right mono text-red">${row.debit ? '-' + currencySymbol + row.debit.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
                 <td class="text-right mono text-green">${row.credit ? '+' + currencySymbol + row.credit.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '-'}</td>
-                <td class="text-right mono"><strong>${currencySymbol}${row.balanceAfter.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></td>
+                <td class="text-right mono"><strong>${formatCurrency(row.balanceAfter, currencySymbol, 2, 2)}</strong></td>
               </tr>
             `
               )
@@ -417,7 +418,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
             <div>
               <span className="text-[10px] font-sans font-bold text-neutral-500 block uppercase">Opening Bal</span>
-              <span className="font-black text-[#121212]">{currencySymbol}{openingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              <span className="font-black text-[#121212]">{formatCurrency(openingBalance, currencySymbol, 2, 2)}</span>
             </div>
             <div>
               <span className="text-[10px] font-sans font-bold text-neutral-500 block uppercase">Total Credits (+)</span>
@@ -430,7 +431,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
             <div>
               <span className="text-[10px] font-sans font-bold text-neutral-500 block uppercase">Closing Balance</span>
               <span className="font-black text-[#05DF72] text-sm">
-                {currencySymbol}{closingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                {formatCurrency(closingBalance, currencySymbol, 2, 2)}
               </span>
             </div>
           </div>

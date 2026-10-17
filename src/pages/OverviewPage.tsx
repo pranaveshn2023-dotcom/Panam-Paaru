@@ -498,7 +498,9 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({
                       >
                         {isPrivacyMode
                           ? '••••••'
-                          : `${isExp ? '-' : '+'} ${currencySymbol}${tx.amount.toLocaleString()}`}
+                          : tx.amount === 0
+                          ? `${currencySymbol}0.00`
+                          : `${isExp ? '-' : '+'} ${currencySymbol}${tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       </span>
                     </div>
                   );

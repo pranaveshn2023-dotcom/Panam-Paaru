@@ -89,9 +89,12 @@ export const WalletsPage: React.FC<WalletsPageProps> = ({
   const [transferSourceWallet, setTransferSourceWallet] = useState<Wallet | null>(null);
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<'all' | WalletType>('all');
 
-  const totalBalance = walletSummary?.totalBalance ?? propTotalBalance ?? wallets.reduce((acc, w) => acc + w.balance, 0);
-  const expenseSoFar = walletSummary?.expenseSoFar ?? propExpenseSoFar ?? 0;
-  const incomeSoFar = walletSummary?.incomeSoFar ?? propIncomeSoFar ?? 0;
+  const rawTotal = walletSummary?.totalBalance ?? propTotalBalance ?? wallets.reduce((acc, w) => acc + w.balance, 0);
+  const totalBalance = Math.abs(rawTotal) < 0.005 || Object.is(rawTotal, -0) ? 0 : rawTotal;
+  const rawExpense = walletSummary?.expenseSoFar ?? propExpenseSoFar ?? 0;
+  const expenseSoFar = Math.abs(rawExpense) < 0.005 || Object.is(rawExpense, -0) ? 0 : rawExpense;
+  const rawIncome = walletSummary?.incomeSoFar ?? propIncomeSoFar ?? 0;
+  const incomeSoFar = Math.abs(rawIncome) < 0.005 || Object.is(rawIncome, -0) ? 0 : rawIncome;
 
   const filteredWallets = selectedTypeFilter === 'all'
     ? wallets
