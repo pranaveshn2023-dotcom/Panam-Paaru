@@ -1,5 +1,5 @@
 /**
- * Panam Paaru — Backend Flow 2: Mutual Funds Extraction Engine
+ * Panam Dekho — Backend Flow 2: Mutual Funds Extraction Engine
  *
  * Dedicated processing pipeline for Indian Mutual Funds:
  * - Equity Mutual Funds (Flexi Cap, Large Cap, Mid Cap, Small Cap, Multi Cap, ELSS, Index Funds, etc.)

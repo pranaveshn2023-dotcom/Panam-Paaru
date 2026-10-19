@@ -39,7 +39,7 @@ export const NoInternetScreen: React.FC = () => {
 
         {/* Description */}
         <p className="text-sm font-bold text-neutral-700 leading-relaxed mb-6">
-          PanamPaaru operates strictly with <strong>zero local storage</strong> and real-time bank-grade synchronization. An active internet connection is required to open the app.
+          PanamDekho operates strictly with <strong>zero local storage</strong> and real-time bank-grade synchronization. An active internet connection is required to open the app.
         </p>
 
         {/* Reassurance badge */}
@@ -66,7 +66,7 @@ export const NoInternetScreen: React.FC = () => {
       {/* Footer Branding */}
       <div className="relative z-10 mt-6 flex items-center gap-2 text-xs font-mono font-black uppercase tracking-widest text-[#121212]">
         <Zap size={14} className="fill-[#121212]" />
-        <span>PanamPaaru · Live  Ledger</span>
+        <span>PanamDekho · Live  Ledger</span>
       </div>
     </div>
   );

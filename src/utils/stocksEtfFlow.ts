@@ -1,5 +1,5 @@
 /**
- * Panam Paaru — Backend Flow 1: Stocks & ETFs Extraction Engine
+ * Panam Dekho — Backend Flow 1: Stocks & ETFs Extraction Engine
  *
  * Dedicated processing pipeline for Indian & Global Equities, Stocks, and ETFs:
  * - Stocks & Equities (NSE / BSE shares)

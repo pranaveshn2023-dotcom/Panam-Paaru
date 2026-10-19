@@ -1,8 +1,8 @@
-# Panam Paaru (பணம் பாரு)
+# Panam Dekho
 
 > **See Your Money, Control Your Spending**
 
-Panam Paaru ("Look at Your Money") is a real-time personal finance and portfolio tracking platform engineered for high-precision visibility over liquid cashflow, recurring budgets, and multi-asset wealth. Built with a high-contrast Neo-Brutalist design language, it combines atomic double-entry banking accounts, calendar-aware budget cycles, and an intelligent Indian market valuation engine backed by a reactive Convex cloud backend.
+Panam Dekho ("See Your Money") is a real-time personal finance and portfolio tracking platform engineered for high-precision visibility over liquid cashflow, recurring budgets, and multi-asset wealth. Built with a high-contrast Neo-Brutalist design language, it combines atomic double-entry banking accounts, calendar-aware budget cycles, and an intelligent Indian market valuation engine backed by a reactive Convex cloud backend.
 
 ---
 
@@ -22,12 +22,12 @@ Panam Paaru ("Look at Your Money") is a real-time personal finance and portfolio
 
 ---
 
-## Comparison: Conventional Tools vs. Panam Paaru
+## Comparison: Conventional Tools vs. Panam Dekho
 
-| Feature / Workflow | Conventional Tools | Panam Paaru |
+| Feature / Workflow | Conventional Tools | Panam Dekho |
 | :--- | :--- | :--- |
 | **Initial Setup** | Populated with mock data and arbitrary assumptions | Zero-balance initialization using verified user inputs |
-| **Branding & Tagline** | Cluttered descriptions with redundant slogans | Clean **Panam Paaru** — *"See your money, control your spending"* |
+| **Branding & Tagline** | Cluttered descriptions with redundant slogans | Clean **Panam Dekho** — *"See your money, control your spending"* |
 | **Market Data Caching** | Direct client-side calls or un-cached API flooding | Server-side Convex DB caches (`stockPriceCache` & `mfNavCache`) |
 | **Index Benchmarks** | Delayed 15-min third-party quotes or unverified feeds | Official BSE (`m.bseindia.com`) & NSE direct feeds with multi-tier fallback |
 | **Trading Hours Logic** | Naive continuous polling 24/7 or manual refresh | Indian Market Hours engine (35s live ticks; 0 calls off-hours/holidays) |
@@ -199,7 +199,7 @@ Every authenticated login triggers background maintenance routines:
 
 ## Neo-Brutalist Design System
 
-Panam Paaru features an unapologetic, high-contrast Neo-Brutalist aesthetic designed for tactile clarity and visual weight:
+Panam Dekho features an unapologetic, high-contrast Neo-Brutalist aesthetic designed for tactile clarity and visual weight:
 - **Signature Monogram**: Slanted capital 'P' integrated with Bitcoin currency prongs (₿) and an emerald wealth node sparkle.
 - **Color Palette**: Electric Sunny Gold (`#FFE600`), Deep Carbon Black (`#121212`), Off-White Parchment (`#FFFDF5`), Emerald Profit Green (`#05DF72`), and Hot Pink Alert (`#FF4D8D`).
 - **Typography**: Google Fonts [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) for bold uppercase brand headlines and [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono) for high-precision financial numerals and telemetry.
@@ -393,7 +393,7 @@ The compiled output will be generated in the `dist` directory.
 - **Stale Cache Auto-Purge**: Intelligent detection and replacement of pre-settlement index caches upon market close.
 
 ### Version 1.2.0
-- **Branding & PWA Alignment**: Set official tagline to *"Panam Paaru - See Your Money, Control Your Spending"*; cleaned up PWA manifest and browser titles.
+- **Branding & PWA Alignment**: Set official tagline to *"Panam Dekho - See Your Money, Control Your Spending"*; cleaned up PWA manifest and browser titles.
 - **Dedicated Server Caching (`stockPriceCache` & `mfNavCache`)**: Added database-backed persistent caching in Convex to minimize external rate limits.
 - **Indian Market Hours & Holiday Engine**: 45-second live tick updates during NSE/BSE market hours (09:15 to 15:30 IST); zero wasteful external API calls on weekends, holidays, and after-hours.
 - **Nightly AMC NAV Crons**: Scheduled automated Convex crons at 21:00, 22:00, 23:00, and 00:00 IST to capture freshly published AMFI mutual fund NAVs with a 1-hour active window TTL.

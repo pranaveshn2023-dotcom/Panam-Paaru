@@ -114,7 +114,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Account Statement - PanamPaaru</title>
+        <title>Account Statement - PanamDekho</title>
         <style>
           body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -221,8 +221,8 @@ export const StatementModal: React.FC<StatementModalProps> = ({
       <body>
         <div class="statement-header">
           <div>
-            <div class="brand-title">PanamPaaru</div>
-            <div class="brand-subtitle">Official Account Statement · பணம் பாரு</div>
+            <div class="brand-title">PanamDekho</div>
+            <div class="brand-subtitle">Official Account Statement · Panam Dekho</div>
             <div style="margin-top: 10px; font-size: 12px; font-weight: bold;">
               Account Holder: ${user?.name || 'Authorized Account'}<br />
               Email: ${user?.email || 'N/A'}
@@ -303,8 +303,8 @@ export const StatementModal: React.FC<StatementModalProps> = ({
         </table>
 
         <div class="footer-note">
-          <span>This is an official computer-generated account statement from PanamPaaru.</span>
-          <span>Authentication Ref: PP-${Date.now().toString(36).toUpperCase()}-${(user?._id || 'ACC').slice(-4).toUpperCase()}-${statementRows.length.toString(16).padStart(4, '0').toUpperCase()} · End of Statement</span>
+          <span>This is an official computer-generated account statement from PanamDekho.</span>
+          <span>Authentication Ref: PD-${Date.now().toString(36).toUpperCase()}-${(user?._id || 'ACC').slice(-4).toUpperCase()}-${statementRows.length.toString(16).padStart(4, '0').toUpperCase()} · End of Statement</span>
         </div>
 
         <script>
@@ -360,7 +360,7 @@ export const StatementModal: React.FC<StatementModalProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `PanamPaaru_Statement_${startDateStr || 'All'}_to_${endDateStr}.csv`);
+    link.setAttribute('download', `PanamDekho_Statement_${startDateStr || 'All'}_to_${endDateStr}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

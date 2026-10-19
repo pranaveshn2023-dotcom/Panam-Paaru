@@ -32,7 +32,6 @@ export const PanamBitcoinIcon: React.FC<{
     >
       {/* 14-degree forward italic slant */}
       <g transform="skewX(-14) translate(14, 0)">
-        
         {/* Top Bitcoin Dual Vertical Stems (Prongs) */}
         <rect x="42" y="6" width="6" height="12" rx="1" fill={primaryColor} />
         <rect x="56" y="6" width="6" height="12" rx="1" fill={primaryColor} />
@@ -88,6 +87,57 @@ export const PanamBitcoinIcon: React.FC<{
   );
 };
 
+// Aliases for seamless compatibility
+export const PanamDollarIcon = PanamBitcoinIcon;
+
+/**
+ * Dollar-Themed Capital 'D' Glyph for 'Dekho'
+ * - Capital 'D' letterform with vertical Dollar ($) prongs and central currency spine
+ * - Perfectly aligned with Space Grotesk font-black cap height
+ */
+export const DollarDGlyph: React.FC<{ className?: string }> = ({ className = 'h-[0.88em] w-auto' }) => (
+  <svg
+    viewBox="0 0 24 28"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    style={{ display: 'inline-block', verticalAlign: '-0.08em' }}
+    aria-label="D"
+  >
+    {/* Top Dollar Vertical Prong */}
+    <rect x="10.5" y="0.5" width="2.6" height="3.5" rx="0.6" fill="currentColor" />
+
+    {/* Main Solid Capital 'D' with transparent counter (evenodd) */}
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="
+        M 2.5 3
+        H 12.5
+        C 18.5 3 22 7 22 14
+        C 22 21 18.5 25 12.5 25
+        H 2.5
+        V 3
+        Z
+        M 7.5 7.5
+        V 20.5
+        H 12
+        C 15.5 20.5 17 18.2 17 14
+        C 17 9.8 15.5 7.5 12 7.5
+        H 7.5
+        Z
+      "
+      fill="currentColor"
+    />
+
+    {/* Vertical Dollar Currency Spine slicing through 'D' counter */}
+    <rect x="10.5" y="7.5" width="2.6" height="13" fill="currentColor" />
+
+    {/* Bottom Dollar Vertical Prong */}
+    <rect x="10.5" y="24.5" width="2.6" height="3.5" rx="0.6" fill="currentColor" />
+  </svg>
+);
+
 export const BrandLogo: React.FC<BrandLogoProps> = ({
   size = 'md',
   showSubtitle = true,
@@ -110,27 +160,29 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
 
   return (
     <div className={twMerge('flex items-center gap-1.5 sm:gap-3 select-none cursor-pointer group shrink-0 min-w-0', className)}>
-      {/* High-Contrast Neo-Brutalist Badge */}
+      {/* High-Contrast Neo-Brutalist Badge with Unchanged Original 'P' Logo */}
       <div className="relative bg-[#FFE600] border-[2px] sm:border-[2.5px] border-[#121212] shadow-neo-sm p-1 sm:p-1.5 flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 group-hover:shadow-neo">
         <PanamBitcoinIcon className={iconSizes[size]} />
       </div>
 
-      {/* Brand Typography */}
+      {/* Brand Typography with 'D' in Dollar Theme for Dekho */}
       <div className={twMerge('flex flex-col justify-center min-w-0', compactOnMobile ? 'hidden min-[380px]:flex' : 'flex')}>
         <div className="flex items-center gap-1 sm:gap-1.5 leading-none">
           <span className={twMerge('font-black tracking-tight text-[#121212]', titleSizes[size])}>
             Panam
           </span>
-          <span className={twMerge('font-black tracking-tight text-[#121212] bg-[#FFE600] px-1 sm:px-1.5 py-0.5 border border-[#121212] shadow-neo-sm leading-none', titleSizes[size])}>
-            Paaru
+          <span className={twMerge('font-black tracking-tight text-[#121212] bg-[#FFE600] px-1 sm:px-1.5 py-0.5 border border-[#121212] shadow-neo-sm leading-none inline-flex items-center gap-[1px]', titleSizes[size])}>
+            <DollarDGlyph className="h-[0.88em] w-auto shrink-0" />
+            <span>ekho</span>
           </span>
         </div>
         {showSubtitle && (
           <span className="text-[10px] font-mono font-bold tracking-wider text-neutral-600 uppercase mt-1 truncate">
-            பணம் பாரு · See Your Money. Control Your Spending.
+            Panam Dekho · See Your Money. Control Your Spending.
           </span>
         )}
       </div>
     </div>
   );
 };
+

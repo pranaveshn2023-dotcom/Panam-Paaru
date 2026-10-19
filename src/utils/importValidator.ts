@@ -1,5 +1,5 @@
 /**
- * Panam Paaru — Validation & Reconciliation Engine
+ * Panam Dekho — Validation & Reconciliation Engine
  *
  * Enforces financial correctness across imported holding rows:
  * - Distinguishes 3 severity levels: ERROR (blocking), WARNING (actionable limitation), INFO (detail).

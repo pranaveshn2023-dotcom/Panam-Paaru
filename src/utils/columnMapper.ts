@@ -1,5 +1,5 @@
 /**
- * Panam Paaru — Semantic Column Mapper Engine
+ * Panam Dekho — Semantic Column Mapper Engine
  *
  * Provides a canonical internal schema, extensive alias dictionaries covering
  * all major Indian brokers & depositories, column type validation,

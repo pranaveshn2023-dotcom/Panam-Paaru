@@ -1,5 +1,5 @@
 /**
- * Panam Paaru — Deterministic Table Detection & Classification Engine
+ * Panam Dekho — Deterministic Table Detection & Classification Engine
  *
  * Scans raw spreadsheet / document matrices across all sheets.
  * Identifies financial tables, scores signal density, detects header rows,

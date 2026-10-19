@@ -1,5 +1,5 @@
 /**
- * Panam Paaru — Deterministic Security Identity Resolver
+ * Panam Dekho — Deterministic Security Identity Resolver
  *
  * Resolves imported assets into canonical security identities:
  * 1. Strict ISIN resolution (INF for MF, INE for Equities)
