@@ -5,7 +5,7 @@ import { NeoButton } from '../ui/NeoButton';
 import { NeoInput } from '../ui/NeoInput';
 import { Shield, Sparkles, Lock, CheckCircle2, Zap } from 'lucide-react';
 
-interface AuthScreenProps {}
+interface AuthScreenProps { }
 
 export const AuthScreen: React.FC<AuthScreenProps> = () => {
   const { signIn } = useAuthActions();
@@ -64,7 +64,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = () => {
 
       {/* Center Auth Container */}
       <div className="my-auto py-8 flex flex-col lg:flex-row items-center justify-center gap-10 max-w-6xl mx-auto w-full z-10">
-        
+
         {/* Left Hero Pitch */}
         <div className="flex flex-col gap-6 max-w-lg">
           <BrandLogo size="lg" />
@@ -99,7 +99,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = () => {
 
         {/* Right Auth Card */}
         <div className="w-full max-w-md bg-white border-[3px] border-[#121212] shadow-neo-xl p-6 sm:p-8 flex flex-col">
-          
+
           <div className="flex items-center justify-between border-b-2 border-[#121212] pb-3 mb-5">
             <span className="text-xs font-black uppercase tracking-widest text-[#121212] flex items-center gap-1.5">
               <Shield size={16} className="text-[#05DF72]" />
@@ -192,8 +192,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = () => {
               {loading
                 ? 'Authenticating...'
                 : authMode === 'signIn'
-                ? 'Sign In to Paanam'
-                : 'Create Account'}
+                  ? 'Sign In to Paanam'
+                  : 'Create Account'}
             </NeoButton>
           </form>
 
@@ -218,7 +218,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = () => {
 
       {/* Footer */}
       <div className="text-center text-xs font-bold text-neutral-500 py-2 z-10">
-        PAANAM PARU © {new Date().getFullYear()} · Engineered for speed, clarity, and control
+        PAANAM DEKHO © {new Date().getFullYear()} · Engineered for speed, clarity, and control
       </div>
     </div>
   );
